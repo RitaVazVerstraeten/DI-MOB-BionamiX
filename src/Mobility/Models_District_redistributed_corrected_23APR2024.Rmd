@@ -1,0 +1,1152 @@
+---
+title: "Mobility_Models_District_redistributed"
+output: html_document
+date: "2024-03-20"
+---
+
+```{r setup, include=FALSE}
+rm(list=ls())
+library(mobility)
+library(ggplot2)
+library(reshape2)
+library(viridis)
+library(ggstance)
+
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  autodep=TRUE
+)
+
+#install.packages("gridExtra")
+library(gridExtra)
+library(grid)
+```
+
+## Loading the Belgian census mobility data - this is our mobility matrix $M$
+```{r mobility data from excel}
+library(readxl)
+mob <- read_xlsx("/home/rita/Documents/DI-MOB/Mobility_Model/Census_mobility_Districts_20MAR2024.xlsx", skip = 2) # this file contains the distric data after redistribution of the columns "province XX, town and district unknown" using the destination population as weights
+mob_backup <- mob
+mob <- mob[,-c(1,2)]
+rownames(mob) <- colnames(mob)
+```
+
+## Loading the demographic data for the population counts per district - this will be our demographic matrix $N$ 
+```{r population matrices also from excel}
+demo <- read_xlsx("/home/rita/Documents/DI-MOB/Mobility_Model/Census_Demo_adjusted.xlsx", sheet="Arrondissement")
+demo <- demo[-1, -2]
+colnames(demo) <- c("places", "people")
+placenames <- demo$places
+demo <- demo[,-1]
+rownames(demo) <- placenames
+rm(placenames)
+```
+
+## Loading the shape files to get the distance matrices and the population living inbetween 
+### Build distance matrix
+Mobility models require that distances be provided for all routes even if these observations are missing in the mobility matrix ($M$). A distance matrix for all unique routes can be built by getting all unique coordinates in the travel data using the `get_unique_coords()` function and then calculating the distances among all locations with `get_distance_matrix()`. Note that there is no requirement for the units of the distance matrix. However, we recommend the scale used is sensible for the spatial scale of the study area.
+
+```{r loading the shape files, echo=FALSE}
+#install.packages("sf") # this is a reading and manipulating package for shapefiles
+library(sf)
+shapefile <- st_read("/home/rita/Documents/DI-MOB/Mobility_Model/Belgian Shapefiles/AD_3_District.shp")
+# str(shapefile)
+
+# extract centroids
+centroides <- st_centroid(shapefile)
+#extract coordinates
+xy <- st_coordinates(centroides)
+# print(xy)
+# print(str(xy))
+xy <- as.data.frame(xy)
+
+# xy$name <- rownames(demo) ## this is wrong, some names are missing in the shapefile (La Louviere is missing in demo, Moeskroen is not in shapefile, needs to be merged with Doornik)
+
+xy$name <- shapefile$NISCode
+D <- get_distance_matrix(x=xy[,1],
+                         y=xy[,2],
+                         id=xy[,3]) # at the moment the distances are in meters I believe
+
+library(openxlsx)
+write.xlsx(xy, "/home/rita/Documents/DI-MOB/Mobility_Model/District_Shapefile_NIScodes_23Apr2024.xlsx", rownames=FALSE)
+```
+# CORRECTING THE NISCODES IN THE DEMOGRAPIC AND MOBILITY DATA TO MATCH THE DISTRICT SHAPEFILES  
+```{r correction of NIScodes between demo & mob data vs shapefiles districts}
+setdiff(xy$name, rownames(demo)) #[1] "58000"
+setdiff(rownames(demo), xy$name) #[1] "54000" 
+```
+## Correcting the demo and mob data for districts based on municipality data
+
+# Loading the municipality data
+```{r loading municipality mobility and demo data}
+demo <- as.data.frame(read_xlsx("/home/rita/Documents/DI-MOB/Mobility_Model/Demo_Municipalities_corrected_29MAR2024.xlsx"))
+colnames(demo) <- c("NIS","places", "people")
+placenames <- demo$places
+placecodes <- demo$NIS
+demo$places <- NULL
+demo$NIS <- NULL
+rownames(demo) <- placecodes
+rm(placenames, placecodes)
+
+mob <- as.data.frame(read_xlsx("/home/rita/Documents/DI-MOB/Mobility_Model/Mob_Municipalities_corresponding_to_shapefiles_ordered_withNIS_2APR2024.xlsx"))
+rownames(mob) <- mob$NIS
+mob_backup <- mob
+mob <- mob[-1,-c(1,2)]
+colnames(mob) <- rownames(mob)
+```
+
+# Aggregate the DEMOGRAPHIC municipality data into district data based on NIScodes
+```{r aggregation to district level}
+NIS_Distr_shapefile <- shapefile$NISCode
+demo_with_redistributioncodes <- demo
+demo_with_redistributioncodes$DistrictNIS <- NA 
+
+# for every municipality I will loop through the district file, if the first 2 letters of my municipality NIScode correspond to the first 2 letters of my district code, then this is the district in which the municipality is 
+
+for(municipality in 1:nrow(demo_with_redistributioncodes)){
+  first_2_munic <- substr(rownames(demo_with_redistributioncodes)[municipality], start = 1, stop = 2)
+  for(district in 1:length(NIS_Distr_shapefile)){
+    first_2_distr <- substr(NIS_Distr_shapefile[district], start = 1, stop = 2)
+    if(isTRUE(first_2_distr == first_2_munic)){
+      demo_with_redistributioncodes$DistrictNIS[municipality] <- NIS_Distr_shapefile[district]
+    }
+  }
+}
+
+length(unique(demo_with_redistributioncodes$DistrictNIS)) # 43
+setdiff(unique(demo_with_redistributioncodes$DistrictNIS), xy$name) # 0
+setdiff(xy$name, unique(demo_with_redistributioncodes$DistrictNIS)) # 0
+
+# Aggregate the demo into the district levels
+summed_df <- aggregate(people ~ DistrictNIS, data = demo_with_redistributioncodes, FUN = sum)
+
+# let me read in the district demo file to compare to this aggregated file: 
+demoDistr <- read_xlsx("/home/rita/Documents/DI-MOB/Mobility_Model/Census_Demo_adjusted.xlsx", sheet="Arrondissement")
+demoDistr <- demoDistr[-1, -2]
+colnames(demoDistr) <- c("places", "people")
+
+diff <- summed_df$people - demoDistr$people
+names(diff) <- summed_df$DistrictNIS
+print(diff) # districts 71000 and 72000 show -10127,  10127 respectively, which is strange. It seems like there are 10127 people that in the summed version are grouped to the district 72000, but in the district file pertain to 71000, this makes sense seeing as the 4 of the municipalities with corrections were between 71000 and 72000
+demo <- summed_df
+placenames <- demo$DistrictNIS
+demo$DistrictNIS <- NULL
+rownames(demo) <- placenames
+
+rm(demo_with_redistributioncodes, summed_df, demoDistr, diff)
+```
+
+# Aggregate the MOBILITY municipality data into district data based on NIScodes
+```{r aggregation mobility municipality data to district}
+# same process as with demo data
+mob_with_distrNIS <- mob
+mob_with_distrNIS$DistrictNIS <- NA
+
+# Create a new row with NA values and set its name
+new_row_name <- "DistrictNIS"
+
+new_row <- data.frame(matrix(NA, ncol = ncol(mob_with_distrNIS), nrow = 1))
+row.names(new_row) <- new_row_name
+colnames(new_row) <- colnames(mob_with_distrNIS)
+mob_with_distrNIS <- rbind(new_row, mob_with_distrNIS)
+
+#bring the last column with DistrictNIS to the front
+last_column_name <- "DistrictNIS"
+mob_with_distrNIS <- mob_with_distrNIS[, c(last_column_name, setdiff(names(mob_with_distrNIS), last_column_name))]
+
+#1. add the district NIS codes
+for(municipality in 1:nrow(mob_with_distrNIS)){
+  first_2_munic <- substr(rownames(mob_with_distrNIS)[municipality], start = 1, stop = 2)
+  for(district in 1:length(NIS_Distr_shapefile)){
+    first_2_distr <- substr(NIS_Distr_shapefile[district], start = 1, stop = 2)
+    if(isTRUE(first_2_distr == first_2_munic)){
+      mob_with_distrNIS$DistrictNIS[municipality] <- NIS_Distr_shapefile[district]
+    }
+  }
+}
+
+# now I copy these values to the columns 
+mob_with_distrNIS[1,] <- mob_with_distrNIS$DistrictNIS
+
+## AGGREGATE THE MOBILITY DATA BASED ON THE DISTRICT NIS CODES
+# Convert all values in the dataframe to numeric
+mob_with_distrNIS[, -1] <- lapply(mob_with_distrNIS[, -1], as.numeric) # exclude the first column DistrictNIS
+
+# Exclude the first row and column from aggregation
+numeric_columns <- setdiff(names(mob_with_distrNIS), c("DistrictNIS"))
+
+# Sum the rows with the same DistrictNIS value 
+row_sums_by_DistrictNIS <- aggregate(mob_with_distrNIS[, numeric_columns], 
+                                        by = list(DistrictNIS = mob_with_distrNIS$DistrictNIS), 
+                                        FUN = sum)
+
+row_sums_by_DistrictNIS_t <- as.data.frame(t(row_sums_by_DistrictNIS))
+row_sums_by_DistrictNIS_t$DistrictNIS <- mob_with_distrNIS$DistrictNIS # the districtNIS value disappeared in the aggregation step
+
+last_column_name <- "DistrictNIS"
+row_sums_by_DistrictNIS_t <- row_sums_by_DistrictNIS_t[, c(last_column_name, setdiff(names(row_sums_by_DistrictNIS_t), last_column_name))]
+row_sums_by_DistrictNIS_t[, -1] <- lapply(row_sums_by_DistrictNIS_t[, -1], as.numeric) # exclude the first column DistrictNIS
+
+col_sums_by_DistrictNIS <- aggregate(row_sums_by_DistrictNIS_t[, -1], 
+                                      by = list(DistrictNIS = row_sums_by_DistrictNIS_t$DistrictNIS), 
+                                      FUN = sum)
+DistrictNISnames <- col_sums_by_DistrictNIS$DistrictNIS
+rownames(col_sums_by_DistrictNIS) <- DistrictNISnames
+col_sums_by_DistrictNIS <- col_sums_by_DistrictNIS[,-1]
+colnames(col_sums_by_DistrictNIS) <- DistrictNISnames
+
+# I still need to transform the mobility matrix back: 
+mob <- as.data.frame(t(col_sums_by_DistrictNIS))
+
+setdiff(xy$name, colnames(mob)) # 0
+setdiff(colnames(mob), xy$name) # 0
+# good :)
+```
+
+Note that since the distance matrix ($D$) and population vector ($N$) are covariates used by models, they cannot have missing values and must all have matching dimensions. Code below checks that all data dimensions match. 
+```{r checking dimentions of matrices correspond}
+N <- as.matrix(demo)
+M <- as.matrix(mob) #
+
+# check
+all(
+     sapply(list(dim(D)[1], length(N)), FUN = identical, dim(M)[1]),
+     sapply(list(dimnames(D)$origin, names(N)), FUN = identical, dimnames(M)$origin)
+) # this is returning FALSE ...
+
+print(dim(D)[1]==length(N))
+part2 <- sapply(list(dimnames(D)$origin, names(N)), FUN = identical, dimnames(M)$origin)
+print(part2) #TRUE FALSE
+
+row_match <- all(rownames(D) == rownames(M))
+col_match <- all(colnames(D) == colnames(M))
+print(row_match) #OK
+print(col_match) #OK
+
+part1 <- sapply(list(dim(D)[1], length(N)), FUN = identical, dim(M)[1])
+print(part1) # [1] TRUE TRUE
+
+part2 <- sapply(list(dimnames(D)$origin, names(N)), FUN = identical, dimnames(M)$origin)
+print(part2) #[1]  FALSE FALSE
+names(N) <- rownames(demo)
+
+origins <- rownames(M)
+desintations <- colnames(M)
+dimnames(M) <- list(origin = origins, destination = desintations)
+part2 <- sapply(list(dimnames(D)$origin, names(N)), FUN = identical, dimnames(M)$origin)
+print(part2) #[1] TRUE TRUE
+```
+Listing the 3 matrices to obtain the correct format for the mobility function.
+```{r listing the matrices}
+colnames(N) <- NULL
+str(N)
+matrix_list <- NULLmatrix_list <- list(M = M, D = D, N = N)
+str(matrix_list)
+matrix_list$N <- matrix_list$N[1:43]
+
+str(matrix_list) # correct format now
+saveRDS(matrix_list, "matrix_list.rds")
+```
+
+## Plotting mobility matrix from census 
+```{r census NIS-codes data_plot_1, fig.height=10, fig.width=10}
+
+melted_M <- melt(matrix_list$M)
+melted_M$destination <- factor(melted_M$destination, levels = levels(factor(melted_M$destination)))
+melted_M$origin <- factor(melted_M$origin, levels = rev(levels(factor(melted_M$origin))))
+
+ggplot(data=melted_M) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=log(value))) +
+  xlab('Destination') + ylab("Origin") +
+    labs(title = "Census mobility data (Districts)")+
+  theme_bw() + theme(plot.title = element_text(size = 18, hjust = 0.5),
+                     axis.text.x=element_text(size=10, angle=90, hjust=1, vjust= 0.5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  viridis::scale_fill_viridis(option='viridis', direction=1, limits = c(-5, 15)) +
+  guides(fill=guide_colorbar(title='log(Observed number of trips census)',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+ggsave("MobMatrix_BE_District_Census_NIS_23APR2024.png")
+```
+
+
+## Fit the gravity and radiation models  - departure-diffusion have been added
+```{r fit}
+modRad <- mobility(data=matrix_list, model='radiation', type='basic', DIC=TRUE)
+#modRadFinite <- mobility(data=matrix_list, model='radiation', type='finite', DIC= TRUE)
+
+modGrav <- mobility(data=matrix_list, model='gravity', type='power', DIC=TRUE)
+#modGravExp <- mobility(data=matrix_list, model='gravity', type='exp', DIC=TRUE)
+#modGravPowerNorm <- mobility(data=matrix_list, model='gravity', type='power_norm', DIC=TRUE)
+
+modDepDifGrav <- mobility(data=matrix_list, model='departure-diffusion', type='power')
+modDepDifRad <-  mobility(data=matrix_list, model='departure-diffusion', type='radiation')
+```
+
+Fitting a mobility model to a large number of locations (e.g. $\gt 100$) or drawing a large number of samples from posterior distributions (e.g. 10000) may take several minutes. If computation is cumbersome, then the model can run sampling chains in parallel instead of sequentially by specifying `parallel = TRUE`.
+
+The fitting function `mobility()` returns results as a `mobility.model` that contains information on the type of model, the data used, and the estimated model parameters.
+```{r chains}
+str(modRad)
+summary(modRad) # no parameters in this model
+str(modGrav)
+summary(modGrav)
+
+summary(modDepDifGrav)
+summary(modDepDifRad)
+```
+
+The `check()` function provides goodness of fit metrics and summary plots for the fitted model.
+```{r check, fig.height=4, fig.width=7.25}
+check(modRad) # RMSE = 8708.579, R2 = 0,72, MAPE = 7.570933 - lower MAPE, higher RMSE
+check(modGrav) # RMSE = 4845.614, R2 = 0.92, MAPE = 498.6166
+
+check(modDepDifGrav) # RMSE = 3766.127, R2 = 0,93, MAPE = 20.28058 - lowest RMSE
+check(modDepDifRad) # RMSE = 3406.626, R2 = 0.94, MAPE = 3
+```
+Some extra info on the selection criteria: 
+MAPE focuses on the relative accuracy of predictions, considering the percentage difference between predicted and actual values. (1/n)*Sum[(Y - Yhat)/Y]x 100% 
+RMSE focuses on the absolute accuracy of predictions, considering the squared difference between predicted and actual values. sqrt[(1/n)*Sum[(Y - Yhat)^2]]
+
+QQ-PLOT: 
+Shows goodness of fit of data to specified distribution.
+
+The Fitted vs Observed plot shows goodness of fit. Ideally all values on the diagonal. 
+This is not the case for the gravity model. 
+
+## Simulating a fitted mobility model
+Once we have verified that our model fits the data adequately, we can simulate connectivity values among locations in our data using the estimated parameter values in the `'mobility.model'` object using the `predict()` function.
+
+```{r sim}
+M_hatRad <- predict(modRad)
+#M_hatRadFinite <- predict(modRadFinite)
+M_hatGrav <- predict(modGrav)
+
+M_hatDepDifGrav <- predict(modDepDifGrav)
+
+M_hatDepDifRad <- predict(modDepDifRad)
+```
+
+# Calculate AIC
+
+I now want to calculate the AIC values for each model: 
+```{r functions to calculate AIC}
+# # To calculate the AIC value we first need the loglikelihood
+library(matrixStats)
+
+likelihood_function <- function(model_prediction, true_data){
+  # Calculate likelihood for each data point
+  model_rounded <- round(model_prediction +1) # +1 is done to avoid zero probability --> likelihood -Inf
+  true_rounded <- round(true_data +1) 
+  likelihoods <- dpois(true_rounded, lambda = model_rounded, log = TRUE)
+  # Sum the log-likelihoods across all data points
+  total_log_likelihood <- sum(likelihoods, na.rm = TRUE)
+  
+  return(total_log_likelihood)
+}
+
+Loglik_rad <- likelihood_function(model_prediction = M_hatRad, true_data = matrix_list$M)
+Loglik_grav <- likelihood_function(model_prediction = M_hatGrav, true_data = matrix_list$M)
+
+Loglik_rad # [1] -2040530
+Loglik_grav # [1] -1578371
+
+# Now I can calculate the AIC value: 
+calculate_AIC <- function(log_likelihood, num_parameters) {
+    AIC_value <- -2 * log_likelihood + 2 * num_parameters
+    return(AIC_value)
+}
+
+AIC_grav <- calculate_AIC(Loglik_grav, num_parameters = 4)
+AIC_rad <- calculate_AIC(Loglik_rad, num_parameters = 0)
+AIC_grav # 3.156.749
+AIC_rad # 4.081.059
+```
+Omdat de log likelihood van beide functies dus al zeer groot is, LL(gravity) = -1578371, LL(radiation) = -2040530, zorgen die 4 extra parameters van het gravity model er niet voor dat die plots slechter scoort: 
+AIC(gravity) = 3.156.749, AIC(radiation) = 4.081.059.
+
+Uiteindelijk is dit niet heel verrassend aangezien we al hadden opgemerkt dat som(absolute waarde(voorspelde_waarde - census_waarde)) sowieso al kleiner was voor het gravity model. Dus de individuele waarden van elk traject liggen dichter bij het gravity model, maar wat wij in de figuren (matrix plots en de histogrammen) zien is dat de trend in het radiation model beter past. Dit gaat AIC echter niet aantonen. 
+
+# Plot the radiation model - power type
+```{r radiation model sim_plot, data_plot, fig.height=10, fig.width=10}
+#breaks <- c(150, 300, 600, 1500, 3500, 7500, 15000, 45000, 100000, 280000)
+melted_Mhat <- melt(M_hatRad)
+melted_Mhat$destination <- factor(melted_Mhat$destination, levels = levels(factor(melted_Mhat$destination)))
+melted_Mhat$origin <- factor(melted_Mhat$origin, levels = rev(levels(factor(melted_Mhat$origin))))
+
+ggplot(data=melted_Mhat) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=log(value))) +
+  xlab('Destination') + ylab("Origin") +  
+  labs(title = "Radiation model (Districts)")+
+  theme_bw() + theme(plot.title = element_text(size = 18, hjust = 0.5),
+                     axis.text.x=element_text(size=10, angle=90, hjust=1, vjust=0.5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  viridis::scale_fill_viridis(option='viridis', direction=1, limits = c(-5, 15)) +
+  guides(fill=guide_colorbar(title='log(Observed number of trips from radiation model)',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+ggsave("MobMatrix_BE_District_Radiation_23APR2024.png")
+```
+
+# Plot absolute difference Census - radiation
+```{r calculating the difference between radiation and census,data_plot, fig.height=10, fig.width=10}
+difference <- abs(M - M_hatRad)
+TotalDifRad <- sum(difference)
+
+#turn this into a dataframe
+melted_dif <- melt(difference)
+melted_dif$destination <- factor(melted_dif$destination, levels = levels(factor(melted_dif$destination)))
+melted_dif$origin <- factor(melted_dif$origin, levels = rev(levels(factor(melted_dif$origin))))
+
+ggplot(data=melted_dif) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=value)) +
+  xlab('Destination') + ylab("Origin") +
+  theme_bw() + theme(axis.text.x=element_text(size=10, angle=90, hjust=1, vjust=0.5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  scale_fill_viridis(option='viridis', direction=1, limits = c(0, 160000)) +
+  guides(fill=guide_colorbar(title='Difference census - radiation',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+ggsave("Difference_District_Census_Radiation_23APR2024.png")
+```
+
+## Plot the gravity model
+```{r gravity model sim_plot, data_plot, fig.height=10, fig.width=10}
+
+melted_Mhat <- melt(M_hatGrav)
+melted_Mhat$destination <- factor(melted_Mhat$destination, levels = levels(factor(melted_Mhat$destination)))
+melted_Mhat$origin <- factor(melted_Mhat$origin, levels = rev(levels(factor(melted_Mhat$origin))))
+
+ggplot(data=melted_Mhat) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=log(value))) +
+  xlab('Destination') + ylab("Origin") +
+  labs(title = "Gravity model (Districts)")+
+  theme_bw() + theme(plot.title = element_text(size = 18, hjust = 0.5),
+                     axis.text.x=element_text(size=10, angle=90, hjust=1, vjust=0.5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  viridis::scale_fill_viridis(option='viridis', direction=1, limits = c(-5, 15)) +
+  guides(fill=guide_colorbar(title='log(Observed number of trips from gravity model)',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+ggsave("MobMatrix_BE_District_Gravity_23APR2024.png")
+```
+
+# Plot absolute difference Census - gravity
+```{r calculating the difference between gravity and census,data_plot, fig.height=10, fig.width=10}
+difference <- abs(M - M_hatGrav)
+TotalDifGrav <- sum(difference)
+
+#turn this into a dataframe
+melted_dif <- melt(difference)
+melted_dif$destination <- factor(melted_dif$destination, levels = levels(factor(melted_dif$destination)))
+melted_dif$origin <- factor(melted_dif$origin, levels = rev(levels(factor(melted_dif$origin))))
+
+ggplot(data=melted_dif) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=(value))) +
+  xlab('Destination') + ylab("Origin") +  labs(title = "Difference census - gravity (Districts)")+
+  theme_bw() + theme(plot.title = element_text(size = 18, hjust = 0.5),
+                     axis.text.x=element_text(size=10, angle=90, hjust=1, vjust=0.5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  scale_fill_viridis(option='viridis', direction=1, limits = c(0, 160000)) +
+  guides(fill=guide_colorbar(title='Difference census - gravity',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+ggsave("Difference_District_Census_Gravity_23APR2024.png")
+```
+
+Plotting the histograms for the census, gravity and radiation data. Measuring the modeled mobility's distance from the census data using Kolmogorov-Smirnov Distance measure. 
+```{r compare difference gravity, radiation}
+TotalDifGrav < TotalDifRad #TRUE
+TotalDifGrav - TotalDifRad #-1438612
+
+sd(M_hatRad)# [1] 13956.57
+sd(M_hatGrav) # [1] 16457.23
+
+mean(var(M_hatRad)) #[1] 8945750
+mean(var(M_hatGrav)) # [1] 5195811
+
+## PLOTTING THE HISTOGRAMS 
+radiation_vector <- as.vector(M_hatRad) #column-wise vectorization of the radiation mobility matrix
+# hist(radiation_vector)
+gravity_vector <- as.vector(M_hatGrav)
+# hist(gravity_vector)
+census_vector <- as.vector(M)
+
+library(ggplot2)
+# the majority of my values are zero, so the distribution is highly skewed, I will log transform to visualize the other values better
+radiation_vector_transf <- log(radiation_vector + 1) # the +1 is to avoid (log(0))
+gravity_vector_transf <- log(gravity_vector + 1) # the +1 is to avoid (log(0))
+census_vector_transf <- log(census_vector + 1) # the +1 is to avoid (log(0))
+
+png("/home/rita/Documents/DI-MOB/Mobility_Model/Histograms_Mobility_Models_23APR2024.png", width = 1000, height = 600)
+par(mfrow = c(1, 3))
+hist(radiation_vector_transf, xlab = "log transformed mobility counts", main = "Radiation model")
+hist(gravity_vector_transf, xlab = "log transformed mobility counts", main = "Gravity model")
+hist(census_vector_transf, xlab = "log transformed mobility counts", main = "Census model")
+
+# Print the current plotting device
+dev.off()
+
+# plotting the counts without log transformation
+par(mfrow = c(1, 3))
+hist(radiation_vector, xlab = "mobility counts", main = "Radiation model")
+hist(gravity_vector, xlab = "mobility counts", main = "Gravity model")
+hist(census_vector, xlab = "mobility counts", main = "Census model")
+
+# Calculating the DISTANCE: 
+library(perm)
+permTS(gravity_vector_transf, census_vector_transf, alternative="two.sided") # (difference) Z = 25.839, p-value < 2.2e-16
+permTS(radiation_vector_transf, census_vector_transf, alternative="two.sided") # (difference) Z = 1.6811, p-value = 0.09275 --> difference with radiation model not significant = the better option
+```
+
+## Plot the Departure-Diffusion with gravity model
+```{r Departure-Diffusion w Gravity model sim_plot, data_plot, fig.height=10, fig.width=10}
+
+melted_Mhat <- melt(M_hatDepDifGrav)
+melted_Mhat$destination <- factor(melted_Mhat$destination, levels = levels(factor(melted_Mhat$destination)))
+melted_Mhat$origin <- factor(melted_Mhat$origin, levels = rev(levels(factor(melted_Mhat$origin))))
+
+ggplot(data=melted_Mhat) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=log(value))) +
+  xlab('Destination') + ylab("Origin") +
+  xlab('Destination') + ylab("Origin") +  labs(title = "Departure Diffusion (gravity) model (Districts)")+
+  theme_bw() + theme(plot.title = element_text(size = 18, hjust = 0.5),
+                     axis.text.x=element_text(size=10, angle=90, hjust=1, vjust=0.5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  viridis::scale_fill_viridis(option='viridis', direction=1, limits = c(-5, 15)) +
+  guides(fill=guide_colorbar(title='log(Observed number of trips from Departure-Diffusion_gravity model)',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+ggsave("MobMatrix_BE_District_DepDifGrav_23APR2024.png")
+```
+
+## Plot the Departure-Diffusion with Radiation model
+```{r Departure-Diffusion w Radiation sim_plot, data_plot, fig.height=10, fig.width=10}
+
+melted_Mhat <- melt(M_hatDepDifRad)
+melted_Mhat$destination <- factor(melted_Mhat$destination, levels = levels(factor(melted_Mhat$destination)))
+melted_Mhat$origin <- factor(melted_Mhat$origin, levels = rev(levels(factor(melted_Mhat$origin))))
+
+ggplot(data=melted_Mhat) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=log(value))) +
+  xlab('Destination') + ylab("Origin") +
+  labs(title = "Departure Diffusion (radiation) model (Districts)")+
+  theme_bw() + theme(plot.title = element_text(size = 18, hjust = 0.5),
+                     axis.text.x=element_text(size=10, angle=90, hjust=1, vjust=0.5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  viridis::scale_fill_viridis(option='viridis', direction=1, limits = c(-5, 15)) +
+  guides(fill=guide_colorbar(title='log(Observed number of trips from Departure-Diffusion_radiation model)',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+ggsave("MobMatrix_BE_District_DepDifRad_23APR2024.png")
+```
+
+# Plot absolute difference Census - Departure-Diffusion_gravity
+```{r calculating the difference between Departure-Diffusion_gravity and census,data_plot, fig.height=10, fig.width=10}
+difference <- abs(M - M_hatDepDifGrav)
+TotalDifGrav <- sum(difference)
+
+#turn this into a dataframe
+melted_dif <- melt(difference)
+melted_dif$destination <- factor(melted_dif$destination, levels = levels(factor(melted_dif$destination)))
+melted_dif$origin <- factor(melted_dif$origin, levels = rev(levels(factor(melted_dif$origin))))
+
+ggplot(data=melted_dif) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=(value))) +
+  xlab('Destination') + ylab("Origin") +
+  labs(title = "Difference census - Departure Diffusion (gravity) model (Districts)")+
+  theme_bw() + theme(plot.title = element_text(size = 18, hjust = 0.5),
+                     axis.text.x=element_text(size=10, angle=90, hjust=1, vjust=0.5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  scale_fill_viridis(option='viridis', direction=1, limits = c(0, 160000)) +
+  guides(fill=guide_colorbar(title='Difference census - Departure-Diffusion gravity type',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+ggsave("Difference_District_Census_DepDifGrav_23APR2024.png")
+```
+
+# Plot absolute difference Census - Departure-Diffusion_radiation
+```{r calculating the difference between Departure-Diffusion_radiation and census,data_plot, fig.height=10, fig.width=10}
+difference <- abs(M - M_hatDepDifRad)
+TotalDifGrav <- sum(difference)
+
+#turn this into a dataframe
+melted_dif <- melt(difference)
+melted_dif$destination <- factor(melted_dif$destination, levels = levels(factor(melted_dif$destination)))
+melted_dif$origin <- factor(melted_dif$origin, levels = rev(levels(factor(melted_dif$origin))))
+
+ggplot(data=melted_dif) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=(value))) +
+  xlab('Destination') + ylab("Origin") +
+    labs(title = "Difference census - Departure Diffusion (radiation) model (Districts)")+
+  theme_bw() + theme(plot.title = element_text(size = 18, hjust = 0.5),
+                     axis.text.x=element_text(size=10, angle=90, hjust=1, vjust=0.5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  scale_fill_viridis(option='viridis', direction=1, limits = c(0, 160000)) +
+  guides(fill=guide_colorbar(title='Difference census - Departure-Diffusion radiation type',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+ggsave("Difference_District_Census_DepDifRad_23APR2024.png")
+```
+
+## making histograms and calculating distance from census data 
+Plotting the histograms for the census and departure-diffusion models. Measuring the modeled mobility's distance from the census data using Kolmogorov-Smirnov Distance measure. 
+```{r compare difference all mobility models vs census}
+difference_G <- abs(M - M_hatGrav)
+difference_R <- abs(M-M_hatRad)
+difference_DDG <- abs(M - M_hatDepDifGrav)
+difference_DDR <- abs(M - M_hatDepDifRad)
+
+TotalDifGrav <- sum(difference_G) # 2.320.205
+TotalDifRad <- sum(difference_R) # 3.758.817
+TotalDifDepDifGrav <- sum(difference_DDG) # 1.358.787 --> better
+TotalDifDepDifRad <- sum(difference_DDR) # 1.705.517 --> better
+
+sd(M_hatRad)# [1] 13956.57
+sd(M_hatGrav) # [1] 16457.23
+sd(M_hatDepDifGrav)# [1] 13673.67 
+sd(M_hatDepDifRad) # [1] 13540.3 
+
+mean(var(M_hatRad)) #[1]        8945750
+mean(var(M_hatGrav)) # [1]      5195811
+mean(var(M_hatDepDifGrav)) #[1] 4856686 --> better
+mean(var(M_hatDepDifRad)) # [1] 4856572 --> better
+
+## PLOTTING THE HISTOGRAMS 
+radiation_vector <- as.vector(M_hatRad) #column-wise vectorization of the radiation mobility matrix
+# hist(radiation_vector)
+gravity_vector <- as.vector(M_hatGrav)
+depdifgrav_vector <- as.vector(M_hatDepDifGrav)
+depdifrad_vector <- as.vector(M_hatDepDifRad)
+# hist(gravity_vector)
+census_vector <- as.vector(M)
+
+library(ggplot2)
+# the majority of my values are zero, so the distribution is highly skewed, I will log transform to visualize the other values better
+radiation_vector_transf <- log(radiation_vector + 1) # the +1 is to avoid (log(0))
+gravity_vector_transf <- log(gravity_vector + 1) # the +1 is to avoid (log(0))
+depdifgrav_vector_transf <- log(depdifgrav_vector + 1) # the +1 is to avoid (log(0))
+depdifrad_vector_transf <- log(depdifrad_vector + 1) # the +1 is to avoid (log(0))
+census_vector_transf <- log(census_vector + 1) # the +1 is to avoid (log(0))
+
+png("/home/rita/Documents/DI-MOB/Mobility_Model/Histograms_Mobility_Models_v2_23APR2024.png", width = 2000, height = 600)
+par(mfrow = c(1, 5))
+hist(census_vector_transf, xlab = "log transformed mobility counts", main = "Census model")
+hist(gravity_vector_transf, xlab = "log transformed mobility counts", main = "Gravity model")
+hist(radiation_vector_transf, xlab = "log transformed mobility counts", main = "Radiation model")
+hist(depdifgrav_vector_transf, xlab = "log transformed mobility counts", main = "Departure-Diffusion (grav) model")
+hist(depdifrad_vector_transf, xlab = "log transformed mobility counts", main = "Departure-Diffusion (rad) model")
+
+# Print the current plotting device
+dev.off()
+
+# plotting the counts without log transformation
+par(mfrow = c(1, 5))
+hist(radiation_vector, xlab = "mobility counts", main = "Radiation model")
+hist(gravity_vector, xlab = "mobility counts", main = "Gravity model")
+hist(census_vector, xlab = "mobility counts", main = "Census model")
+hist(depdifgrav_vector, xlab = "mobility counts", main = "Departure-Diffusion (grav) model")
+hist(depdifrad_vector, xlab = "mobility counts", main = "Departure-Diffusion (rad) model")
+
+# Calculating the DISTANCE: 
+
+# install.packages("perm")
+library(perm)
+permTS(gravity_vector_transf, census_vector_transf, alternative="two.sided") # (difference) Z = 25.839, p-value < 2.2e-16
+permTS(radiation_vector_transf, census_vector_transf, alternative="two.sided") # (difference) Z = 1.6811, p-value = 0.09275 -> smallest difference & null hypothesis of equal distribution not rejected 
+permTS(depdifgrav_vector_transf, census_vector_transf, alternative="two.sided") # (difference) Z = 5.8093, p-value = 6.273e-09
+permTS(depdifrad_vector_transf, census_vector_transf, alternative="two.sided") # (difference) Z =  -8.9678, p-value < 2.2e-16
+
+# what if I now do this for the non-log transformed data:
+permTS(gravity_vector, census_vector, alternative="two.sided") # (difference) Z = 0.048015, p-value = 0.9617
+permTS(radiation_vector, census_vector, alternative="two.sided") # (difference) Z = 2.2986, p-value = 0.02153
+permTS(depdifgrav_vector, census_vector, alternative="two.sided") # (difference) Z = -4.2609e-05, p-value = 1
+permTS(depdifrad_vector, census_vector, alternative="two.sided") # (difference) Z = -0.00010306, p-value = 0.9999
+```
+
+# Plotting difference between dep-dif and normal gravity/radiation model
+For the gravity model:
+```{r difference Departure-Diffusion_gravity and gravity,data_plot, fig.height=10, fig.width=10}
+difference <- abs(M_hatGrav - M_hatDepDifGrav)
+TotalDif <- sum(difference) # 1.549.711
+
+#turn this into a dataframe
+melted_dif <- melt(difference)
+melted_dif$destination <- factor(melted_dif$destination, levels = levels(factor(melted_dif$destination)))
+melted_dif$origin <- factor(melted_dif$origin, levels = rev(levels(factor(melted_dif$origin))))
+
+ggplot(data=melted_dif) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=(value))) +
+  xlab('Destination') + ylab("Origin") +
+  theme_bw() + theme(axis.text.x=element_text(size=10, angle=90, hjust=1, vjust=0.5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  scale_fill_viridis(option='viridis', direction=1, limits = c(0, 160000)) +
+  guides(fill=guide_colorbar(title='Difference gravity - Departure-Diffusion gravity type',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+#ggsave(".png")
+```
+
+For the radiation model: There seems to be more difference between the radiation model and the corresponding dep-dif than for the gravity model. 
+```{r difference Departure-Diffusion_rad and radiation,data_plot, fig.height=10, fig.width=10}
+difference <- abs(M_hatRad - M_hatDepDifRad)
+TotalDif <- sum(difference) #3.066.585 (vs 1.549.711 for the gravity model)
+
+#turn this into a dataframe
+melted_dif <- melt(difference)
+melted_dif$destination <- factor(melted_dif$destination, levels = levels(factor(melted_dif$destination)))
+melted_dif$origin <- factor(melted_dif$origin, levels = rev(levels(factor(melted_dif$origin))))
+
+ggplot(data=melted_dif) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=(value))) +
+  xlab('Destination') + ylab("Origin") +
+  theme_bw() + theme(axis.text.x=element_text(size=10, angle=90, hjust=1, vjust=0.5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  scale_fill_viridis(option='viridis', direction=1, limits = c(0, 160000)) +
+  guides(fill=guide_colorbar(title='Difference radiation - Departure-Diffusion radiation type',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+#ggsave(".png")
+```
+
+## Comparison of obtained models to Belgian Proximus data
+The available proximus data represent staytimes between 2020/02/10 - 2021/08/31 (92 files total)
+The last row of each matrix represents foreigners, the last column represents working abroad. I will ignore both. 
+```{r loading proximus data}
+# install.packages("readr")
+library(readr)
+
+# Set the directory containing the CSV files
+directory <- "/home/rita/Documents/DI-MOB/Mobility_Model/Proximus_staytime"
+
+# Get a list of all CSV files in the directory
+csv_files <- list.files(directory, pattern = "\\.csv$", full.names = TRUE)
+
+# Function to read and average CSV files
+average_csv_files <- function(files) {
+  # Read the first CSV file to get dimensions
+  first_df <- read.csv(files[1], header = TRUE, row.names = 1)
+  nrows <- nrow(first_df)
+  ncols <- ncol(first_df)
+  
+  # Initialize a matrix to store average values
+  sum_matrix <- matrix(0, nrow = nrows, ncol = ncols)
+  
+  # Iterate over each CSV file
+  for (file in files) {
+    # Read the CSV file
+    df <- read.csv(file, header = TRUE, row.names = 1)
+    # Add the values to the average matrix, last row and column are ignored
+    sum_matrix[1:(nrows - 1), 1:(ncols - 1)] <- sum_matrix[1:(nrows - 1), 1:(ncols - 1)] + as.matrix(df[1:(nrows - 1), 1:(ncols - 1)])
+  }
+  
+  # Calculate the average
+  num_files <- length(files)
+  avg_matrix <- sum_matrix / num_files
+  
+  # Assign column names and row names from the first CSV file
+  colnames(avg_matrix) <- colnames(first_df)
+  rownames(avg_matrix) <- rownames(first_df)
+  
+  # Return the average matrix
+  return(avg_matrix)
+}
+
+# Call the function to get the average matrix
+avg_matrix <- average_csv_files(csv_files)
+
+# remove the abroad column and foreigner row 
+avg_matrix <- avg_matrix[!(rownames(avg_matrix) %in% c("Foreigner")), !(colnames(avg_matrix) %in% c("ABROAD"))]
+
+# Remove leading "X" from column names
+colnames(avg_matrix) <- gsub("^X", "", colnames(avg_matrix))
+
+# Write the average matrix to a new CSV file
+write.csv(avg_matrix, file = "/home/rita/Documents/DI-MOB/Mobility_Model/avg_timespent_matrix_proximus", row.names = FALSE)
+
+setdiff(rownames(avg_matrix), rownames(mob)) #0
+setdiff(rownames(mob), rownames(avg_matrix)) #0
+
+mob_prox <- avg_matrix
+```
+
+# Plotting the proximus data
+```{r plot proximus data_plot_1, fig.height=10, fig.width=10}
+# convert mob into the matrix_list$M structure:
+colnames(matrix_list$M) == colnames(mob_prox) # TRUE
+colnames(matrix_list$M) == rownames(mob_prox) # TRUE
+rownames(mob_prox) <- colnames(mob_prox) <- colnames(matrix_list$M)
+mob_matrix <- as.matrix(mob_prox)
+
+dimnames(mob_matrix) <- list(origin = rownames(mob_matrix), destination = colnames(mob_matrix))
+
+# Check if the dimensions match
+if(all(dim(mob_matrix) == dim(matrix_list$M))) {
+  print("Dimensions match. DataFrame converted to matrix successfully.")
+} else {
+  print("Dimensions do not match. DataFrame conversion failed.")
+}
+str(mob_matrix)
+
+melted_M <- melt(mob_matrix)
+melted_M$destination <- factor(melted_M$destination, levels = levels(factor(melted_M$destination)))
+melted_M$origin <- factor(melted_M$origin, levels = rev(levels(factor(melted_M$origin))))
+
+ggplot(data=melted_M) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=log(value))) +
+  xlab('Destination') + ylab("Origin") +
+  labs(title = "Proximus mobility data")+
+  theme_bw() + theme(plot.title = element_text(size = 18, hjust = 0.5),
+                     axis.text.x=element_text(size=10, angle=90, hjust=1, vjust= 0.5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  viridis::scale_fill_viridis(option='viridis', direction=1, limits = c(10, 25)) +
+  guides(fill=guide_colorbar(title='log(Observed number of trips census)',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+ggsave("MobMatrix_BE_District_Proximus_23APR2024.png")
+```
+
+The problem with this data is that I don't know exactly what it represents? Is it hours? 
+So, I will turn it all into fractional, both the model matrices and the staytimes
+```{r normalising both model and proximus matrices}
+# Calculate row sums
+row_sums_prox <- rowSums(avg_matrix)
+# Divide each element by the respective row sum
+normalized_avg_matrix <- t(t(avg_matrix) / row_sums_prox)
+
+# Now for my models: 
+row_sums_grav <- rowSums(M_hatGrav)
+normalized_grav <- (M_hatGrav) / row_sums_grav
+
+row_sums_rad <- rowSums(M_hatRad)
+normalized_rad <- (M_hatRad) / row_sums_rad
+
+row_sums_DepDifGrav <- rowSums(M_hatDepDifGrav)
+normalized_DepDifGrav <- (M_hatDepDifGrav) / row_sums_DepDifGrav
+
+row_sums_DepDifRad <- rowSums(M_hatDepDifRad)
+normalized_DepDifRad <- (M_hatDepDifRad) / row_sums_DepDifRad
+```
+
+Plotting those normalized matrices: 
+```{r plotting normalized proximus, and modelled mobility matrices}
+
+### PROXIMUS DATA ###
+# convert mob into the matrix_list$M structure:
+colnames(matrix_list$M) == colnames(normalized_avg_matrix) # TRUE
+colnames(matrix_list$M) == rownames(normalized_avg_matrix) # TRUE
+rownames(normalized_avg_matrix) <- colnames(normalized_avg_matrix) <- colnames(matrix_list$M)
+mob_matrix <- as.matrix(normalized_avg_matrix)
+
+dimnames(mob_matrix) <- list(origin = rownames(mob_matrix), destination = colnames(mob_matrix))
+
+# Check if the dimensions match
+if(all(dim(mob_matrix) == dim(matrix_list$M))) {
+  print("Dimensions match. DataFrame converted to matrix successfully.")
+} else {
+  print("Dimensions do not match. DataFrame conversion failed.")
+}
+str(mob_matrix)
+
+melted_M <- melt(mob_matrix)
+melted_M$destination <- factor(melted_M$destination, levels = levels(factor(melted_M$destination)))
+melted_M$origin <- factor(melted_M$origin, levels = rev(levels(factor(melted_M$origin))))
+
+p_prox <- ggplot(data=melted_M) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=log(value))) +
+  xlab('Destination') + ylab("Origin") +
+  labs(title = "Proximus mobility data - fractions of time")+
+  theme_bw() + theme(plot.title = element_text(size = 18, hjust = 0.5),
+                     axis.text.x=element_text(size=10, angle=90, hjust=1, vjust= 0.5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  viridis::scale_fill_viridis(option='viridis', direction=1, limits = c(-11, -0.05)) +
+  guides(fill=guide_colorbar(title='log (Fractions of time spent)',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+ggsave("MobMatrix_BE_District_Proximus_fractions_23APR2024.png", plot = p_prox, width = 10, height = 10)
+
+### GRAVITY MODEL ###
+colnames(matrix_list$M) == colnames(normalized_grav) # TRUE
+colnames(matrix_list$M) == rownames(normalized_grav) # TRUE
+rownames(normalized_grav) <- colnames(normalized_grav) <- colnames(matrix_list$M)
+mob_matrix <- as.matrix(normalized_grav)
+
+dimnames(mob_matrix) <- list(origin = rownames(mob_matrix), destination = colnames(mob_matrix))
+
+# Check if the dimensions match
+if(all(dim(mob_matrix) == dim(matrix_list$M))) {
+  print("Dimensions match. DataFrame converted to matrix successfully.")
+} else {
+  print("Dimensions do not match. DataFrame conversion failed.")
+}
+str(mob_matrix)
+
+melted_M <- melt(mob_matrix)
+melted_M$destination <- factor(melted_M$destination, levels = levels(factor(melted_M$destination)))
+melted_M$origin <- factor(melted_M$origin, levels = rev(levels(factor(melted_M$origin))))
+
+p_grav <- ggplot(data=melted_M) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=log(value))) +
+  xlab('Destination') + ylab("Origin") +
+  labs(title = "Gravity model - fractions of time")+
+  theme_bw() + theme(plot.title = element_text(size = 18, hjust = 0.5),
+                     axis.text.x=element_text(size=10, angle=90, hjust=1, vjust= 0.5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  viridis::scale_fill_viridis(option='viridis', direction=1, limits = c(-11, -0.05)) +
+  guides(fill=guide_colorbar(title='log (Fractions of time spent)',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+ggsave("MobMatrix_BE_District_Gravity_fractions_23APR2024.png", plot = p_grav, width = 10, height = 10)
+
+
+### RADIATION MODEL ###
+colnames(matrix_list$M) == colnames(normalized_rad) # TRUE
+colnames(matrix_list$M) == rownames(normalized_rad) # TRUE
+rownames(normalized_rad) <- colnames(normalized_rad) <- colnames(matrix_list$M)
+mob_matrix <- as.matrix(normalized_rad)
+
+dimnames(mob_matrix) <- list(origin = rownames(mob_matrix), destination = colnames(mob_matrix))
+
+# Check if the dimensions match
+if(all(dim(mob_matrix) == dim(matrix_list$M))) {
+  print("Dimensions match. DataFrame converted to matrix successfully.")
+} else {
+  print("Dimensions do not match. DataFrame conversion failed.")
+}
+str(mob_matrix)
+
+melted_M <- melt(mob_matrix)
+melted_M$destination <- factor(melted_M$destination, levels = levels(factor(melted_M$destination)))
+melted_M$origin <- factor(melted_M$origin, levels = rev(levels(factor(melted_M$origin))))
+
+p_rad <- ggplot(data=melted_M) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=log(value))) +
+  xlab('Destination') + ylab("Origin") +
+  labs(title = "Radiation model - fractions of time")+
+  theme_bw() + theme(plot.title = element_text(size = 18, hjust = 0.5),
+                     axis.text.x=element_text(size=10, angle=90, hjust=1, vjust= 0.5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  viridis::scale_fill_viridis(option='viridis', direction=1, limits = c(-11, -0.05)) +
+  guides(fill=guide_colorbar(title='log (Fractions of time spent)',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+ggsave("MobMatrix_BE_District_Radiation_fractions_23APR2024.png", plot = p_rad, width = 10, height = 10)
+
+library(cowplot)
+plot_grid(p_prox, p_grav, p_rad, ncol = 3)
+ggsave("MobMatrix_BE_District_Proximus_models_SideBySide_26APR2024.png", width = 28, height = 10)
+```
+
+Manually calculate the absolute difference between the proximus data and the mobility models
+```{r absolute difference proximus - model}
+D_prox_Grav <- sum(abs(normalized_avg_matrix - normalized_grav))
+D_prox_Rad <-  sum(abs(normalized_avg_matrix - normalized_rad))
+D_prox_DepDifGrav <-  sum(abs(normalized_avg_matrix - normalized_DepDifGrav))
+D_prox_DepDifRad <-  sum(abs(normalized_avg_matrix - normalized_DepDifRad))
+
+differences <- c(D_prox_DepDifGrav, D_prox_DepDifRad, D_prox_Grav, D_prox_Rad)
+names(differences) <- c("D_prox_DepDifGrav", "D_prox_DepDifRad", "D_prox_Grav", "D_prox_Rad")
+
+sorted_differences <- sort(differences)
+# Print the sorted values and their names
+for (i in 1:length(sorted_differences)) {
+  cat(names(sorted_differences)[i], ": ", sorted_differences[i], "\n")
+}
+```
+
+Looking into the differences through histograms: 
+```{r histograms proximus and modelled mobility}
+## turning the matrices into vectors for histogram plotting 
+radiation_vector <- as.vector(normalized_rad) 
+gravity_vector <- as.vector(normalized_grav)
+depdifgrav_vector <- as.vector(normalized_DepDifGrav)
+depdifrad_vector <- as.vector(normalized_DepDifRad)
+# hist(gravity_vector)
+prox_vector <- as.vector(normalized_avg_matrix)
+
+library(ggplot2)
+# plotting all the histograms next to one another
+par(mfrow = c(1, 5))
+hist(radiation_vector, xlab = "mobility fractions", main = "Radiation model")
+hist(gravity_vector, xlab = "mobility fractions", main = "Gravity model")
+hist(prox_vector, xlab = "mobility fractions", main = "Proximus model")
+hist(depdifgrav_vector, xlab = "mobility fractions", main = "Departure-Diffusion (grav) model")
+hist(depdifrad_vector, xlab = "mobility fractions", main = "Departure-Diffusion (rad) model")
+
+# the majority of my values are zero, so the distribution is highly skewed, I will log transform to visualize the other values better
+radiation_vector_transf <- log(radiation_vector + 1) # the +1 is to avoid (log(0))
+gravity_vector_transf <- log(gravity_vector + 1) # the +1 is to avoid (log(0))
+depdifgrav_vector_transf <- log(depdifgrav_vector + 1) # the +1 is to avoid (log(0))
+depdifrad_vector_transf <- log(depdifrad_vector + 1) # the +1 is to avoid (log(0))
+prox_vector_transf <- log(prox_vector + 1) # the +1 is to avoid (log(0))
+
+png("/home/rita/Documents/DI-MOB/Mobility_Model/Histograms_Proximus_vs_models_23APR2024.png", width = 2000, height = 600)
+par(mfrow = c(1, 5))
+
+hist(prox_vector_transf,xlim = c(0, 0.8), xlab = "log transformed mobility fractions", main = "Proximus model")
+hist(gravity_vector_transf ,xlim = c(0, 0.8), xlab = "log transformed mobility fractions", main = "Gravity model")
+hist(radiation_vector_transf ,xlim = c(0, 0.8), xlab = "log transformed mobility fractions", main = "Radiation model")
+hist(depdifgrav_vector_transf ,xlim = c(0, 0.8), xlab = "log transformed mobility fractions", main = "Departure-Diffusion (grav) model")
+hist(depdifrad_vector_transf ,xlim = c(0, 0.8), xlab = "log transformed mobility fractions", main = "Departure-Diffusion (rad) model")
+
+dev.off()
+
+## this is still highly skewed, I will try a different transformation: 
+radiation_vector_sqrt <- sqrt(radiation_vector) 
+gravity_vector_sqrt <- sqrt(gravity_vector)
+depdifgrav_vector_sqrt <- sqrt(depdifgrav_vector) 
+depdifrad_vector_sqrt <- sqrt(depdifrad_vector) 
+prox_vector_sqrt <- sqrt(prox_vector) 
+
+png("/home/rita/Documents/DI-MOB/Mobility_Model/Histograms_Proximus_vs_models_sqrtTransform_23APR2024.png", width = 2000, height = 600)
+par(mfrow = c(1, 5))
+hist(prox_vector_sqrt ,xlim = c(0, 1.0), xlab = "sqrt mobility fractions", main = "Proximus model")
+hist(gravity_vector_sqrt ,xlim = c(0, 1.0), xlab = "sqrt mobility fractions", main = "Grav model")
+hist(radiation_vector_sqrt ,xlim = c(0, 1.0), xlab = "sqrt mobility fractions", main = "Rad model")
+hist(depdifgrav_vector_sqrt ,xlim = c(0, 1.0), xlab = "sqrt mobility fractions", main = "Dep-Dif (grav) model")
+hist(depdifrad_vector_sqrt ,xlim = c(0, 1.0), xlab = "sqrt mobility fractions", main = "Dep-Dif (rad) model")
+dev.off()
+
+# Now let's test for the distance between the histograms: 
+permTS(gravity_vector, prox_vector, alternative="two.sided") # (difference) Z = -0.11783, p-value = 0.9062
+permTS(radiation_vector, prox_vector, alternative="two.sided") # (difference) Z = -0.11945, p-value = 0.9049
+permTS(depdifgrav_vector, prox_vector, alternative="two.sided") # (difference) Z = -0.11125, p-value = 0.9114
+permTS(depdifrad_vector, prox_vector, alternative="two.sided") # (difference) Z = -0.10992, p-value = 0.9125
+```
+There are no remarkable differences between the PermTS test among the different models compared to the Proximus data. 
