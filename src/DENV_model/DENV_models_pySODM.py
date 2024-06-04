@@ -78,7 +78,6 @@ class JumpProcess_SEIR2_model(JumpProcess):
         
         return S_new, E1_new, E2_new, I1_new, I2_new, R1_new, R2_new, H1_new, H2_new, R12_new
 
-
 class JumpProcess_SEIRH_BetaPerAge_model(JumpProcess):
     """
     Stochastic SEIR2 model for DENV with age-groups and 2 serotypes AND DIFFERENT BETA PARAMETERS PER AGE-GROUP
@@ -124,8 +123,7 @@ class JumpProcess_SEIRH_BetaPerAge_model(JumpProcess):
         H2_new = H2 + transitionings['R1'][0] - transitionings['H2'][0]
         R12_new = R12 + transitionings['H1'][0] + transitionings['H2'][0]
         
-        return S_new, E1_new, E2_new, I1_new, I2_new, R1_new, R2_new, H1_new, H2_new, R12_new
-    
+        return S_new, E1_new, E2_new, I1_new, I2_new, R1_new, R2_new, H1_new, H2_new, R12_new   
 
 class JumpProcess_SEIRH_BetaPerAge_SeasonalForcing(JumpProcess):
     """
@@ -279,19 +277,20 @@ class JumpProcess_SEIR2_spatial_stochastic(JumpProcess):
     The ph parameter represents the phase of the cos forcing curve, this is adjusted shift the curve to fit the DENV temporal patterns in Cuba
     All the E, I, R, and H compartments are available twice in the model to represent both serotypes
     The S and R12 are independent of serotype
+    I_cum represents the cummulate amount of infectious people (I1, I2, I12, and I21) over up untill timepoint t
 
     Instead of an H compartment, we make a new SEIR after first infection 
     """
     
-    states = ['S','S1', 'S2', 'E1', 'E2', 'E12', 'E21', 'I1', 'I2', 'I12', 'I21', 'R1', 'R2', 'R']
+    states = ['S','S1', 'S2', 'E1', 'E2', 'E12', 'E21', 'I1', 'I2', 'I12', 'I21', 'R1', 'R2', 'R', 'I_cum']
     parameters = ['alpha', 'beta_1', 'sigma', 'gamma', 'psi', 'ph', 'ODmatrix'] # the beta_1 parameter is the same over all age-groups seeing as seasonality affects everyone the same
     stratified_parameters = [[],['beta_0']] ## beta_0 is stratified per age group
     dimensions = ['NIS','age_group']
 
     @staticmethod
-    def compute_rates(t, S,S1, S2, E1, E2, E12, E21, I1, I2, I12, I21, R1, R2, R,  #time + SEIR2 states
+    def compute_rates(t, S,S1, S2, E1, E2, E12, E21, I1, I2, I12, I21, R1, R2, R, I_cum, #time + SEIR2 states
                       beta_1, alpha, sigma, gamma, psi, ph, #SEIR2 parameters
-                      beta_0, ODmatrix): # age-stratified parameter
+                      beta_0, ODmatrix): # age-stratified parameter (OD matrix is not age-stratified yet)
         
         # calculate the Beta_t
         #beta_t = beta_0 * (1 - beta_1 * np.cos(2*np.pi *(t/365) + ph)) # this should result in 4 values per timepoint (one for each age-group)
@@ -301,7 +300,7 @@ class JumpProcess_SEIR2_spatial_stochastic(JumpProcess):
         # Calculate total population
         #################################
 
-        T = S+E1+I1+R1+S1+E12+I12+E2+I2+R2+S2+E21+I21+R
+        T = S+E1+I1+R1+S1+E12+I12+E2+I2+R2+S2+E21+I21+R # this should result in a total population per location, haven't checked this though
 
         #################################
         # COMPUTE INFECIOUS PRESSURE ####
@@ -321,7 +320,6 @@ class JumpProcess_SEIR2_spatial_stochastic(JumpProcess):
 
         # Compute the infectious population: 
         infpop_mob = (I1_mob + I2_mob +I12_mob + I21_mob)/T_mob
-
 
 
         # Compute rates per model state
@@ -349,7 +347,7 @@ class JumpProcess_SEIR2_spatial_stochastic(JumpProcess):
         return rates
     
     @staticmethod
-    def apply_transitionings(t, tau, transitionings, S,S1, S2, E1, E2, E12, E21, I1, I2, I12, I21, R1, R2, R,  #time + SEIR2 states
+    def apply_transitionings(t, tau, transitionings, S,S1, S2, E1, E2, E12, E21, I1, I2, I12, I21, R1, R2, R, I_cum,  #time + SEIR2 states
                       beta_1, alpha, sigma, gamma, psi, ph, #SEIR2 parameters
                       beta_0, ODmatrix): # age-stratified parameter
         
@@ -368,5 +366,8 @@ class JumpProcess_SEIR2_spatial_stochastic(JumpProcess):
         I12_new = I12 + transitionings['E12'][0] - transitionings['I12'][0]
         I21_new = I21 + transitionings['E21'][0] - transitionings['I21'][0]        
         R_new = R + transitionings['I12'][0] + transitionings['I21'][0]
+
+        # derivative state: 
+        I_cum_new = I_cum + transitionings['E1'][0] + transitionings['E2'][0] + transitionings['E12'][0] + transitionings['E12'][0]
         
-        return S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,   R_new
+        return S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,   R_new, I_cum_new
