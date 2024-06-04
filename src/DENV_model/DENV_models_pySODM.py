@@ -78,7 +78,6 @@ class JumpProcess_SEIR2_model(JumpProcess):
         
         return S_new, E1_new, E2_new, I1_new, I2_new, R1_new, R2_new, H1_new, H2_new, R12_new
 
-
 class JumpProcess_SEIRH_BetaPerAge_model(JumpProcess):
     """
     Stochastic SEIR2 model for DENV with age-groups and 2 serotypes AND DIFFERENT BETA PARAMETERS PER AGE-GROUP
@@ -124,8 +123,7 @@ class JumpProcess_SEIRH_BetaPerAge_model(JumpProcess):
         H2_new = H2 + transitionings['R1'][0] - transitionings['H2'][0]
         R12_new = R12 + transitionings['H1'][0] + transitionings['H2'][0]
         
-        return S_new, E1_new, E2_new, I1_new, I2_new, R1_new, R2_new, H1_new, H2_new, R12_new
-    
+        return S_new, E1_new, E2_new, I1_new, I2_new, R1_new, R2_new, H1_new, H2_new, R12_new   
 
 class JumpProcess_SEIRH_BetaPerAge_SeasonalForcing(JumpProcess):
     """
@@ -322,7 +320,6 @@ class JumpProcess_SEIR2_spatial_stochastic(JumpProcess):
 
         # Compute the infectious population: 
         infpop_mob = (I1_mob + I2_mob +I12_mob + I21_mob)/T_mob
-
 
 
         # Compute rates per model state
