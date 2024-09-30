@@ -133,18 +133,25 @@ class JumpProcess_SEIR2_SeasonalForcing(JumpProcess):
     """
     Stochastic "real" SEIR2 model for DENV with 2 serotypes, no age-groups and + seasonal forcing.
 
-    Beta_0 represents the baseline beta 
-    Beta_1 represents the additional infectivity due to seasonal forcing, which is dependent on time 
-    The ph parameter represents the phase of the cos forcing curve, this is adjusted shift the curve to fit the DENV temporal patterns in Cuba
     All the E, I, R compartments are available twice in the model to represent both serotypes
     The S and R12 are independent of serotype
+
+    -- Parameters -- 
+    alpha : temporary cross-immunity
+    beta_0 : the baseline beta 
+    beta_1 : additional infectivity due to seasonal forcing, which is dependent on time 
+    sigma : incubation period
+    gamma : infectious period
+    psi : enhanced / inhibited infectiousness of secondary infection
+    ph : the phase of the cos forcing curve, this is adjusted shift the curve to fit the DENV temporal patterns in Cuba 
+    ---------------
     """
     
-    states = ['S','S1', 'S2', 'E1', 'E2', 'E12', 'E21', 'I1', 'I2', 'I12', 'I21', 'R1', 'R2', 'R']
+    states = ['S','S1', 'S2', 'E1', 'E2', 'E12', 'E21', 'I1', 'I2', 'I12', 'I21', 'R1', 'R2', 'R', 'I_new', 'I_cum']
     parameters = ['alpha', 'beta_0', 'beta_1', 'sigma', 'gamma', 'psi', 'ph'] # the beta_1 parameter is the same over all age-groups seeing as seasonality affects everyone the same
 
     @staticmethod
-    def compute_rates(t, S,S1, S2, E1, E2, E12, E21, I1, I2, I12, I21, R1, R2, R, beta_0, beta_1, alpha, sigma, gamma, psi, ph):
+    def compute_rates(t, S,S1, S2, E1, E2, E12, E21, I1, I2, I12, I21, R1, R2, R, I_new, I_cum, beta_0, beta_1, alpha, sigma, gamma, psi, ph):
         
         # Calculate total population
         T = S+E1+I1+R1+S1+E12+I12+E2+I2+R2+S2+E21+I21+R
@@ -157,7 +164,6 @@ class JumpProcess_SEIR2_SeasonalForcing(JumpProcess):
         rates = {
 
             'S': [beta_t*((I1+ psi*I21)/T), beta_t*((I2+psi*I12)/T)], # I think this multiplication with np.ones(T.shape is for the age-groups) but maybe this is not needed seeing as I1 and H1 will already have the correct shapes
-            # does nothing change in the rate calculation for S? Does the stratified parameter automatically follow the age-groups?
             'S1': [beta_t*((I2+psi*I12)/T),],
             'S2': [beta_t*((I1+ psi*I21)/T),],
 
@@ -178,7 +184,7 @@ class JumpProcess_SEIR2_SeasonalForcing(JumpProcess):
         return rates
     
     @staticmethod
-    def apply_transitionings(t, tau, transitionings, S,S1, S2, E1, E2, E12, E21, I1, I2, I12, I21, R1, R2, R, beta_0, beta_1, alpha, sigma, gamma, psi, ph):
+    def apply_transitionings(t, tau, transitionings, S,S1, S2, E1, E2, E12, E21, I1, I2, I12, I21, R1, R2, R, I_new, I_cum, beta_0, beta_1, alpha, sigma, gamma, psi, ph):
 
         S_new  = S - transitionings['S'][0] - transitionings['S'][1]
         E1_new = E1 + transitionings['S'][0] - transitionings['E1'][0]
@@ -195,8 +201,12 @@ class JumpProcess_SEIR2_SeasonalForcing(JumpProcess):
         I12_new = I12 + transitionings['E12'][0] - transitionings['I12'][0]
         I21_new = I21 + transitionings['E21'][0] - transitionings['I21'][0]        
         R_new = R + transitionings['I12'][0] + transitionings['I21'][0]
+
+        # derivative state: 
+        I_new_new = transitionings['E1'][0] + transitionings['E2'][0] + transitionings['E12'][0] + transitionings['E12'][0]
+        I_cum_new = I_cum + I_new
         
-        return S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,   R_new
+        return S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,   R_new,I_new_new, I_cum_new
     
 
 class JumpProcess_SEIRH_BetaPerAge_SeasonalForcing(JumpProcess):
