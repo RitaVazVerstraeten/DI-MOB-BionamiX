@@ -162,3 +162,5 @@ cython_debug/
 # R history file
 .Rhistory
 
+# PDFs
+*.pdf
