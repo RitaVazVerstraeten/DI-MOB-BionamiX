@@ -162,12 +162,10 @@ cython_debug/
 # R history file
 .Rhistory
 
-# PDFs
-=======
-*.pdf
-
-# data file 
-/data
-
 # Ignore sampler output files and directories
 sampler_output/
+# PDFs
+*.pdf
+
+# Any file in the Data folder
+data/
