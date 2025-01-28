@@ -2,6 +2,7 @@
 
 import math
 import numpy as np
+import pandas as pd
 
 def briere(temperature, c, t_min, t_max):
     res = 0.0
@@ -185,3 +186,52 @@ def get_beta(curr_time, temperature_series, rainfall_series, transmission_model,
     
     # calculate beta(t)
     return params["beta_0"] * scaling
+
+
+
+def generate_scaling_factors(temperature_series, rainfall_series, dates, scaling_methods=None):
+    """
+    Generate scaling factors based on temperature, rainfall, and dates.
+    
+    Parameters:
+        temperature_series (pd.Series): Time series of temperatures.
+        rainfall_series (pd.Series): Time series of rainfall values.
+        dates (pd.DatetimeIndex): Date indices for the time series.
+        scaling_methods (list): List of scaling methods to use. Options:
+                                ['mordecai_aeg', 'mordecai_albo', 'lambrechts', 'perkins', 'seasonal_forcing'].
+                                If None, all methods are calculated.
+                                
+    Returns:
+        dict: Dictionary of scaling factors, with each scaling factor formatted as a DataFrame
+              with a single column named 'sf'.
+    """
+    available_methods = {
+        'mordecai_aeg': lambda: temperature_series.apply(mordecai_scaling_aegypti),
+        'mordecai_albo': lambda: temperature_series.apply(mordecai_scaling_albopictus),
+        'lambrechts': lambda: temperature_series.apply(lambrechts_scaling),
+        'perkins': lambda: pd.Series(
+            [perkins_scaling_norm(temp, rain) for temp, rain in zip(temperature_series, rainfall_series)],
+            index=temperature_series.index
+        ),
+        'seasonal_forcing': lambda: pd.Series(
+            [seasonal_forcing_fitted(date, is_week=False) for date in dates],
+            index=dates
+        )
+    }
+    
+    # get the time variable from the meteo data 
+    time = temperature_series.index
+
+    # Validate methods and calculate scaling factors
+    scaling_methods = scaling_methods or available_methods.keys()
+    invalid_methods = set(scaling_methods) - available_methods.keys()
+    if invalid_methods:
+        raise ValueError(f"Invalid scaling methods: {invalid_methods}. Available methods are: {list(available_methods.keys())}")
+    
+    # Calculate and format scaling factors
+    scaling_factors = {
+        method: available_methods[method]().to_frame(name="sf").reset_index(drop=True)
+        for method in scaling_methods
+    }
+    
+    return scaling_factors, time
