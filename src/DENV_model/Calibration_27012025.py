@@ -63,7 +63,7 @@ plt.close()
 
 # from DENV_models_pySODM import JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v2 as SEIR2
 
-from DENV_models_pySODM import JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v3 as SEIR2
+from DENV_models_pySODM import JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v3 as SEIR2_v3
 ##########################
 ## Define scaling factors
 ##########################
@@ -143,13 +143,19 @@ demo = pd.read_excel("/home/rita/PyProjects/DI-MOB-BionamiX/data/WP1_ Demographi
 initN = np.rint(demo["Population_Muni"][0])
 
 #################
-## Setup model ##
+# turning scaling_factors into a numpy array 
 #################
 
 scaling_factors_filtered = scaling_factors_filtered['seasonal_forcing'].values.flatten()
 print(type(scaling_factors_filtered)) # numpy.ndarray -> should be OK
+print("\n number of dimensions in sf", scaling_factors_filtered.ndim) # 1 -> should be OK
 
-params={'alpha':182.5, 'b':2.77e-05, 'd':2.45e-05, 'sigma':6, 'gamma':7, 'psi': 1.5, 'beta_0' : 0.3, 'sf' : scaling_factors_filtered, 'rho' : 0.10} 
+#################
+## Setup model ##
+#################
+
+params={'alpha':182.5, 'b':2.77e-05, 'd':2.45e-05, 'beta_0' : 0.3, 'sigma':6, 'gamma':7, 'psi': 1.5,'rho' : 0.10, 'sf' : scaling_factors_filtered}
+
 
 # zet initiele conditie gelijk aan 1/rho * I_reported en verdeel deze mensen over I1, I2, I12, en I21: 
 initial_infected = (1/params["rho"])*counts[start_date]
@@ -175,11 +181,7 @@ initial_states = {
 
 # initialize the model 
 # Initialize model
-model = SEIR2(initial_states=initial_states, parameters=params)
-
-
-
-# I still need to check whether this works with the date-type indexes!! 
+model = SEIR2_v3(initial_states=initial_states, parameters=params)
 
 #############################################################
 # Setting up the posterior probability
@@ -192,35 +194,141 @@ model = SEIR2(initial_states=initial_states, parameters=params)
 
 if __name__ == '__main__': # makes sure this is only run when the script is run directly (not when a function is imported into another file)
 
-    alpha = 0.885382
+    a = 0.885382
+
+    # Define dataset
+    counts_filtered.index.name = 'date'
+    d = pd.Series(counts_filtered)
+    data=[d, ]
+    states = ["I_rep",]
+    # select likelihood function and arguments based on results from variance_analysis function
+    log_likelihood_fnc = [ll_negative_binomial,]
+    log_likelihood_fnc_args = [a,]
+    # Calibated parameters and bounds
+    pars = ['alpha', 'beta_0', 'sigma','rho'] #TCI, baseline infectioun rate, IIP, and fraction of reported cases 
+    labels = ['$\\alpha$' ,'$\\beta_0$', '$\\sigma$', '$\\rho$']
+    bounds = [(0, 720), (0.1, 0.4), (4.00, 7.00), (0, 1)]
+    # Setup objective function (no priors --> uniform priors based on bounds)
+
+    objective_function = log_posterior_probability(model,pars,bounds,data,states,log_likelihood_fnc,log_likelihood_fnc_args,labels=labels)
+
+print("pars indices", type(pars.index)) # built-in method index of list object at 0x70ca95eb2a40
+print("\n params indices", model.parameters.index) # built-in method index of list object at 0x70ca95eb2a40
+print(type(params['sf'].index)) # 'numpy.ndarray' object has no attribute 'index'
+
+
+
+###################################
+# test calibration with SEIR2_v2 - dates as indices 
+###################################
+# run everything till line 126 then start running here: 
+
+from DENV_models_pySODM import JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v2 as SEIR2_v2
+
+demo = pd.read_excel("/home/rita/PyProjects/DI-MOB-BionamiX/data/WP1_ Demographic_Data/Population counts and proportions Municipio Cfgos_v17092024.xlsx")
+
+initN = np.rint(demo["Population_Muni"][0])
+
+# Sort each DataFrame in scaling_factors_filtered by date and reset index
+scaling_factors_filtered = {
+    key: df.sort_index()
+    for key, df in scaling_factors_filtered.items()
+}
+
+params={'alpha':182.5, 'b':2.77e-05, 'd':2.45e-05, 'sigma':6, 'gamma':7, 'psi': 1.5, 'beta_0' : 0.3, 'sf' : scaling_factors_filtered['seasonal_forcing'], 'rho' : 0.10} 
+
+# zet initiele conditie gelijk aan 1/rho * I_reported en verdeel deze mensen over I1, I2, I12, en I21: 
+initial_infected = (1/params["rho"])*counts[start_date]
+
+# Equal probabilities for 4 infectious compartments
+probabilities = [0.25, 0.25, 0.25, 0.25]
+
+# Stochastic division using multinomial
+[init_I1, init_I2, init_I12, init_I21] = np.random.multinomial(initial_infected, probabilities)
+
+
+# Define initial condition
+initN = initN
+initS = initN - (init_I1 + init_I2 + init_I12 + init_I21)
+
+initial_states = {
+    'S': np.array([initS]),
+    'I1': np.array([init_I1]),
+    'I2': np.array([init_I2]),
+    'I12': np.array([init_I12]),
+    'I21': np.array([init_I21])
+}
+
+# Sort each DataFrame in scaling_factors_filtered by date and reset index
+scaling_factors_filtered = {
+    key: df.sort_index().reset_index()
+    for key, df in scaling_factors_filtered.items()
+}
+
+params={'alpha':182.5, 'b':2.77e-05, 'd':2.45e-05, 'beta_0' : 0.3, 'sigma':6, 'gamma':7, 'psi': 1.5,'rho' : 0.10, 'sf' : scaling_factors_filtered['seasonal_forcing']} 
+
+print(scaling_factors_filtered['seasonal_forcing'])
+print(type(scaling_factors_filtered['seasonal_forcing'])) # pandas.core.frame.DataFrame
+
+model = SEIR2_v2(initial_states=initial_states, parameters=params) # works now that we have added .reset_index()
+
+# Now I will return the 'date' column as my index for sf to match the index of counts
+params['sf'] = params['sf'].set_index('date')
+print(params['sf'])
+
+
+    #####################
+    ## PSO/Nelder-Mead ##
+    #####################
+
+if __name__ == '__main__': # makes sure this is only run when the script is run directly (not when a function is imported into another file)
+
+    a = 0.885382
     # Define dataset
     counts_filtered.index.name = 'date'
     d = pd.Series(counts_filtered)
     data=[d, ]
 
-    # Print the data type of the index
-    # print(f"Index data type: {counts[start_date:end_date].index.dtype}")
-    
-    # The issues was with the sf in the params variable
-    # params['sf'] = params['sf'].values.flatten()
     states = ["I_rep",]
     # select likelihood function and arguments based on results from variance_analysis function
     log_likelihood_fnc = [ll_negative_binomial,]
-    log_likelihood_fnc_args = [alpha,]
+    log_likelihood_fnc_args = [a,]
     # Calibated parameters and bounds
     pars = ['alpha', 'beta_0', 'sigma','rho'] #TCI, baseline infectioun rate, IIP, and fraction of reported cases 
     labels = ['$alpha$' ,'$beta_0$', '$sigma$', '$rho$']
     bounds = [(0, 720), (0.1, 0.4), (4.00, 7.00), (0, 1)]
     # Setup objective function (no priors --> uniform priors based on bounds)
-    model = SEIR2
     objective_function = log_posterior_probability(model,pars,bounds,data,states,log_likelihood_fnc,log_likelihood_fnc_args,labels=labels)
 
+    # add following steps : 
 
-# I STOPPED HERE # with the error "TypeError: list indices must be integers or slices, not str" -> doesn't matter whether the sf indices are integers or DateTime or whether I flatten it, the error remains!
+    
+    # Initial guess --> pso
+    theta = pso.optimize(objective_function, swarmsize=3*18, max_iter=30, processes=4, debug=True)[0]
+    # Run Nelder-Mead optimisation
+    theta = nelder_mead.optimize(objective_function, theta, 0.10*np.ones(len(theta)), processes=11, max_iter=30)[0]
 
-print(model.parameters)
+    # check the format of theta
+    print(theta.head())
 
-parameters_model = model.parameters
-for param_name in parameters_model:
-    if isinstance(parameters_model[param_name], bool):
-        print(f"Problem with parameter: {param_name}")
+    # # Simulate the model
+    # model.parameters.update({'beta': theta[0], 'alpha': theta[1:]})
+    # out = model.sim([start_date, end_date])
+    # # Visualize result
+    # fig,ax=plt.subplots(nrows=2, ncols=1, figsize=(8,6), sharex=True)
+    # ax[0].plot(out['time'], out['I_v']/init_states['S_v']*100, color='red', label='Infected')
+    # ax[0].plot(data_mosquitos.index.get_level_values('time').unique(), data_mosquitos/init_states['S_v']*100, color='black', label='data')
+    # ax[0].set_ylabel('Health state vectors (%)')
+    # ax[0].legend()
+    # ax[0].set_title('Vector lifespan: ' + str(params['beta']) + ' days')
+    # colors=['black', 'red', 'green', 'blue']
+    # labels=['0-5','5-15','15-65','65-120']
+    # for i,age_group in enumerate(age_groups):
+    #     ax[1].plot(out['time'], out['I'].sel(age_group=age_group)/init_states['S'][i]*100000, color=colors[i], label=labels[i])
+    #     ax[1].plot(data_humans.index.get_level_values('time').unique(), data_humans.loc[slice(None), age_group]/init_states['S'][i]*100000, color='black', label='data', alpha=0.6)
+    # ax[1].set_ylabel('Infectious humans per 100K')
+    # ax[1].legend()
+    # ax[1].set_xlabel('time (days)')
+    # ax[1].set_title('Vector-to-human transfer rate: '+str(params['alpha']))
+    # plt.show()
+    # plt.close()

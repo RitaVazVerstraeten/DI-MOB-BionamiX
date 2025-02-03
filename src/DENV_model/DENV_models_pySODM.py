@@ -537,9 +537,15 @@ class JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v2(JumpProcess):
         T = S+E1+I1+R1+S1+E12+I12+E2+I2+R2+S2+E21+I21+R
 
         # calculate the Beta_t
-        print("t = ", t, "sf=", sf.loc[t, 'sf'] )
+        print("type sf", type(sf)) # pandas.core.frame.DataFrame
+        print("\nt = ", t, "sf=", sf.loc[t, 'sf'] )
         beta_t = beta_0 * sf.loc[t, 'sf']
 
+        # checking types of the parameters to calibrate:
+        print("\n alpha type", type(alpha))
+        print("\n beta_0 type", type(beta_0))
+        print("\n gamma type", type(gamma))
+        print('\n rho type', type(rho))
 
         # Compute rates per model state
         rates = {
@@ -640,6 +646,7 @@ class JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v3(JumpProcess):
 
         # calculate the Beta_t
         # print("t = ", t, "sf=", sf.loc[t] )
+        print("type sf", type(sf))
         beta_t = beta_0 * sf[t]
 
 
