@@ -34,8 +34,8 @@ problem_definition = {
         [7, 200],  # days of temporary cross-immunity
         [2.3835616438356162e-05, 2.9863013698630136e-05], # births from the CF data in Parameter_ranges_simulations.ipynb
         [2.1643835616438358e-05, 2.6849315068493153e-05], # deaths
-        [4.00, 7.00],  # sigma 
-        [4.00, 10.00],  # gamma 
+        [4.00, 7.00],  # sigma - incubation period
+        [4.00, 10.00],  # gamma - infectious period
         [np.pi, 4*np.pi ], #omega seasonal recurrence from 1/2 year to 2 yearly 
         [1, 2.4],  # psi - Recher 2009 and Ten Bosch 2016
         [0.1, 0.4],  # beta_0

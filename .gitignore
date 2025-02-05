@@ -168,4 +168,7 @@ sampler_output/
 *.pdf
 
 # Any file in the Data folder
-data/
+/data
+
+# Ignore sampler output files and directories
+sampler_output/
