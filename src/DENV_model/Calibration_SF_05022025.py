@@ -22,7 +22,7 @@ from pySODM.optimization.objective_functions import log_posterior_probability, l
 # # OPTIONAL: always reload modules so that as you change code in src, it gets loaded
 # %autoreload 2
 
-os.chdir('/home/rita/PyProjects/DI-MOB-BionamiX/src/DENV_model')
+# os.chdir('/home/rita/PyProjects/DI-MOB-BionamiX/src/DENV_model')
 
 ##############
 ## Settings ##
@@ -44,8 +44,8 @@ n = 100                                         # Repeated simulations used in v
 processes = 3                                   # 3 so that if I run all 4 scaling factor scripts simultaneously, I can use my 12 cores. 
 
 # Variables
-samples_path='optimization/sampler_output_SF/'
-fig_path='optimization/sampler_output_SF/'
+samples_path='optimization_SF/sampler_output_SF/'
+fig_path='optimization_SF/sampler_output_SF/'
 identifier = 'SeasonalForcing_rverstra_2025-02-04' # Give any output of this script an ID
 run_date = str(datetime.date.today())
 
@@ -217,9 +217,9 @@ if __name__ == '__main__':
     ####################
 
     # Initial guess --> pso
-    theta = pso.optimize(objective_function, swarmsize=3*18, max_iter=5, processes=10, debug=True)[0]
+    theta = pso.optimize(objective_function, swarmsize=3*18, max_iter=n_pso, processes=processes, debug=True)[0]
 
-    theta = nelder_mead.optimize(objective_function, theta, 0.10*np.ones(len(theta)), processes=10, max_iter=5)[0]
+    theta = nelder_mead.optimize(objective_function, theta, 0.10*np.ones(len(theta)), processes=processes, max_iter=n_pso)[0]
     
     ##########
     ## MCMC ##
@@ -247,13 +247,13 @@ if __name__ == '__main__':
                                 settings_dict=settings)       
 
 
-# Generate a sample dictionary and save it as .json for long-term storage
-# Have a look at the script `emcee_sampler_to_dictionary.py`, which does the same thing as the function below but can be used while your MCMC is running.
-samples_dict = emcee_sampler_to_dictionary(samples_path, identifier, discard=discard, thin=thin)
-# Look at the resulting distributions in a cornerplot
-CORNER_KWARGS = dict(smooth=0.90,title_fmt=".2E")
-fig = corner.corner(sampler.get_chain(discard=discard, thin=2, flat=True), labels=expanded_labels, **CORNER_KWARGS)
-for idx,ax in enumerate(fig.get_axes()):
-    ax.grid(False)
-plt.show()
-plt.close()
+    # Generate a sample dictionary and save it as .json for long-term storage
+    # Have a look at the script `emcee_sampler_to_dictionary.py`, which does the same thing as the function below but can be used while your MCMC is running.
+    samples_dict = emcee_sampler_to_dictionary(samples_path, identifier, discard=discard, thin=thin)
+    # Look at the resulting distributions in a cornerplot
+    CORNER_KWARGS = dict(smooth=0.90,title_fmt=".2E")
+    fig = corner.corner(sampler.get_chain(discard=discard, thin=2, flat=True), labels=expanded_labels, **CORNER_KWARGS)
+    for idx,ax in enumerate(fig.get_axes()):
+        ax.grid(False)
+    plt.show()
+    plt.close()

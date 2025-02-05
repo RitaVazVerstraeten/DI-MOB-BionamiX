@@ -44,8 +44,8 @@ n = 100                                         # Repeated simulations used in v
 processes = 3                                   # 3 so that if I run all 4 scaling factor scripts simultaneously, I can use my 12 cores. 
 
 # Variables
-samples_path='optimization/sampler_output/'
-fig_path='optimization/sampler_output/'
+samples_path='optimization_Mord/sampler_output_Mord/'
+fig_path='optimization_Mord/sampler_output_Mord/'
 identifier = 'Mordecai_rverstra_2025-02-04' # Give any output of this script an ID
 run_date = str(datetime.date.today())
 
@@ -70,7 +70,7 @@ counts = counts.sort_index()
 counts = pd.Series(counts)
 
 if __name__ == '__main__':    
-    
+
     #############################################################
     # check mean-variance relation to choose likelihood function
     #############################################################
@@ -253,14 +253,14 @@ if __name__ == '__main__':
 
 
 
-# Generate a sample dictionary and save it as .json for long-term storage
-# Have a look at the script `emcee_sampler_to_dictionary.py`, which does the same thing as the function below but can be used while your MCMC is running.
-samples_dict = emcee_sampler_to_dictionary(samples_path, identifier, discard=discard, thin=thin)
-# Look at the resulting distributions in a cornerplot
-CORNER_KWARGS = dict(smooth=0.90,title_fmt=".2E")
-fig = corner.corner(sampler.get_chain(discard=discard, thin=2, flat=True), labels=expanded_labels, **CORNER_KWARGS)
-for idx,ax in enumerate(fig.get_axes()):
-    ax.grid(False)
-plt.show()
-plt.close()
+    # Generate a sample dictionary and save it as .json for long-term storage
+    # Have a look at the script `emcee_sampler_to_dictionary.py`, which does the same thing as the function below but can be used while your MCMC is running.
+    samples_dict = emcee_sampler_to_dictionary(samples_path, identifier, discard=discard, thin=thin)
+    # Look at the resulting distributions in a cornerplot
+    CORNER_KWARGS = dict(smooth=0.90,title_fmt=".2E")
+    fig = corner.corner(sampler.get_chain(discard=discard, thin=2, flat=True), labels=expanded_labels, **CORNER_KWARGS)
+    for idx,ax in enumerate(fig.get_axes()):
+        ax.grid(False)
+    plt.show()
+    plt.close()
 
