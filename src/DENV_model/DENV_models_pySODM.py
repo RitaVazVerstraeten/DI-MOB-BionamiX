@@ -500,6 +500,16 @@ class JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported(JumpProcess):
 # the TEMPORAL SEIR2 model + BIRTHS & DEATHS + beta(temperature) + reported cases 24-01-2025
 ################################
 
+def time_dep_betaT(t, states, param, sf):
+    """
+    Re-defines beta_0 as the scaled beta(t) = beta_0 * scaling_factor
+    """
+    beta_0 = param
+    beta_t = beta_0*sf.loc[t, 'sf']
+    # print("t", t)
+    return beta_t
+
+
 class JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v2(JumpProcess):
     """
     Stochastic "real" SEIR2 model for DENV with 2 serotypes + seasonal forcing + birhts and deaths
@@ -537,16 +547,17 @@ class JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v2(JumpProcess):
         T = S+E1+I1+R1+S1+E12+I12+E2+I2+R2+S2+E21+I21+R
 
         # calculate the Beta_t
-        print("type sf", type(sf)) # pandas.core.frame.DataFrame
-        print("\nt = ", t, "sf=", sf.loc[t, 'sf'] )
-        beta_t = beta_0 * sf.loc[t, 'sf']
+        # print("type sf", type(sf)) # pandas.core.frame.DataFrame
+        # print("\nt = ", t, "sf=", sf.loc[t, 'sf'] )
+        # beta_t = beta_0 * sf.loc[t, 'sf'] 
 
-        # checking types of the parameters to calibrate:
-        print("\n alpha type", type(alpha))
-        print("\n beta_0 type", type(beta_0))
-        print("\n gamma type", type(gamma))
-        print('\n rho type', type(rho))
 
+        # # checking types of the parameters to calibrate:
+        # print("\n alpha type", type(alpha))
+        # print("\n beta_0 type", type(beta_0))
+        # print("\n gamma type", type(gamma))
+        # print('\n rho type', type(rho))
+        beta_t = beta_0
         # Compute rates per model state
         rates = {
 
@@ -594,15 +605,53 @@ class JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v2(JumpProcess):
         I_new_new = transitionings['E1'][0] + transitionings['E2'][0] + transitionings['E12'][0] + transitionings['E12'][0]
         I_cum_new = I_cum + I_new
         I_rep_new = rho*I_new_new
-        print("\ncurrently in I1, I2, I12, and I21", I1, I2, I12, I21)
-        print("\nI_new_new", I_new_new)
-        print("\nI_reported_new", I_rep_new)
+        # print("\ncurrently in I1, I2, I12, and I21", I1, I2, I12, I21)
+        # print("\nI_new_new", I_new_new)
+        # print("\nI_reported_new", I_rep_new)
 
         return S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,  R_new,I_new_new, I_cum_new, I_rep_new
 
 #############
 #############
 
+# from time_dep_parameters import time_dep_betaT
+
+# def initialize_model(model, initial_states, params): 
+#     model_initialized = model(initial_states=initial_states, parameters=params, time_dependent_parameters = {"beta_0": time_dep_betaT})
+#     print("params", params)
+#     return model_initialized
+
+from time_dep_parameters import time_dependent_beta
+
+
+def initialize_model(model, initial_states, params, sf):
+    """
+    Initialize the model with time-dependent parameters.
+
+    Args:
+        model: The model class to be initialized.
+        initial_states: Dictionary of initial states.
+        params: Dictionary of all model parameters.
+        sf: DataFrame containing the scaling factor for beta_0.
+
+    Returns:
+        An initialized model instance.
+    """
+    # print(f"[DEBUG] Initializing model with params: {params}")
+
+    # Create an instance of TimeDependentBeta using only beta_0
+    time_dep_beta = time_dependent_beta(sf=sf)
+
+    # Initialize the model with the full parameter dictionary, 
+    # but only passing beta_0 to time_dependent_parameters
+    model_initialized = model(
+        initial_states=initial_states, 
+        parameters=params, 
+        time_dependent_parameters={"beta_0": time_dep_beta}
+    )
+
+    # print("[DEBUG] Model initialized successfully.")
+    return model_initialized
 
 ################################
 # the TEMPORAL SEIR2 model + BIRTHS & DEATHS + beta(temperature) + reported cases 28-01-2025
@@ -645,8 +694,8 @@ class JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v3(JumpProcess):
         T = S+E1+I1+R1+S1+E12+I12+E2+I2+R2+S2+E21+I21+R
 
         # calculate the Beta_t
-        # print("t = ", t, "sf=", sf.loc[t] )
-        print("type sf", type(sf))
+        # print("t = ", t, "sf=", sf[t])
+        # print("type sf", type(sf))
         beta_t = beta_0 * sf[t]
 
 
@@ -697,9 +746,9 @@ class JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v3(JumpProcess):
         I_new_new = transitionings['E1'][0] + transitionings['E2'][0] + transitionings['E12'][0] + transitionings['E12'][0]
         I_cum_new = I_cum + I_new
         I_rep_new = rho*I_new_new
-        print("\ncurrently in I1, I2, I12, and I21", I1, I2, I12, I21)
-        print("\nI_new_new", I_new_new)
-        print("\nI_reported_new", I_rep_new)
+        # print("\ncurrently in I1, I2, I12, and I21", I1, I2, I12, I21)
+        # print("\nI_new_new", I_new_new)
+        # print("\nI_reported_new", I_rep_new)
 
         return S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,  R_new,I_new_new, I_cum_new, I_rep_new
 
