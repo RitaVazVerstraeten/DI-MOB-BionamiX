@@ -171,4 +171,4 @@ sampler_output/
 /data
 
 # Ignore sampler output files and directories
-sampler_output/
+sampler_output_*/
