@@ -39,7 +39,7 @@ class time_dependent_beta:
             sf_t = self.sf.loc[t, 'sf']
         else:
             sf_t = 1  # Default if t is out of bounds
-            # print(f"[WARNING] t={t} is not in sf index. Using default sf=1.")
+            print(f"[WARNING] t={t} is not in sf index. Using default sf=1.")
 
 
         # beta_0 = param

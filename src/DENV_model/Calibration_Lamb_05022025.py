@@ -220,10 +220,18 @@ if __name__ == '__main__':
     # PSO / Nelder-Mead
     ####################
 
-    # Initial guess --> pso
-    theta = pso.optimize(objective_function, swarmsize=3*18, max_iter=n_pso, processes=processes, debug=True)[0]
+    from Utilities import pso_to_dictionary, nelder_mead_to_dictionary
 
-    theta = nelder_mead.optimize(objective_function, theta, 0.10*np.ones(len(theta)), processes=processes, max_iter=n_pso)[0]
+    # Initial guess --> pso
+    g, fg = pso.optimize(objective_function, swarmsize=3*18, max_iter=n_pso, processes=processes, debug=True)
+    theta = g
+    # store the pso results
+    pso_results = pso_to_dictionary(samples_path, identifier, run_date, g, fg)
+
+    # run nelder_mead
+    theta, ftheta = nelder_mead.optimize(objective_function, theta, 0.10*np.ones(len(theta)), processes=processes, max_iter=n_pso)
+    # store the nelder_mead results
+    nelder_mead_results = nelder_mead_to_dictionary(samples_path, identifier, run_date, theta, ftheta, history=None)
     
     ##########
     ## MCMC ##
@@ -259,5 +267,8 @@ if __name__ == '__main__':
     fig = corner.corner(sampler.get_chain(discard=discard, thin=2, flat=True), labels=expanded_labels, **CORNER_KWARGS)
     for idx,ax in enumerate(fig.get_axes()):
         ax.grid(False)
+    plotname = f"{identifier}_cornerplot_{run_date}.pdf"
+    plotpath = os.path.join(samples_path, plotname)
+    fig.savefig(plotpath, dpi=300, bbox_inches="tight")
     plt.show()
     plt.close()

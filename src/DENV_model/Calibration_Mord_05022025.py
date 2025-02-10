@@ -35,7 +35,7 @@ tau = 1.0                                        # Timestep of Tau-Leaping algor
 n_pso = 30                                      # Number of PSO iterations
 multiplier_pso = 10                             # PSO swarm size
 n_mcmc = 500                                    # Number of MCMC iterations
-multiplier_mcmc = 5                            # Total number of Markov chains = number of parameters * multiplier_mcmc
+multiplier_mcmc = 10                            # Total number of Markov chains = number of parameters * multiplier_mcmc
 print_n = 100                                   # Print diagnostics every print_n iterations
 discard = 50                                    # Discard first `discard` iterations as burn-in
 thin = 10                                       # Thinning factor emcee chains
@@ -221,10 +221,18 @@ if __name__ == '__main__':
     # PSO / Nelder-Mead
     ####################
 
-    # Initial guess --> pso
-    theta = pso.optimize(objective_function, swarmsize=3*18, max_iter=5, processes=processes, debug=True)[0]
+    from Utilities import pso_to_dictionary, nelder_mead_to_dictionary
 
-    theta = nelder_mead.optimize(objective_function, theta, 0.10*np.ones(len(theta)), processes=processes, max_iter=5)[0]
+    # Initial guess --> pso
+    g, fg = pso.optimize(objective_function, swarmsize=3*18, max_iter=n_pso, processes=processes, debug=True)
+    theta = g
+    # store the pso results
+    pso_results = pso_to_dictionary(samples_path, identifier, run_date, g, fg)
+
+    # run nelder_mead
+    theta, ftheta = nelder_mead.optimize(objective_function, theta, 0.10*np.ones(len(theta)), processes=processes, max_iter=n_pso)
+    # store the nelder_mead results
+    nelder_mead_results = nelder_mead_to_dictionary(samples_path, identifier, run_date, theta, ftheta, history=None)
     
     ##########
     ## MCMC ##
@@ -251,8 +259,6 @@ if __name__ == '__main__':
                                 fig_path=fig_path, samples_path=samples_path, print_n=print_n, backend=None, processes=processes, progress=True,
                                 settings_dict=settings)       
 
-
-
     # Generate a sample dictionary and save it as .json for long-term storage
     # Have a look at the script `emcee_sampler_to_dictionary.py`, which does the same thing as the function below but can be used while your MCMC is running.
     samples_dict = emcee_sampler_to_dictionary(samples_path, identifier, discard=discard, thin=thin)
@@ -261,6 +267,9 @@ if __name__ == '__main__':
     fig = corner.corner(sampler.get_chain(discard=discard, thin=2, flat=True), labels=expanded_labels, **CORNER_KWARGS)
     for idx,ax in enumerate(fig.get_axes()):
         ax.grid(False)
+    plotname = f"{identifier}_cornerplot_{run_date}.pdf"
+    plotpath = os.path.join(samples_path, plotname)
+    fig.savefig(plotpath, dpi=300, bbox_inches="tight")
     plt.show()
     plt.close()
 

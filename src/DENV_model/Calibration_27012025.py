@@ -5,6 +5,10 @@ import corner
 import pandas as pd
 import numpy as np
 import os
+import json
+
+import datetime
+
 import matplotlib.pyplot as plt
 # pySODM packages
 from pySODM.optimization import pso, nelder_mead
@@ -12,12 +16,36 @@ from pySODM.optimization.utils import add_negative_binomial_noise, assign_theta,
 from pySODM.optimization.mcmc import perturbate_theta, run_EnsembleSampler, emcee_sampler_to_dictionary
 from pySODM.optimization.objective_functions import log_posterior_probability, ll_negative_binomial, ll_poisson
 
-# OPTIONAL: Load the "autoreload" extension so that package code can change
-%load_ext autoreload
-# OPTIONAL: always reload modules so that as you change code in src, it gets loaded
-%autoreload 2
+# # OPTIONAL: Load the "autoreload" extension so that package code can change
+# %load_ext autoreload
+# # OPTIONAL: always reload modules so that as you change code in src, it gets loaded
+# %autoreload 2
 
 os.chdir('/home/rita/PyProjects/DI-MOB-BionamiX/src/DENV_model')
+
+##############
+## Settings ##
+##############
+import multiprocessing as mp
+
+tau = 1.0                                        # Timestep of Tau-Leaping algorithm
+# alpha = 0.03                                    # Overdispersion factor (based on COVID-19)
+# end_calibration = '2018-03-01'                  # Enddate of calibration
+n_pso = 30                                      # Number of PSO iterations
+multiplier_pso = 10                             # PSO swarm size
+n_mcmc = 500                                    # Number of MCMC iterations
+multiplier_mcmc = 3                            # Total number of Markov chains = number of parameters * multiplier_mcmc
+print_n = 100                                   # Print diagnostics every print_n iterations
+discard = 50                                    # Discard first `discard` iterations as burn-in
+thin = 10                                       # Thinning factor emcee chains
+n = 100                                         # Repeated simulations used in visualisations
+# processes = int(os.getenv('SLURM_CPUS_ON_NODE', mp.cpu_count())) # Retrieve CPU count  
+processes = 10
+
+# Variables
+samples_path='optimization/sampler_output/'
+fig_path='optimization/sampler_output/'
+run_date = str(datetime.date.today())
 
 ####################################
 # Load epi dataset for calibration
@@ -26,15 +54,15 @@ os.chdir('/home/rita/PyProjects/DI-MOB-BionamiX/src/DENV_model')
 ## Reading the dataframe
 epi_data_original = pd.read_excel("/home/rita/PyProjects/DI-MOB-BionamiX/data/WP1_Epidemiological_Data/DENV/DENV_12-23_cleaned_Area_CP_Mz_IDCODE_v18112024_forsharing.xlsx")
 
-print(epi_data_original.head())
+#print(epi_data_original.head())
 
-# get the datatypes of all variables
-epi_data_original.info()
+# # get the datatypes of all variables
+# epi_data_original.info()
 
 epi_data = epi_data_original 
 # turn object columns into categorical variables
 epi_data[epi_data.select_dtypes(['object']).columns] = epi_data.select_dtypes(['object']).apply(lambda x: x.astype('category'))
-epi_data.info()
+# epi_data.info()
 
 # Create a counts dataframe per date
 counts = epi_data['XDate_Positivity'].value_counts()
@@ -45,15 +73,16 @@ counts = counts.sort_index()
 # Explicitly converting it to a pd.Series
 counts = pd.Series(counts)
 
-#############################################################
-# check mean-variance relation to choose likelihood function
-#############################################################
+if __name__ == '__main__':    
+    #############################################################
+    # check mean-variance relation to choose likelihood function
+    #############################################################
 
-results, ax = variance_analysis(counts, resample_frequency='W')
-alpha = results.loc['negative binomial', 'theta']
-print(results)
-plt.show()
-plt.close()
+    results, ax = variance_analysis(counts, resample_frequency='W')
+    alpha = results.loc['negative binomial', 'theta']
+    #print(results)
+    plt.show()
+    plt.close()
 
 # Negative binomial is most appropriate -> lowest AIC with argument = 0.885382
 
@@ -63,7 +92,8 @@ plt.close()
 
 # from DENV_models_pySODM import JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v2 as SEIR2
 
-from DENV_models_pySODM import JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v3 as SEIR2_v3
+# from DENV_models_pySODM import JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v3 as SEIR2_v3
+
 ##########################
 ## Define scaling factors
 ##########################
@@ -91,7 +121,7 @@ rainfall_series = meteo["precip_ponderada"]
 
 # Handle missing values
 if temperature_series.isna().any() or rainfall_series.isna().any():
-    print("Warning: Missing values detected. Filling with interpolation.")
+    #print("Warning: Missing values detected. Filling with interpolation.")
     temperature_series = temperature_series.interpolate()
     rainfall_series = rainfall_series.interpolate()
 
@@ -124,98 +154,6 @@ scaling_factors_filtered = {key: df.loc[common_dates] for key, df in scaling_fac
 counts_filtered = counts_filtered.sort_index()
 start_date = counts_filtered.index[0]
 end_date = counts_filtered.index[-1]
-
-# counts_filtered = counts_filtered.reset_index(drop=True)
-
-
-# Sort each DataFrame in scaling_factors_filtered by date and reset index
-scaling_factors_filtered = {
-    key: df.sort_index().reset_index(drop=True)
-    for key, df in scaling_factors_filtered.items()
-}
-
-
-####################################################################
-# Core demographics for start_date = 2012-01-01 in Cienfuegos
-####################################################################
-demo = pd.read_excel("/home/rita/PyProjects/DI-MOB-BionamiX/data/WP1_ Demographic_Data/Population counts and proportions Municipio Cfgos_v17092024.xlsx")
-
-initN = np.rint(demo["Population_Muni"][0])
-
-#################
-# turning scaling_factors into a numpy array 
-#################
-
-scaling_factors_filtered = scaling_factors_filtered['seasonal_forcing'].values.flatten()
-print(type(scaling_factors_filtered)) # numpy.ndarray -> should be OK
-print("\n number of dimensions in sf", scaling_factors_filtered.ndim) # 1 -> should be OK
-
-#################
-## Setup model ##
-#################
-
-params={'alpha':182.5, 'b':2.77e-05, 'd':2.45e-05, 'beta_0' : 0.3, 'sigma':6, 'gamma':7, 'psi': 1.5,'rho' : 0.10, 'sf' : scaling_factors_filtered}
-
-
-# zet initiele conditie gelijk aan 1/rho * I_reported en verdeel deze mensen over I1, I2, I12, en I21: 
-initial_infected = (1/params["rho"])*counts[start_date]
-
-# Equal probabilities for 4 infectious compartments
-probabilities = [0.25, 0.25, 0.25, 0.25]
-
-# Stochastic division using multinomial
-[init_I1, init_I2, init_I12, init_I21] = np.random.multinomial(initial_infected, probabilities)
-
-
-# Define initial condition
-initN = initN
-initS = initN - (init_I1 + init_I2 + init_I12 + init_I21)
-
-initial_states = {
-    'S': np.array([initS]),
-    'I1': np.array([init_I1]),
-    'I2': np.array([init_I2]),
-    'I12': np.array([init_I12]),
-    'I21': np.array([init_I21])
-}
-
-# initialize the model 
-# Initialize model
-model = SEIR2_v3(initial_states=initial_states, parameters=params)
-
-#############################################################
-# Setting up the posterior probability
-#############################################################
-
-
-    #####################
-    ## PSO/Nelder-Mead ##
-    #####################
-
-if __name__ == '__main__': # makes sure this is only run when the script is run directly (not when a function is imported into another file)
-
-    a = 0.885382
-
-    # Define dataset
-    counts_filtered.index.name = 'date'
-    d = pd.Series(counts_filtered)
-    data=[d, ]
-    states = ["I_rep",]
-    # select likelihood function and arguments based on results from variance_analysis function
-    log_likelihood_fnc = [ll_negative_binomial,]
-    log_likelihood_fnc_args = [a,]
-    # Calibated parameters and bounds
-    pars = ['alpha', 'beta_0', 'sigma','rho'] #TCI, baseline infectioun rate, IIP, and fraction of reported cases 
-    labels = ['$\\alpha$' ,'$\\beta_0$', '$\\sigma$', '$\\rho$']
-    bounds = [(0, 720), (0.1, 0.4), (4.00, 7.00), (0, 1)]
-    # Setup objective function (no priors --> uniform priors based on bounds)
-
-    objective_function = log_posterior_probability(model,pars,bounds,data,states,log_likelihood_fnc,log_likelihood_fnc_args,labels=labels)
-
-print("pars indices", type(pars.index)) # built-in method index of list object at 0x70ca95eb2a40
-print("\n params indices", model.parameters.index) # built-in method index of list object at 0x70ca95eb2a40
-print(type(params['sf'].index)) # 'numpy.ndarray' object has no attribute 'index'
-
 
 
 ###################################
@@ -259,29 +197,134 @@ initial_states = {
     'I21': np.array([init_I21])
 }
 
-# Sort each DataFrame in scaling_factors_filtered by date and reset index
-scaling_factors_filtered = {
-    key: df.sort_index().reset_index()
-    for key, df in scaling_factors_filtered.items()
-}
 
-params={'alpha':182.5, 'b':2.77e-05, 'd':2.45e-05, 'beta_0' : 0.3, 'sigma':6, 'gamma':7, 'psi': 1.5,'rho' : 0.10, 'sf' : scaling_factors_filtered['seasonal_forcing']} 
+#print("\n scaling_factors_filtered['seasonal_forcing']",scaling_factors_filtered['seasonal_forcing'])
+#print("\n type(scaling_factors_filtered['seasonal_forcing'])",type(scaling_factors_filtered['seasonal_forcing'])) # pandas.core.frame.DataFrame
 
-print(scaling_factors_filtered['seasonal_forcing'])
-print(type(scaling_factors_filtered['seasonal_forcing'])) # pandas.core.frame.DataFrame
-
-model = SEIR2_v2(initial_states=initial_states, parameters=params) # works now that we have added .reset_index()
-
-# Now I will return the 'date' column as my index for sf to match the index of counts
-params['sf'] = params['sf'].set_index('date')
-print(params['sf'])
+from DENV_models_pySODM import initialize_model
+# To be uncommented later:
+    # model = initialize_model(model = SEIR2_v2, initial_states=initial_states, params = params, sf=params["sf"])
 
 
     #####################
     ## PSO/Nelder-Mead ##
     #####################
 
-if __name__ == '__main__': # makes sure this is only run when the script is run directly (not when a function is imported into another file)
+# if __name__ == '__main__': # makes sure this is only run when the script is run directly (not when a function is imported into another file)
+
+# a = 0.885382
+# # Define dataset
+# counts_filtered.index.name = 'date'
+# d = pd.Series(counts_filtered)
+# data=[d, ]
+
+# states = ["I_rep",]
+# # select likelihood function and arguments based on results from variance_analysis function
+# log_likelihood_fnc = [ll_negative_binomial,]
+# log_likelihood_fnc_args = [a,]
+# # Calibated parameters and bounds
+# pars = ['alpha', 'beta_0', 'sigma','rho'] #TCI, baseline infectioun rate, IIP, and fraction of reported cases 
+# labels = ['$alpha$' ,'$beta_0$', '$sigma$', '$rho$']
+# bounds = [(0.01, 720), (0.1, 0.4), (4.00, 7.00), (0, 1)]
+# alpha mag geen nul zijn
+# Setup objective function (no priors --> uniform priors based on bounds)
+
+# To be uncommented later:
+    # objective_function = log_posterior_probability(model,pars,bounds,data,states,log_likelihood_fnc,log_likelihood_fnc_args,labels=labels)
+    
+    # # Initial guess --> pso
+    # theta = pso.optimize(objective_function, swarmsize=3*18, max_iter=30, processes=4, debug=True)[0]
+
+    # PicklingError: Can't pickle <function time_dep_betaT at 0x76cdf96d8360>: it's not the same object as DENV_models_pySODM.time_dep_betaT -> zet in een andere file en import 
+
+# To be uncommented later:
+
+#  #######################
+#     # file voor time-dep functions, file voor initialization, file voor rates -> allemaal apart 
+# #######################
+
+#     # Run Nelder-Mead optimisation
+#     theta = nelder_mead.optimize(objective_function, theta, 0.10*np.ones(len(theta)), processes=11, max_iter=30)[0]
+
+#     ####################
+#     # simulate the model
+#     ####################
+#     model.parameters.update({'alpha': theta[0], 'beta_0': theta[1], 'sigma': theta[2] ,'rho': theta[3]})
+#     out = model.sim([start_date, end_date])
+
+#     ####################
+#     # Visualize result
+#     ####################
+#     #Assuming you have a 'date' index in your data
+#     plt.figure(figsize=(10, 5))
+#     # Plot model simulations
+#     plt.plot(out["date"], out["I_new"], label="Simulated I_new", color="blue", linestyle="solid")
+#     # Plot I_rep (reported cases)
+#     plt.plot(out["date"], out["I_rep"], label="Simulated I_rep", color="red", linestyle="dashed")
+#     # Plot true observed data (Series with date index)
+#     plt.plot(counts_filtered.index, counts_filtered, label="True Data", color="black", marker="o", alpha=0.7)
+#     # Labels & legend
+#     plt.xlabel("Date")
+#     plt.ylabel("Cases")
+#     plt.title("Simulated vs. Observed Cases")
+#     plt.legend()
+#     plt.xticks(rotation=45)
+#     plt.grid()
+
+#     # Show plot
+#     plt.show()
+
+
+# #############
+# # MCMC
+# ###########
+
+# identifier = 'seasonalForcing_rverstra_2025-02-04'              # Give any output of this script an ID
+
+# # Extract expanded bounds and labels
+# expanded_labels = objective_function.expanded_labels 
+# expanded_bounds = objective_function.expanded_bounds  
+
+# # Perturbate previously obtained estimate
+# ndim, nwalkers, pos = perturbate_theta(theta, pert=0.30*np.ones(len(theta)), multiplier=multiplier_mcmc, bounds=expanded_bounds)
+# # Write some usefull settings to a pickle file (no pd.Timestamps or np.arrays allowed!)
+# settings={'start_calibration': start_date, 'end_calibration': end_date,
+#             'n_chains': nwalkers, 'starting_estimate': list(theta), 'labels': expanded_labels, 'tau': tau}
+# # Sample n_mcmc iterations
+# sampler = run_EnsembleSampler(pos, n_mcmc, identifier, objective_function,  objective_function_kwargs={'simulation_kwargs': {'tau':tau}},
+#                                 fig_path=fig_path, samples_path=samples_path, print_n=print_n, backend=None, processes=processes, progress=True,
+#                                 settings_dict=settings)                                                                               
+# Generate a sample dictionary and save it as .json for long-term storage
+# Have a look at the script `emcee_sampler_to_dictionary.py`, which does the same thing as the function below but can be used while your MCMC is running.
+
+
+# samples_dict = emcee_sampler_to_dictionary(samples_path, identifier, discard=discard, thin=thin)
+# # Look at the resulting distributions in a cornerplot
+# CORNER_KWARGS = dict(smooth=0.90,title_fmt=".2E")
+# fig = corner.corner(sampler.get_chain(discard=discard, thin=2, flat=True), labels=expanded_labels, **CORNER_KWARGS)
+# for idx,ax in enumerate(fig.get_axes()):
+#     ax.grid(False)
+# plt.show()
+# plt.close()
+
+
+####################################################################
+# for scaling_factor = mordecai
+####################################################################
+from time_dep_parameters import time_dependent_beta
+
+time_dep_beta = time_dependent_beta(sf=params["sf"])
+
+# re-set the params - scaling_factors
+params={'alpha':182.5, 'b':2.77e-05, 'd':2.45e-05, 'sigma':6, 'gamma':7, 'psi': 1.5, 'beta_0' : 0.3, 'sf' : scaling_factors_filtered['mordecai_aeg'], 'rho' : 0.10} 
+
+model_mord = SEIR2_v2(initial_states=initial_states, 
+        parameters=params, 
+        time_dependent_parameters={"beta_0": time_dep_beta})
+
+# model_mord = initialize_model(model = SEIR2_v2, initial_states=initial_states, params = params, sf=params["sf"])
+
+if __name__ == '__main__':
 
     a = 0.885382
     # Define dataset
@@ -296,39 +339,179 @@ if __name__ == '__main__': # makes sure this is only run when the script is run 
     # Calibated parameters and bounds
     pars = ['alpha', 'beta_0', 'sigma','rho'] #TCI, baseline infectioun rate, IIP, and fraction of reported cases 
     labels = ['$alpha$' ,'$beta_0$', '$sigma$', '$rho$']
-    bounds = [(0, 720), (0.1, 0.4), (4.00, 7.00), (0, 1)]
-    # Setup objective function (no priors --> uniform priors based on bounds)
-    objective_function = log_posterior_probability(model,pars,bounds,data,states,log_likelihood_fnc,log_likelihood_fnc_args,labels=labels)
+    bounds = [(0.01, 720), (0.1, 0.4), (4.00, 7.00), (0, 1)]
 
-    # add following steps : 
+    objective_function_mord = log_posterior_probability(model_mord,pars,bounds,data,states,log_likelihood_fnc,log_likelihood_fnc_args,labels=labels)
 
+    ####################
+    # PSO / Nelder-Mead
+    ####################
+
+    # # Initial guess --> pso
+    # theta_mord = pso.optimize(objective_function_mord, swarmsize=3*18, max_iter=5, processes=10, debug=True)[0]
+
+    # theta_mord = nelder_mead.optimize(objective_function_mord, theta_mord, 0.10*np.ones(len(theta_mord)), processes=10, max_iter=5)[0]
     
-    # Initial guess --> pso
-    theta = pso.optimize(objective_function, swarmsize=3*18, max_iter=30, processes=4, debug=True)[0]
-    # Run Nelder-Mead optimisation
-    theta = nelder_mead.optimize(objective_function, theta, 0.10*np.ones(len(theta)), processes=11, max_iter=30)[0]
+    theta_mord = np.array([2.57032636e+02, 1.63313981e-01, 6.01686368e+00, 5.23288603e-01])
+    ##########
+    ## MCMC ##
+    ##########
 
-    # check the format of theta
-    print(theta.head())
+    identifier = 'mordecai_rverstra_2025-02-04' # Give any output of this script an ID
 
-    # # Simulate the model
-    # model.parameters.update({'beta': theta[0], 'alpha': theta[1:]})
-    # out = model.sim([start_date, end_date])
-    # # Visualize result
-    # fig,ax=plt.subplots(nrows=2, ncols=1, figsize=(8,6), sharex=True)
-    # ax[0].plot(out['time'], out['I_v']/init_states['S_v']*100, color='red', label='Infected')
-    # ax[0].plot(data_mosquitos.index.get_level_values('time').unique(), data_mosquitos/init_states['S_v']*100, color='black', label='data')
-    # ax[0].set_ylabel('Health state vectors (%)')
-    # ax[0].legend()
-    # ax[0].set_title('Vector lifespan: ' + str(params['beta']) + ' days')
-    # colors=['black', 'red', 'green', 'blue']
-    # labels=['0-5','5-15','15-65','65-120']
-    # for i,age_group in enumerate(age_groups):
-    #     ax[1].plot(out['time'], out['I'].sel(age_group=age_group)/init_states['S'][i]*100000, color=colors[i], label=labels[i])
-    #     ax[1].plot(data_humans.index.get_level_values('time').unique(), data_humans.loc[slice(None), age_group]/init_states['S'][i]*100000, color='black', label='data', alpha=0.6)
-    # ax[1].set_ylabel('Infectious humans per 100K')
-    # ax[1].legend()
-    # ax[1].set_xlabel('time (days)')
-    # ax[1].set_title('Vector-to-human transfer rate: '+str(params['alpha']))
-    # plt.show()
-    # plt.close()
+    # Extract expanded bounds and labels
+    expanded_labels = objective_function_mord.expanded_labels 
+    expanded_bounds = objective_function_mord.expanded_bounds  
+
+    # Perturbate previously obtained estimate
+    ndim, nwalkers, pos = perturbate_theta(theta_mord, pert=0.30*np.ones(len(theta_mord)), multiplier=multiplier_mcmc, bounds=expanded_bounds)
+    # Write some usefull settings to a pickle file (no pd.Timestamps or np.arrays allowed!)
+
+    # change format of start and end_date
+    start_calibration = start_date.strftime("%Y-%m-%d")
+    end_calibration = end_date.strftime("%Y-%m-%d")
+
+    settings={'start_calibration': start_calibration, 'end_calibration': end_calibration,'n_chains': nwalkers, 'starting_estimate': list(theta_mord), 'labels': expanded_labels, 'tau': tau}
+
+    # Sample n_mcmc iterations
+    sampler = run_EnsembleSampler(pos, n_mcmc, identifier,
+                                objective_function_mord,
+                                objective_function_kwargs={'simulation_kwargs': {'tau':tau}},
+                                fig_path=fig_path, samples_path=samples_path, print_n=print_n, backend=None, processes=processes, progress=True,
+                                settings_dict=settings)       
+
+
+# from pySODM.optimization.objective_functions import log_posterior_probability
+
+# sampler = run_EnsembleSampler(pos, n_mcmc, identifier,
+#                               objective_function= log_posterior_probability,
+#                               objective_function_args = (model,pars,bounds,data,states,log_likelihood_fnc,log_likelihood_fnc_args,labels),
+#                               objective_function_kwargs={'simulation_kwargs': {'tau':tau}},
+#                               fig_path=fig_path, samples_path=samples_path, print_n=print_n, backend=None, processes=processes, progress=True,
+#                               settings_dict=settings)             
+# # AttributeError: type object 'log_posterior_probability' has no attribute 'parameter_shapes'
+
+
+
+
+# # Generate a sample dictionary and save it as .json for long-term storage
+# # Have a look at the script `emcee_sampler_to_dictionary.py`, which does the same thing as the function below but can be used while your MCMC is running.
+# samples_dict = emcee_sampler_to_dictionary(samples_path, identifier, discard=discard, thin=thin)
+# # Look at the resulting distributions in a cornerplot
+# CORNER_KWARGS = dict(smooth=0.90,title_fmt=".2E")
+# fig = corner.corner(sampler.get_chain(discard=discard, thin=2, flat=True), labels=expanded_labels, **CORNER_KWARGS)
+# for idx,ax in enumerate(fig.get_axes()):
+#     ax.grid(False)
+# plt.show()
+# plt.close()
+
+
+# ####################################################################
+# # for scaling_factor = perkins
+# ####################################################################
+
+# # re-set the params - scaling_factors
+# params={'alpha':182.5, 'b':2.77e-05, 'd':2.45e-05, 'sigma':6, 'gamma':7, 'psi': 1.5, 'beta_0' : 0.3, 'sf' : scaling_factors_filtered['perkins'], 'rho' : 0.10} 
+
+# model = initialize_model(model = SEIR2_v2, initial_states=initial_states, params = params, sf=params["sf"])
+
+# objective_function_perk = log_posterior_probability(model,pars,bounds,data,states,log_likelihood_fnc,log_likelihood_fnc_args,labels=labels)
+
+# ####################
+# # PSO / Nelder-Mead
+# ####################
+
+# # Initial guess --> pso
+# theta_perk = pso.optimize(objective_function_perk, swarmsize=3*18, max_iter=30, processes=4, debug=True)[0]
+
+# theta_perk = nelder_mead.optimize(objective_function_perk, theta_perk, 0.10*np.ones(len(theta_perk)), processes=11, max_iter=30)[0]
+
+# ##########
+# ## MCMC ##
+# ##########
+
+
+# identifier = 'perkins_rverstra_2025-02-04'              # Give any output of this script an ID
+
+# # Extract expanded bounds and labels
+# expanded_labels = objective_function_perk.expanded_labels 
+# expanded_bounds = objective_function_perk.expanded_bounds  
+
+# # Perturbate previously obtained estimate
+# ndim, nwalkers, pos = perturbate_theta(theta_perk, pert=0.30*np.ones(len(theta_perk)), multiplier=multiplier_mcmc, bounds=expanded_bounds)
+# # Write some usefull settings to a pickle file (no pd.Timestamps or np.arrays allowed!)
+
+# # change format of start and end_date
+# start_calibration = start_date.strftime("%Y-%m-%d")
+# end_calibration = end_date.strftime("%Y-%m-%d")
+
+# settings={'start_calibration': start_calibration, 'end_calibration': end_calibration,'n_chains': nwalkers, 'starting_estimate': list(theta), 'labels': expanded_labels, 'tau': tau}
+# # Sample n_mcmc iterations
+# sampler = run_EnsembleSampler(pos, n_mcmc, identifier,
+#                               objective_function_perk,  objective_function_kwargs={'simulation_kwargs': {'tau':tau}},
+#                               fig_path=fig_path, samples_path=samples_path, print_n=print_n, backend=None, processes=processes, progress=True,
+#                               settings_dict=settings)
+
+# samples_dict = emcee_sampler_to_dictionary(samples_path, identifier, discard=discard, thin=thin)
+# # Look at the resulting distributions in a cornerplot
+# CORNER_KWARGS = dict(smooth=0.90,title_fmt=".2E")
+# fig = corner.corner(sampler.get_chain(discard=discard, thin=2, flat=True), labels=expanded_labels, **CORNER_KWARGS)
+# for idx,ax in enumerate(fig.get_axes()):
+#     ax.grid(False)
+# plt.show()
+# plt.close()
+
+# ####################################################################
+# # for scaling_factor = Lambrechts
+# ####################################################################
+
+# # re-set the params - scaling_factors
+# params={'alpha':182.5, 'b':2.77e-05, 'd':2.45e-05, 'sigma':6, 'gamma':7, 'psi': 1.5, 'beta_0' : 0.3, 'sf' : scaling_factors_filtered['lambrechts'], 'rho' : 0.10} 
+
+# model = initialize_model(model = SEIR2_v2, initial_states=initial_states, params = params, sf=params["sf"])
+
+# objective_function_lamb = log_posterior_probability(model,pars,bounds,data,states,log_likelihood_fnc,log_likelihood_fnc_args,labels=labels)
+
+# ####################
+# # PSO / Nelder-Mead
+# ####################
+
+# # Initial guess --> pso
+# theta_lamb = pso.optimize(objective_function_lamb, swarmsize=3*18, max_iter=30, processes=4, debug=True)[0]
+
+# theta_lamb = nelder_mead.optimize(objective_function_lamb, theta_lamb, 0.10*np.ones(len(theta_lamb)), processes=11, max_iter=30)[0]
+
+# ##########
+# ## MCMC ##
+# ##########
+
+
+# identifier = 'lambrechts_rverstra_2025-02-04'              # Give any output of this script an ID
+
+# # Extract expanded bounds and labels
+# expanded_labels = objective_function_lamb.expanded_labels 
+# expanded_bounds = objective_function_lamb.expanded_bounds  
+
+# # Perturbate previously obtained estimate
+# ndim, nwalkers, pos = perturbate_theta(theta_lamb, pert=0.30*np.ones(len(theta_lamb)), multiplier=multiplier_mcmc, bounds=expanded_bounds)
+# # Write some usefull settings to a pickle file (no pd.Timestamps or np.arrays allowed!)
+
+# # change format of start and end_date
+# start_calibration = start_date.strftime("%Y-%m-%d")
+# end_calibration = end_date.strftime("%Y-%m-%d")
+
+# settings={'start_calibration': start_calibration, 'end_calibration': end_calibration,'n_chains': nwalkers, 'starting_estimate': list(theta), 'labels': expanded_labels, 'tau': tau}
+# # Sample n_mcmc iterations
+# sampler = run_EnsembleSampler(pos, n_mcmc, identifier,
+#                               objective_function_lamb,  objective_function_kwargs={'simulation_kwargs': {'tau':tau}},
+#                               fig_path=fig_path, samples_path=samples_path, print_n=print_n, backend=None, processes=processes, progress=True,
+#                               settings_dict=settings)
+
+# samples_dict = emcee_sampler_to_dictionary(samples_path, identifier, discard=discard, thin=thin)
+# # Look at the resulting distributions in a cornerplot
+# CORNER_KWARGS = dict(smooth=0.90,title_fmt=".2E")
+# fig = corner.corner(sampler.get_chain(discard=discard, thin=2, flat=True), labels=expanded_labels, **CORNER_KWARGS)
+# for idx,ax in enumerate(fig.get_axes()):
+#     ax.grid(False)
+# plt.show()
+# plt.close()
