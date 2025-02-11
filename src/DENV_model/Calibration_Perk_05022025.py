@@ -31,7 +31,7 @@ import multiprocessing as mp
 
 tau = 1.0                                        # Timestep of Tau-Leaping algorithm
 # alpha = 0.03                                    # Overdispersion factor (based on COVID-19)
-# end_calibration = '2018-03-01'                  # Enddate of calibration
+start_calibration = '2012-06-01'                 # start_date of calibration
 n_pso = 30                                      # Number of PSO iterations
 multiplier_pso = 10                             # PSO swarm size
 n_mcmc = 500                                    # Number of MCMC iterations
@@ -67,6 +67,9 @@ counts.rename_axis('date', inplace=True)
 counts = counts.sort_index()
 # Explicitly converting it to a pd.Series
 counts = pd.Series(counts)
+start_date = start_calibration
+end_date = counts.index[-1]
+counts = counts[start_date:end_date]
 
 if __name__ == '__main__':    
     #############################################################
@@ -139,12 +142,13 @@ common_dates = counts.index.intersection(meteo.index)
 # Filter counts to only common dates
 counts_filtered = counts.loc[common_dates]
 # Filter each DataFrame in scaling_factors to only common dates
-scaling_factors_filtered = {key: df.loc[common_dates] for key, df in scaling_factors.items()}
 
 # Sort counts_filtered by date and reset index
 counts_filtered = counts_filtered.sort_index()
-start_date = counts_filtered.index[0]
-end_date = counts_filtered.index[-1]
+
+###############################################
+# Set-up model parameters & initial conditions
+###############################################
 
 demo = pd.read_excel("/home/rita/PyProjects/DI-MOB-BionamiX/data/WP1_ Demographic_Data/Population counts and proportions Municipio Cfgos_v17092024.xlsx")
 
@@ -152,8 +156,8 @@ initN = np.rint(demo["Population_Muni"][0])
 
 # Sort each DataFrame in scaling_factors_filtered by date and reset index
 scaling_factors_filtered = {
-    key: df.sort_index()
-    for key, df in scaling_factors_filtered.items()
+    key: df.sort_index()[df.index >= start_date]
+    for key, df in scaling_factors.items()
 }
 
 params={'alpha':182.5, 'b':2.77e-05, 'd':2.45e-05, 'sigma':6, 'gamma':7, 'psi': 1.5, 'beta_0' : 0.3, 'sf' : scaling_factors_filtered['perkins'], 'rho' : 0.10} 
@@ -181,7 +185,7 @@ initial_states = {
 }
 
 ####################################################################
-# for scaling_factor = seasonal forcing 
+# for scaling_factor = perkins
 ####################################################################
 from time_dep_parameters import time_dependent_beta
 
