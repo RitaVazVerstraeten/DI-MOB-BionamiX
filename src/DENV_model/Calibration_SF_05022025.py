@@ -34,19 +34,19 @@ tau = 1.0                                        # Timestep of Tau-Leaping algor
 start_calibration = '2012-06-01'                 # start_date of calibration
 n_pso = 30                                      # Number of PSO iterations
 multiplier_pso = 10                             # PSO swarm size
-n_mcmc = 500                                    # Number of MCMC iterations
+n_mcmc = 1000                                    # Number of MCMC iterations
 multiplier_mcmc = 10                            # Total number of Markov chains = number of parameters * multiplier_mcmc
 print_n = 100                                   # Print diagnostics every print_n iterations
 discard = 50                                    # Discard first `discard` iterations as burn-in
 thin = 10                                       # Thinning factor emcee chains
 n = 100                                         # Repeated simulations used in visualisations
 # processes = int(os.getenv('SLURM_CPUS_ON_NODE', mp.cpu_count())) # Retrieve CPU count  
-processes = 3                                   # 3 so that if I run all 4 scaling factor scripts simultaneously, I can use my 12 cores. 
+processes = 9                                   # 3 so that if I run all 4 scaling factor scripts simultaneously, I can use my 12 cores. 
 
 # Variables
 samples_path='optimization_SF/sampler_output_SF/'
 fig_path='optimization_SF/sampler_output_SF/'
-identifier = 'SeasonalForcing_rverstra_2025-02-04' # Give any output of this script an ID
+identifier = 'SeasonalForcing_rverstra_' # Give any output of this script an ID
 run_date = str(datetime.date.today())
 
 ####################################
@@ -68,7 +68,7 @@ counts = counts.sort_index()
 # Explicitly converting it to a pd.Series
 counts = pd.Series(counts)
 # start_date = counts_filtered.index[0]
-start_date = start_calibration
+start_date = pd.to_datetime(start_calibration)
 end_date = counts.index[-1]
 counts = counts[start_date:end_date]
 
@@ -226,7 +226,7 @@ if __name__ == '__main__':
     from Utilities import pso_to_dictionary, nelder_mead_to_dictionary
 
     # Initial guess --> pso
-    g, fg = pso.optimize(objective_function, swarmsize=3*18, max_iter=n_pso, processes=processes, debug=True)
+    g, fg = pso.optimize(objective_function, swarmsize=multiplier_pso*processes, max_iter=n_pso, processes=processes, debug=True)
     theta = g
     # store the pso results
     pso_results = pso_to_dictionary(samples_path, identifier, run_date, g, fg)
