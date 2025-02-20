@@ -236,4 +236,3 @@ def generate_scaling_factors(temperature_series, rainfall_series, dates, scaling
     
     return scaling_factors, time
 
-    # test 

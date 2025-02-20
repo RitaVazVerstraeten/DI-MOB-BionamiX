@@ -43,7 +43,7 @@ class time_dependent_beta:
 
 
         # beta_0 = param
-        # print("inside time_dependent_beta function, beta_0: ", beta_0)
+        # print("\ninside time_dependent_beta function")
         # beta_t = beta_0 * self.sf.loc[t, 'sf']
         # print("t:", t, "sf:", self.sf.loc[t, 'sf'])
         # print("inside time_dependent_beta function, beta_t: ", beta_t)

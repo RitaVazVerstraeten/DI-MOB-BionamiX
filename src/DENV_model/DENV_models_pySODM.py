@@ -546,17 +546,6 @@ class JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v2(JumpProcess):
         # Calculate total population
         T = S+E1+I1+R1+S1+E12+I12+E2+I2+R2+S2+E21+I21+R
 
-        # calculate the Beta_t
-        # print("type sf", type(sf)) # pandas.core.frame.DataFrame
-        # print("\nt = ", t, "sf=", sf.loc[t, 'sf'] )
-        # beta_t = beta_0 * sf.loc[t, 'sf'] 
-
-
-        # # checking types of the parameters to calibrate:
-        # print("\n alpha type", type(alpha))
-        # print("\n beta_0 type", type(beta_0))
-        # print("\n gamma type", type(gamma))
-        # print('\n rho type', type(rho))
         beta_t = beta_0
         # Compute rates per model state
         rates = {
@@ -577,13 +566,20 @@ class JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v2(JumpProcess):
 
             'R1': [(1/alpha)*np.ones(T.shape),d*np.ones(T.shape)],
             'R2': [(1/alpha)*np.ones(T.shape),d*np.ones(T.shape)],
-            'R': [d*np.ones(T.shape),] # I had to create this one
+            'R': [d*np.ones(T.shape),], # I had to create this one
             
             }            
+        # print(f"\nrates at timepoint {t}", rates)
         return rates
     
     @staticmethod
     def apply_transitionings(t, tau, transitionings, S,S1, S2, E1, E2, E12, E21, I1, I2, I12, I21, R1, R2, R, I_new, I_cum,I_rep,  b, d, beta_0, alpha, sigma, gamma, psi, rho, sf):
+
+        # print("\n t in apply_transitionings", t)
+        # transitionings = {k: [int(np.round(v, 0)) for v in (v if isinstance(v, list) else [v])] for k, v in transitionings.items()} # to avoid that the states become non-integegers and therefore go below 0
+        # transitionings = {k: [int(np.round(v, 0))] for k, v in transitionings.items()}
+        transitionings = {k: [np.round(arr).astype(int) for arr in v] for k, v in transitionings.items()}
+
 
         S_new  = S - transitionings['S'][0] - transitionings['S'][1] + transitionings['S'][2] - transitionings['S'][3] 
         E1_new = E1 + transitionings['S'][0] - transitionings['E1'][0] - transitionings['E1'][1]
@@ -605,9 +601,10 @@ class JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v2(JumpProcess):
         I_new_new = transitionings['E1'][0] + transitionings['E2'][0] + transitionings['E12'][0] + transitionings['E12'][0]
         I_cum_new = I_cum + I_new
         I_rep_new = rho*I_new_new
-        # print("\ncurrently in I1, I2, I12, and I21", I1, I2, I12, I21)
-        # print("\nI_new_new", I_new_new)
-        # print("\nI_reported_new", I_rep_new)
+
+        # print("\nTransitionings", transitionings)
+        # print("\nNew states: ", S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,  R_new,I_new_new, I_cum_new, I_rep_new)
+        # print("\nNew states: ", "S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,  R_new,I_new_new, I_cum_new, I_rep_new")
 
         return S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,  R_new,I_new_new, I_cum_new, I_rep_new
 
@@ -718,7 +715,7 @@ class JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v3(JumpProcess):
 
             'R1': [(1/alpha)*np.ones(T.shape),d*np.ones(T.shape)],
             'R2': [(1/alpha)*np.ones(T.shape),d*np.ones(T.shape)],
-            'R': [d*np.ones(T.shape),] # I had to create this one
+            'R': [d*np.ones(T.shape),], # I had to create this one
             
             }            
         return rates
