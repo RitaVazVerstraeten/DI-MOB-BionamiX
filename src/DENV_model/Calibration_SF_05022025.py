@@ -29,12 +29,12 @@ from pySODM.optimization.objective_functions import log_posterior_probability, l
 ##############
 import multiprocessing as mp
 
-tau = 1.0                                        # Timestep of Tau-Leaping algorithm
+tau = 7.0                                        # Timestep of Tau-Leaping algorithm
 # alpha = 0.03                                    # Overdispersion factor (based on COVID-19)
 start_calibration = '2012-06-01'                 # start_date of calibration
-n_pso = 30                                      # Number of PSO iterations
+n_pso = 3                                      # Number of PSO iterations
 multiplier_pso = 10                             # PSO swarm size
-n_mcmc = 1000                                    # Number of MCMC iterations
+n_mcmc = 10                                    # Number of MCMC iterations
 multiplier_mcmc = 10                            # Total number of Markov chains = number of parameters * multiplier_mcmc
 print_n = 100                                   # Print diagnostics every print_n iterations
 discard = 50                                    # Discard first `discard` iterations as burn-in
@@ -213,9 +213,9 @@ if __name__ == '__main__':
     log_likelihood_fnc = [ll_negative_binomial,]
     log_likelihood_fnc_args = [a,]
     # Calibated parameters and bounds
-    pars = ['alpha', 'beta_0', 'sigma','rho'] #TCI, baseline infectioun rate, IIP, and fraction of reported cases 
-    labels = ['$alpha$' ,'$beta_0$', '$sigma$', '$rho$']
-    bounds = [(0.01, 720), (0.1, 0.4), (4.00, 7.00), (0, 1)]
+    pars = ['alpha', 'beta_0', 'sigma', 'gamma', 'rho'] #TCI, baseline infectioun rate, IIP, and fraction of reported cases 
+    labels = ['$\\alpha$' ,'$\\beta_0$', '$\\sigma$', '$\\gamma$','$rho$']
+    bounds = [(0.01, 720), (0.1, 0.4), (4.00, 10.00),(4.00, 10.00), (0, 1)]
 
     objective_function = log_posterior_probability(model,pars,bounds,data,states,log_likelihood_fnc,log_likelihood_fnc_args,labels=labels)
 

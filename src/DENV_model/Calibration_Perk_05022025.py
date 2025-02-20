@@ -46,7 +46,7 @@ processes = 3                                   # 3 so that if I run all 4 scali
 # Variables
 samples_path='optimization_Perk/sampler_output_Perk/'
 fig_path='optimization_Perk/sampler_output_Perk/'
-identifier = 'Perkins_rverstra_2025-02-04' # Give any output of this script an ID
+identifier = 'Perkins_rverstra_' # Give any output of this script an ID
 run_date = str(datetime.date.today())
 
 ####################################
@@ -67,7 +67,7 @@ counts.rename_axis('date', inplace=True)
 counts = counts.sort_index()
 # Explicitly converting it to a pd.Series
 counts = pd.Series(counts)
-start_date = start_calibration
+start_date = pd.to_datetime(start_calibration)
 end_date = counts.index[-1]
 counts = counts[start_date:end_date]
 

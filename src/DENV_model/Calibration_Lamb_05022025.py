@@ -29,7 +29,7 @@ from pySODM.optimization.objective_functions import log_posterior_probability, l
 ##############
 import multiprocessing as mp
 
-tau = 1.0                                        # Timestep of Tau-Leaping algorithm
+tau = 7.0                                        # Timestep of Tau-Leaping algorithm
 # alpha = 0.03                                    # Overdispersion factor (based on COVID-19)
 start_calibration = '2012-06-01'                 # start_date of calibration
 n_pso = 30                                      # Number of PSO iterations
@@ -46,7 +46,7 @@ processes = 3                                   # 3 so that if I run all 4 scali
 # Variables
 samples_path='optimization_Lamb/sampler_output_Lamb/'
 fig_path='optimization_Lamb/sampler_output_Lamb/'
-identifier = 'Lambrechts_rverstra_2025-02-04' # Give any output of this script an ID
+identifier = 'Lambrechts_rverstra_' # Give any output of this script an ID
 run_date = str(datetime.date.today())
 
 ####################################
@@ -68,7 +68,7 @@ counts = counts.sort_index()
 # Explicitly converting it to a pd.Series
 counts = pd.Series(counts)
 # start_date = counts_filtered.index[0]
-start_date = start_calibration
+start_date = pd.to_datetime(start_calibration)
 end_date = counts.index[-1]
 counts = counts[start_date:end_date]
 
