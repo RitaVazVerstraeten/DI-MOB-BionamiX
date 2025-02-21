@@ -264,7 +264,12 @@ if __name__ == '__main__':
 
     # Generate a sample dictionary and save it as .json for long-term storage
     # Have a look at the script `emcee_sampler_to_dictionary.py`, which does the same thing as the function below but can be used while your MCMC is running.
+
+    # THIS FUNCTION IS NO LONGER THERE -> NEED TO CHANGE TO _dump_sampler_to_xarray
     samples_dict = emcee_sampler_to_dictionary(samples_path, identifier, discard=discard, thin=thin)
+
+
+
     # Look at the resulting distributions in a cornerplot
     CORNER_KWARGS = dict(smooth=0.90,title_fmt=".2E")
     fig = corner.corner(sampler.get_chain(discard=discard, thin=2, flat=True), labels=expanded_labels, **CORNER_KWARGS)

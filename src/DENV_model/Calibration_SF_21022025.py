@@ -30,9 +30,9 @@ from pySODM.optimization.objective_functions import log_posterior_probability, l
 import multiprocessing as mp
 
 tau = 7.0                                        # Timestep of Tau-Leaping algorithm
-# alpha = 0.03                                    # Overdispersion factor (based on COVID-19)
+# alpha = 0.03                                   # Overdispersion factor (based on COVID-19)
 start_calibration = '2012-06-01'                 # start_date of calibration
-n_pso = 15                                      # Number of PSO iterations
+n_pso = 1                                     # Number of PSO iterations
 multiplier_pso = 10                             # PSO swarm size
 n_mcmc = 500                                    # Number of MCMC iterations
 multiplier_mcmc = 10                            # Total number of Markov chains = number of parameters * multiplier_mcmc
@@ -41,7 +41,7 @@ discard = 50                                    # Discard first `discard` iterat
 thin = 10                                       # Thinning factor emcee chains
 n = 100                                         # Repeated simulations used in visualisations
 # processes = int(os.getenv('SLURM_CPUS_ON_NODE', mp.cpu_count())) # Retrieve CPU count  
-processes = 9                                   # 3 so that if I run all 4 scaling factor scripts simultaneously, I can use my 12 cores. 
+processes = 6                                   # 3 so that if I run all 4 scaling factor scripts simultaneously, I can use my 12 cores. 
 
 # Variables
 samples_path='optimization_SF/sampler_output_SF/'
