@@ -100,7 +100,7 @@ from Scaling_functions_beta_t import generate_scaling_factors
 
 # LOAD THE METEO DATA FOR SCALING FACTORS
 # Paths and file
-file_path = "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data"
+file_path = "/home/rita/PyProjects/DI-MOB-BionamiX/data/WP2_Meteorological_Data"
 file = "Meteorologicas_2012_2022_withSE_v04102024_v1.xlsx"
 
 # Load and preprocess the meteorological data
