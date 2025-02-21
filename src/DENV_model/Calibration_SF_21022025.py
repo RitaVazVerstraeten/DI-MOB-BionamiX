@@ -34,7 +34,7 @@ tau = 7.0                                        # Timestep of Tau-Leaping algor
 start_calibration = '2012-06-01'                 # start_date of calibration
 n_pso = 1                                     # Number of PSO iterations
 multiplier_pso = 10                             # PSO swarm size
-n_mcmc = 500                                    # Number of MCMC iterations
+n_mcmc = 5                                    # Number of MCMC iterations
 multiplier_mcmc = 10                            # Total number of Markov chains = number of parameters * multiplier_mcmc
 print_n = 100                                   # Print diagnostics every print_n iterations
 discard = 50                                    # Discard first `discard` iterations as burn-in
@@ -255,15 +255,16 @@ if __name__ == '__main__':
     start_calibration = start_date.strftime("%Y-%m-%d")
     end_calibration = end_date.strftime("%Y-%m-%d")
 
-    settings={'start_calibration': start_calibration, 'end_calibration': end_calibration,'n_chains': nwalkers, 'starting_estimate': list(theta), 'labels': expanded_labels, 'tau': tau}
+    # settings={'start_calibration': start_calibration, 'end_calibration': end_calibration,'n_chains': nwalkers, 'starting_estimate': list(theta), 'labels': expanded_labels, 'tau': tau}
 
     print()
     # Sample n_mcmc iterations
     sampler, samples_xr = run_EnsembleSampler(pos, n_mcmc, identifier,
                                 objective_function,
                                 objective_function_kwargs={'simulation_kwargs': {'tau':tau}},
-                                fig_path=fig_path, samples_path=samples_path, print_n=print_n, backend=None, processes=processes, progress=True,
-                                settings_dict=settings)       
+                                fig_path=fig_path, samples_path=samples_path, print_n=print_n, backend=None, processes=processes, progress=True)
+                                
+                                #, settings_dict=settings)       
 
 
     # Look at the resulting distributions in a cornerplot
