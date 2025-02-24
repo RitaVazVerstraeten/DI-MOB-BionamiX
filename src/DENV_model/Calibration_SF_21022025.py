@@ -30,9 +30,10 @@ from pySODM.optimization.objective_functions import log_posterior_probability, l
 import multiprocessing as mp
 
 tau = 7.0                                        # Timestep of Tau-Leaping algorithm
+output_timestep = 7                             # only store the output of the model simulations every 7 days (per week)
 # alpha = 0.03                                   # Overdispersion factor (based on COVID-19)
 start_calibration = '2012-06-01'                 # start_date of calibration
-n_pso = 1                                     # Number of PSO iterations
+n_pso = 2                                     # Number of PSO iterations
 multiplier_pso = 10                             # PSO swarm size
 n_mcmc = 5                                    # Number of MCMC iterations
 multiplier_mcmc = 10                            # Total number of Markov chains = number of parameters * multiplier_mcmc
@@ -41,12 +42,12 @@ discard = 50                                    # Discard first `discard` iterat
 thin = 10                                       # Thinning factor emcee chains
 n = 100                                         # Repeated simulations used in visualisations
 # processes = int(os.getenv('SLURM_CPUS_ON_NODE', mp.cpu_count())) # Retrieve CPU count  
-processes = 6                                   # 3 so that if I run all 4 scaling factor scripts simultaneously, I can use my 12 cores. 
+processes = 3                                   # 3 so that if I run all 4 scaling factor scripts simultaneously, I can use my 12 cores. 
 
 # Variables
 samples_path='optimization_SF/sampler_output_SF/'
 fig_path='optimization_SF/sampler_output_SF/'
-identifier = 'SeasonalForcing_rverstra_' # Give any output of this script an ID
+identifier = 'SeasonalForcing_rverstra' # Give any output of this script an ID
 run_date = str(datetime.date.today())
 
 ####################################
@@ -215,12 +216,17 @@ if __name__ == '__main__':
     log_likelihood_fnc_args = [a,]
     # Calibated parameters and bounds
     pars = ['alpha', 'beta_0', 'sigma', 'gamma', 'rho'] #TCI, baseline infectioun rate, IIP, and fraction of reported cases 
-    # labels = ['$\\alpha$' ,'$\\beta_0$', '$\\sigma$', '$\\gamma$','$rho$']
+    labels = ['$\\alpha$' ,'$\\beta_0$', '$\\sigma$', '$\\gamma$','$rho$']
     bounds = [(0.01, 720), (0.1, 0.4), (4.00, 10.00),(4.00, 10.00), (0, 1)]
 
     # objective_function = log_posterior_probability(model,pars,bounds,data,states,log_likelihood_fnc,log_likelihood_fnc_args,labels=labels)
-    objective_function = log_posterior_probability(model,pars,bounds,data,states,log_likelihood_fnc,log_likelihood_fnc_args)
-
+    objective_function = log_posterior_probability(model,pars,bounds,data,states,
+                                                    log_likelihood_fnc,log_likelihood_fnc_args,
+                                                    simulation_kwargs={'tau':tau}, # , 'output_timestep': output_timestep},
+                                                    labels=labels)
+    # Extract expanded bounds and labels
+    expanded_labels = objective_function.expanded_labels 
+    expanded_bounds = objective_function.expanded_bounds 
 
     ####################
     # PSO / Nelder-Mead
@@ -229,23 +235,25 @@ if __name__ == '__main__':
     from Utilities import pso_to_dictionary, nelder_mead_to_dictionary
 
     # Initial guess --> pso
-    g, fg = pso.optimize(objective_function, swarmsize=multiplier_pso*processes, max_iter=n_pso, processes=processes, debug=True)
-    theta = g
+    theta, _ = pso.optimize(objective_function, swarmsize=multiplier_pso*processes, max_iter=n_pso, processes=processes, debug=True)
     # # store the pso results
     # pso_results = pso_to_dictionary(samples_path, identifier, run_date, g, fg)
 
     # run nelder_mead
-    theta, ftheta = nelder_mead.optimize(objective_function, theta, 0.10*np.ones(len(theta)), processes=processes, max_iter=n_pso)
+
+    # theta, _ = nelder_mead.optimize(objective_function, theta, 0.10*np.ones(len(theta)), processes=processes, max_iter=n_pso)
+    # # Nelder-mead
+    # step = len(expanded_bounds)*[0.10,]
+    # theta, _ = nelder_mead.optimize(objective_function, np.array(theta), step, processes=processes,
+    # max_iter=n_pso)
+
+
     # # store the nelder_mead results
     # nelder_mead_results = nelder_mead_to_dictionary(samples_path, identifier, run_date, theta, ftheta, history=None)
     
     ##########
     ## MCMC ##
     ##########
-
-    # Extract expanded bounds and labels
-    expanded_labels = objective_function.expanded_labels 
-    expanded_bounds = objective_function.expanded_bounds  
 
     # Perturbate previously obtained estimate
     ndim, nwalkers, pos = perturbate_theta(theta, pert=0.30*np.ones(len(theta)), multiplier=multiplier_mcmc, bounds=expanded_bounds)
@@ -255,16 +263,20 @@ if __name__ == '__main__':
     start_calibration = start_date.strftime("%Y-%m-%d")
     end_calibration = end_date.strftime("%Y-%m-%d")
 
-    # settings={'start_calibration': start_calibration, 'end_calibration': end_calibration,'n_chains': nwalkers, 'starting_estimate': list(theta), 'labels': expanded_labels, 'tau': tau}
 
-    print()
+    # CHECKING WHAT STARTING_ESTIMATES ARE GIVING ME ISSUES ...
+    starting_estimate = list(theta)
+    # Convert each element of the list to a native Python float
+    starting_estimate = [float(x) for x in theta]
+
+    settings={'start_calibration': start_calibration, 'end_calibration': end_calibration, 'starting_estimate': starting_estimate, 'tau': tau}
+
     # Sample n_mcmc iterations
     sampler, samples_xr = run_EnsembleSampler(pos, n_mcmc, identifier,
                                 objective_function,
-                                objective_function_kwargs={'simulation_kwargs': {'tau':tau}},
-                                fig_path=fig_path, samples_path=samples_path, print_n=print_n, backend=None, processes=processes, progress=True)
-                                
-                                #, settings_dict=settings)       
+                                objective_function_kwargs= None, #{'simulation_kwargs': {'tau':tau}}, # {'tau':tau, 'output_timestep': output_timestep}},
+                                fig_path=fig_path, samples_path=samples_path, print_n=print_n, backend=None, processes=processes, progress=True
+                                , settings_dict=settings)       
 
 
     # Look at the resulting distributions in a cornerplot
