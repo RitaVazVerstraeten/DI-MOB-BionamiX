@@ -71,3 +71,33 @@ def nelder_mead_to_dictionary(samples_path, identifier, run_date, theta, ftheta,
 
     print(f"Nelder-Mead results saved at: {filepath}")
     return results_dict
+
+
+# function to convert params from days to weeks
+def convert_params_to_weeks(params):
+    """
+    Convert SEIR2 model parameters alpha, birthrate, deathrate, beta_0, incubation period and infectious period from days to weeks.
+    
+    Parameters:
+        params (dict): Dictionary containing SEIR parameters with time in days.
+        Can contain any parameter, but only the rate-related parameters "alpha", "b", "d", "beta_0", "sigma", and "gamma" will be altered.  
+    
+    Returns:
+        dict: Dictionary with parameters adjusted to weeks.
+    """
+    params_week = params.copy()
+
+    # convert time-dependent parameters: 
+    if "alpha" in params:
+        params_week["alpha"] /= 7 # TCI period (days -> weeks)
+    if "b" in params:
+        params_week["b"] *= 7 # birth rate (per day -> per week)
+    if "d" in params:
+        params_week["d"] *= 7 # death rate (per day -> per week)
+    if "beta_0" in params:
+        params_week["beta_0"] *= 7 # Transmission rate (per day -> per week)
+    if "sigma" in params:
+        params_week["sigma"] /= 7  # Incubation period (days -> weeks)
+    if "gamma" in params:
+        params_week["gamma"] /= 7  # Infectious period (days -> weeks)
+    return params_week
