@@ -234,7 +234,15 @@ if __name__ == '__main__':
     pars = ['alpha', 'beta_0', 'sigma', 'gamma', 'rho'] #TCI, baseline infectioun rate, IIP, and fraction of reported cases 
     labels = ['$\\alpha$' ,'$\\beta_0$', '$\\sigma$', '$\\gamma$','$\\rho$']
     bounds = [(0.01, 720), (0.1, 0.4), (4.00, 10.00),(4.00, 10.00), (0, 1)]
-
+    if time_unit =="W":
+        # bounds for weekly parameters: 
+        bounds_weekly = [
+            (b[0] / 7, b[1] / 7) if i in [0, 2, 3] else 
+            (b[0] * 7, b[1] * 7) if i == 1 else 
+            b 
+            for i, b in enumerate(bounds)
+        ]
+        bounds = bounds_weekly
     # objective_function = log_posterior_probability(model,pars,bounds,data,states,log_likelihood_fnc,log_likelihood_fnc_args,labels=labels)
     objective_function = log_posterior_probability(model,pars,bounds,data,states,
                                                     log_likelihood_fnc,log_likelihood_fnc_args,
