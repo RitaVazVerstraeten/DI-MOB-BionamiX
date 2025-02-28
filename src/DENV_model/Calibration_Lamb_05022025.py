@@ -6,7 +6,6 @@ import corner
 import pandas as pd
 import numpy as np
 import os
-import json
 
 import datetime
 
@@ -16,7 +15,9 @@ from pySODM.optimization import pso, nelder_mead
 from pySODM.optimization.utils import add_negative_binomial_noise, assign_theta, variance_analysis
 from pySODM.optimization.mcmc import perturbate_theta, run_EnsembleSampler
 from pySODM.optimization.objective_functions import log_posterior_probability, ll_negative_binomial
-
+from Scaling_functions_beta_t import generate_scaling_factors
+from Utilities import convert_params_to_weeks, pso_to_dictionary, nelder_mead_to_dictionary
+from time_dep_parameters import time_dependent_beta
 # # OPTIONAL: Load the "autoreload" extension so that package code can change
 # %load_ext autoreload
 # # OPTIONAL: always reload modules so that as you change code in src, it gets loaded
@@ -34,9 +35,9 @@ tau = 1.0                                        # Timestep of Tau-Leaping algor
 time_unit = "W"
 # alpha = 0.03                                   # Overdispersion factor (based on COVID-19)
 start_calibration = '2012-06-01'                 # start_date of calibration
-n_pso = 2                                     # Number of PSO iterations
+n_pso = 30                                     # Number of PSO iterations
 multiplier_pso = 10                             # PSO swarm size
-n_mcmc = 5                                   # Number of MCMC iterations
+n_mcmc = 1000                                   # Number of MCMC iterations
 multiplier_mcmc = 10                            # Total number of Markov chains = number of parameters * multiplier_mcmc
 print_n = 100                                   # Print diagnostics every print_n iterations
 discard = 50                                    # Discard first `discard` iterations as burn-in
@@ -84,7 +85,7 @@ if __name__ == '__main__':
     # check mean-variance relation to choose likelihood function
     #############################################################
 
-    results, ax = variance_analysis(counts_weekly, resample_frequency='W')
+    results, ax = variance_analysis(counts_weekly, resample_frequency='3W')
     alpha = results.loc['negative binomial', 'theta']
     print(results)
     plt.show()
@@ -102,8 +103,6 @@ from DENV_models_pySODM import JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_repo
 ##########################
 ## Define scaling factors
 ##########################
-
-from Scaling_functions_beta_t import generate_scaling_factors
 
 # LOAD THE METEO DATA FOR SCALING FACTORS
 # Paths and file
@@ -171,7 +170,6 @@ end_date = common_dates.max()
 ###############################################
 # Set-up model parameters & initial conditions
 ###############################################
-from Utilities import convert_params_to_weeks
 
 params={'alpha':182.5, 'b':2.77e-05, 'd':2.45e-05, 'sigma':6, 'gamma':7, 'psi': 1.5, 'beta_0' : 0.3, 'sf' : scaling_factors_filtered['lambrechts'], 'rho' : 0.10} 
 
@@ -192,7 +190,6 @@ probabilities = [0.25, 0.25, 0.25, 0.25]
 # Stochastic division using multinomial
 [init_I1, init_I2, init_I12, init_I21] = np.random.multinomial(initial_infected, probabilities)
 
-
 # Define initial condition
 initN = initN
 initS = initN - (init_I1 + init_I2 + init_I12 + init_I21)
@@ -208,7 +205,6 @@ initial_states = {
 ####################################################################
 # for scaling_factor = Lambrechts
 ####################################################################
-from time_dep_parameters import time_dependent_beta
 
 # set time-dependent parameters
 time_dep_beta = time_dependent_beta(sf=params["sf"])
@@ -220,7 +216,7 @@ model = SEIR2_v2(initial_states=initial_states,
 
 if __name__ == '__main__':
 
-    a =  0.440015
+    a =  0.05
     # Define dataset
     counts_filtered.index.name = 'date'
     d = pd.Series(counts_filtered)
@@ -255,9 +251,6 @@ if __name__ == '__main__':
     ####################
     # PSO / Nelder-Mead
     ####################
-
-    from Utilities import pso_to_dictionary, nelder_mead_to_dictionary
-
     # Initial guess --> pso
     theta, _ = pso.optimize(objective_function, swarmsize=multiplier_pso*processes, max_iter=n_pso, processes=processes, debug=True)
     # # store the pso results
