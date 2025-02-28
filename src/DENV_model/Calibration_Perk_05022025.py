@@ -27,7 +27,6 @@ from time_dep_parameters import time_dependent_beta
 ##############
 ## Settings ##
 ##############
-import multiprocessing as mp
 
 tau = 1.0                                        # Timestep of Tau-Leaping algorithm
 # output_timestep = 7                             # only store the output of the model simulations every 7 days (per week)
@@ -97,13 +96,12 @@ if __name__ == '__main__':
 
 from DENV_models_pySODM import JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v2 as SEIR2_v2
 
-
 ##########################
 ## Define scaling factors
 ##########################
 
 # LOAD THE METEO DATA FOR SCALING FACTORS
-file_path = "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data"
+file_path = "/home/rita/PyProjects/DI-MOB-BionamiX/data/WP2_Meteorological_Data"
 file = "Meteorologicas_2012_2022_withSE_v04102024_v1.xlsx"
 
 # Load and preprocess the meteorological data
