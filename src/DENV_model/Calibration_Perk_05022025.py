@@ -35,7 +35,7 @@ time_unit = "W"
 start_calibration = '2012-06-01'                 # start_date of calibration
 n_pso = 30                                     # Number of PSO iterations
 multiplier_pso = 10                             # PSO swarm size
-n_mcmc = 1000                                   # Number of MCMC iterations
+n_mcmc = 1500                                   # Number of MCMC iterations
 multiplier_mcmc = 10                            # Total number of Markov chains = number of parameters * multiplier_mcmc
 print_n = 100                                   # Print diagnostics every print_n iterations
 discard = 50                                    # Discard first `discard` iterations as burn-in
@@ -45,8 +45,8 @@ n = 100                                         # Repeated simulations used in v
 processes = 6                                   # 3 so that if I run all 4 scaling factor scripts simultaneously, I can use my 12 cores. 
 
 # Variables
-samples_path='optimization_Perk/sampler_output_Perk/'
-fig_path='optimization_Perk/sampler_output_Perk/'
+samples_path='optimization_Perk/'
+fig_path='optimization_Perk/'
 identifier = 'Perkins_rverstra' # Give any output of this script an ID
 run_date = str(datetime.date.today())
 

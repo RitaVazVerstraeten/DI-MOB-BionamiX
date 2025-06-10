@@ -289,7 +289,7 @@ if __name__ == '__main__':
     # check mean-variance relation to choose likelihood function
     #############################################################
 
-    results, ax = variance_analysis(counts, resample_frequency='W')
+    results, ax = variance_analysis(counts, resample_frequency='3W')
     alpha = results.loc['negative binomial', 'theta']
     #print(results)
     plt.show()

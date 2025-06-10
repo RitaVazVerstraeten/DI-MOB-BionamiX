@@ -603,24 +603,19 @@ class JumpProcess_SEIR2_beta_by_Temp_sf_BirthDeath_reported_v2(JumpProcess):
         I_rep_new = rho*I_new_new
 
         # print("\nTransitionings", transitionings)
-        # print("\nNew states: ", S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,  R_new,I_new_new, I_cum_new, I_rep_new)
+
         # print("\nNew states: ", "S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,  R_new,I_new_new, I_cum_new, I_rep_new")
+        # print("\nNew states: ", S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,  R_new,I_new_new, I_cum_new, I_rep_new)
 
         return S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,  R_new,I_new_new, I_cum_new, I_rep_new
 
 #############
 #############
 
-# from time_dep_parameters import time_dep_betaT
-
-# def initialize_model(model, initial_states, params): 
-#     model_initialized = model(initial_states=initial_states, parameters=params, time_dependent_parameters = {"beta_0": time_dep_betaT})
-#     print("params", params)
-#     return model_initialized
-
 from time_dep_parameters import time_dependent_beta
 
 
+# I didn't use this function in the end: 
 def initialize_model(model, initial_states, params, sf):
     """
     Initialize the model with time-dependent parameters.

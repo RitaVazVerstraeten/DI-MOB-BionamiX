@@ -4,6 +4,9 @@ import json
 import os
 from datetime import datetime
 import numpy as np
+import pandas as pd
+
+from Scaling_functions_beta_t import generate_scaling_factors
 
 def pso_to_dictionary(samples_path, identifier, run_date, g, fg, history=None):
     """
@@ -101,3 +104,102 @@ def convert_params_to_weeks(params):
     if "gamma" in params:
         params_week["gamma"] /= 7  # Infectious period (days -> weeks)
     return params_week
+
+def load_epi_and_scaling_factors(start_date, end_date, time_unit):
+    """
+    Function to load the epi count data and create the scaling factors for defined start- and end-dates
+
+    input
+    -----
+    start_date and end_date (string or pd.datetime): dates between which you would like extract count data
+    time_unit (string): days, weeks, months (examples: "D", "W"). The default is "D"
+
+    output
+    ------
+    counts_filtered: pd.Series containing counts by unit of time (days, weeks, months) with date as index. 
+    scaling_factors_filtered: dictionary containing scaling factors for each scaling_factor model (lambrecht, mordecai, perkins, seasonal_forcing), per unit of time, with dates as index. 
+
+    """
+    # Function to lead epi data and scaling factors for pre-defined start- and end-date and time_unit
+    ## Reading the dataframe
+    epi_data = pd.read_excel("/home/rita/PyProjects/DI-MOB-BionamiX/data/WP1_Epidemiological_Data/DENV/DENV_12-23_cleaned_Area_CP_Mz_IDCODE_v18112024_forsharing.xlsx")
+    # Create a counts dataframe per date
+    counts = epi_data['XDate_Positivity'].value_counts()
+    # rename XDate_Positivity to date
+    counts.rename_axis('date', inplace=True)
+    # sort by date: 
+    counts = counts.sort_index()
+
+    if time_unit == "W":
+        # create weekly counts
+        counts_weekly = counts.resample('W-SAT').sum()
+        counts = counts_weekly
+
+    # select only data between start - end calibration
+    counts_filtered = counts[start_date:end_date]
+
+    ##########################
+    ## Define scaling factors
+    ##########################
+
+    # LOAD THE METEO DATA FOR SCALING FACTORS
+    file_path = "/home/rita/PyProjects/DI-MOB-BionamiX/data/WP2_Meteorological_Data"
+    file = "Meteorologicas_2012_2022_withSE_v04102024_v1.xlsx"
+
+    # Load and preprocess the meteorological data
+    meteo = pd.read_excel(os.path.join(file_path, file))
+    meteo = meteo.drop(columns=["Canta_Rana", "Los_Jimenez", "La_Ceiba"], errors='ignore')
+    meteo.columns = meteo.columns.str.strip().str.replace(' ', '_').str.lower()
+
+    if 'date' not in meteo.columns:
+        raise ValueError("Column 'date' not found in the dataset.")
+    meteo['date'] = pd.to_datetime(meteo['date'], errors='coerce')
+    meteo.set_index('date', inplace=True)
+
+    # Extract temperature and rainfall series
+    temperature_series = meteo["temp_med"]
+    rainfall_series = meteo["precip_ponderada"]
+
+    # Handle missing values
+    if temperature_series.isna().any() or rainfall_series.isna().any():
+        #print("Warning: Missing values detected. Filling with interpolation.")
+        temperature_series = temperature_series.interpolate()
+        rainfall_series = rainfall_series.interpolate()
+
+    # GENERATE THE SCALING FACTORS
+    scaling_factors, time = generate_scaling_factors(
+        temperature_series=temperature_series,
+        rainfall_series=rainfall_series,
+        dates=temperature_series.index,
+        scaling_methods= ["seasonal_forcing", "mordecai_aeg", "lambrechts", "perkins"]
+    )
+
+    for key, df in scaling_factors.items():
+        df.index = meteo.index
+
+    # ##############################################
+    # Get overlap between dates sf and epidemiology
+    # ##############################################
+
+    # Sort each DataFrame in scaling_factors_filtered by date and reset index
+    scaling_factors_filtered = {
+        key: df.sort_index()[df.index >= start_date]
+        for key, df in scaling_factors.items()
+    }
+
+    if time_unit == "W":
+        # Resample from Saturday to Saturday and take the mean
+        scaling_factors_weekly = {
+            model: df['sf'].resample('W-SAT').mean()  
+            for model, df in scaling_factors_filtered.items()
+        }
+        scaling_factors_filtered = scaling_factors_weekly
+
+    # Find the intersection of indices
+    common_dates = counts_filtered.index.intersection(scaling_factors_filtered['seasonal_forcing'].index)
+
+    counts_filtered = counts_filtered.loc[common_dates]
+    # Filter each DataFrame in scaling_factors to only common dates
+    scaling_factors_filtered = {key: df.loc[common_dates] for key, df in scaling_factors_filtered.items()}
+
+    return counts_filtered, scaling_factors_filtered
