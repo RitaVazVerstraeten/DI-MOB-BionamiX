@@ -136,6 +136,8 @@ def load_epi_and_scaling_factors(start_date, end_date, time_unit):
         counts_weekly = counts.resample('W-SAT').sum()
         counts = counts_weekly
 
+    counts_filtered = counts[start_date:end_date]
+
     # Create a complete date range based on the time_unit
     if time_unit == "W":
         all_dates = pd.date_range(start=start_date, end=end_date, freq='W-SAT')
@@ -204,6 +206,7 @@ def load_epi_and_scaling_factors(start_date, end_date, time_unit):
 
     # Find the intersection of indices
     common_dates = counts_filtered.index.intersection(scaling_factors_filtered['seasonal_forcing'].index)
+    # print(f"Common dates between counts and scaling factors: {len(common_dates)}")
 
     counts_filtered = counts_filtered.loc[common_dates]
     # Filter each DataFrame in scaling_factors to only common dates
