@@ -105,6 +105,7 @@ def convert_params_to_weeks(params):
         params_week["gamma"] /= 7  # Infectious period (days -> weeks)
     return params_week
 
+
 def load_epi_and_scaling_factors(start_date, end_date, time_unit):
     """
     Function to load the epi count data and create the scaling factors for defined start- and end-dates
@@ -135,8 +136,14 @@ def load_epi_and_scaling_factors(start_date, end_date, time_unit):
         counts_weekly = counts.resample('W-SAT').sum()
         counts = counts_weekly
 
-    # select only data between start - end calibration
-    counts_filtered = counts[start_date:end_date]
+    # Create a complete date range based on the time_unit
+    if time_unit == "W":
+        all_dates = pd.date_range(start=start_date, end=end_date, freq='W-SAT')
+    else:
+        all_dates = pd.date_range(start=start_date, end=end_date, freq='D')
+
+    # Reindex counts_filtered to include all dates, filling missing with 0
+    counts_filtered = counts_filtered.reindex(all_dates, fill_value=0)
 
     ##########################
     ## Define scaling factors
