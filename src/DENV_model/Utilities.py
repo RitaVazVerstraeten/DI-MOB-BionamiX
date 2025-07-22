@@ -5,7 +5,10 @@ import os
 from datetime import datetime
 import numpy as np
 import pandas as pd
+import importlib
 
+import Scaling_functions_beta_t 
+importlib.reload(Scaling_functions_beta_t)  # Reload to ensure latest changes are applied
 from Scaling_functions_beta_t import generate_scaling_factors
 
 def pso_to_dictionary(samples_path, identifier, run_date, g, fg, history=None):
@@ -165,7 +168,7 @@ def load_epi_and_scaling_factors(start_date, end_date, time_unit):
     meteo['date'] = pd.to_datetime(meteo['date'], errors='coerce')
     meteo.set_index('date', inplace=True)
 
-    # Extract temperature and rainfall series
+    # Extract temperature and rainfall series first
     temperature_series = meteo["temp_med"]
     rainfall_series = meteo["precip_ponderada"]
 
@@ -175,34 +178,32 @@ def load_epi_and_scaling_factors(start_date, end_date, time_unit):
         temperature_series = temperature_series.interpolate()
         rainfall_series = rainfall_series.interpolate()
 
+    if time_unit == "W":
+        # Resample meteo data to weekly using the same Saturday-ending logic as epi data
+        temperature_series = temperature_series.resample('W-SAT').mean()
+        rainfall_series = rainfall_series.resample('W-SAT').sum()
+
     # GENERATE THE SCALING FACTORS
     scaling_factors, time = generate_scaling_factors(
         temperature_series=temperature_series,
         rainfall_series=rainfall_series,
         dates=temperature_series.index,
-        scaling_methods= ["seasonal_forcing", "mordecai_aeg", "lambrechts", "perkins"]
+        scaling_methods= ["seasonal_forcing", 'mordecai_aeg', 'mordecai_albo', 'mordecai_mix',  "lambrechts", "perkins"]
     )
 
+    # Set the correct index for scaling factors
     for key, df in scaling_factors.items():
-        df.index = meteo.index
+        df.index = temperature_series.index  # Use temperature_series.index which has the correct dates
 
     # ##############################################
     # Get overlap between dates sf and epidemiology
     # ##############################################
 
-    # Sort each DataFrame in scaling_factors_filtered by date and reset index
+    # Sort each DataFrame in scaling_factors_filtered by date and filter by start_date
     scaling_factors_filtered = {
         key: df.sort_index()[df.index >= start_date]
         for key, df in scaling_factors.items()
     }
-
-    if time_unit == "W":
-        # Resample from Saturday to Saturday and take the mean
-        scaling_factors_weekly = {
-            model: df['sf'].resample('W-SAT').mean()  
-            for model, df in scaling_factors_filtered.items()
-        }
-        scaling_factors_filtered = scaling_factors_weekly
 
     # Find the intersection of indices
     common_dates = counts_filtered.index.intersection(scaling_factors_filtered['seasonal_forcing'].index)
@@ -213,3 +214,45 @@ def load_epi_and_scaling_factors(start_date, end_date, time_unit):
     scaling_factors_filtered = {key: df.loc[common_dates] for key, df in scaling_factors_filtered.items()}
 
     return counts_filtered, scaling_factors_filtered
+
+# function to aggregate meteo daily data to weekly or monthly
+
+def aggregate_meteo_daily_to_weekly(meteo, group_cols=['stat_week']):
+    """
+    Aggregates daily meteo data to weekly per UF.
+    Temperature and relative humidity are aggregated using min, max, and mean.
+    Precipitation is aggregated using the sum daily precipitation in mm.
+    Expects columns: group_cols, and *_min, *_max, *_med, *_sum variables.
+    """
+    # Check if 'date' column exists, if not check if index is datetime
+    if 'date' not in meteo.columns:
+        if isinstance(meteo.index, pd.DatetimeIndex):
+            # Reset index to make date a column
+            meteo = meteo.reset_index()
+            meteo = meteo.rename(columns={meteo.columns[0]: 'date'})
+        else:
+            raise ValueError("No 'date' column found and index is not a DatetimeIndex.")
+    
+    # Remove duplicates in daily data
+    before = len(meteo)
+    meteo = meteo.drop_duplicates(subset=['date'])
+    after = len(meteo)
+    if before != after:
+        print(f"Removed {before - after} duplicate daily records before weekly aggregation.")
+
+    min_vars = [col for col in meteo.columns if col.endswith('_min')]
+    max_vars = [col for col in meteo.columns if col.endswith('_max')]
+    mean_vars = [col for col in meteo.columns if col.endswith('_med')]
+    sum_vars = [col for col in meteo.columns if col.endswith('_ponderada')]
+
+    agg_dict = {}
+    agg_dict.update({v: 'min' for v in min_vars})
+    agg_dict.update({v: 'max' for v in max_vars})
+    agg_dict.update({v: 'mean' for v in mean_vars})
+    agg_dict.update({v: 'sum' for v in sum_vars})
+    
+    # Also aggregate the date column to keep a representative date (e.g., first date of the week)
+    agg_dict['date'] = 'first'
+
+    meteo_per_yearweek = meteo.groupby(group_cols).agg(agg_dict).reset_index()
+    return meteo_per_yearweek
