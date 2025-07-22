@@ -48,6 +48,47 @@ def perkins_scaling_norm(temperature, rainfall):
     return raw_value/8.5481 # So that max scaling = 1 (for T = 25.07°C and precipitation = 206.11 mm)
 
 
+# def mordecai_scaling_albopictus(temperature):
+#     # Taken from: E. A. Mordecai et al, PLoS Negl Trop Dis 11 (2017)
+#     # Parameters are those for Aedes albopictus for DENV
+#     a = briere(temperature, 1.93e-4, 10.25, 38.32) # per-mosquito biting rate
+#     efd = briere(temperature, 4.88e-2, 8.02, 35.65) # Eggs per Female per Day
+#     pea = quadratic(temperature, 3.61e-3, 9.04, 39.33) # mosquito egg-to-adult survival probability
+#     mdr = briere(temperature, 6.38e-5, 8.60, 39.66) # mosquito immature development rate
+#     lf = quadratic(temperature, 0.15, 9.16, 37.73) # mosquito lifespan + DENV 
+#     b = briere(temperature, 7.35e-4, 15.84, 36.40) # proportion of infectious bites infecting S humans (mosquito - to - human)
+#     c = briere(temperature, 4.39e-4, 3.62, 36.82) # proportion of bites on I humans infecting S mosquitoes (human - to - mosquito)
+#     pdr = briere(temperature, 1.09e-4, 10.39, 43.05) # parasite development rate → 1/EIP
+
+#     res = a * a * b * c
+#     if lf > 0.0 and pdr > 0.0:
+#         res *= math.exp(-1.0 / (lf * pdr))
+#     res *= efd * pea * mdr * lf ** 3
+#     return math.sqrt(res) / 86.5331  # So that max scaling = 1 (at T = 28.40) --> this is specific for DENV + Aedes albopictus 
+
+
+# def mordecai_scaling_aegypti(temperature):
+#     # Taken from: E. A. Mordecai et al, PLoS Negl Trop Dis 11 (2017)
+#     # Parameters are those for Aedes aegypti for DENV
+#     a = briere(temperature, 2.02e-4, 13.35, 40.08) # per-mosquito biting rate
+#     efd = briere(temperature, 8.66e-3, 14.58, 34.61) # Eggs per Female per Day
+#     pea = quadratic(temperature, 5.99e-3, 13.56, 38.29) # mosquito egg-to-adult survival probability
+#     mdr = briere(temperature, 7.86e-5, 11.36, 39.17) # mosquito immature development rate
+#     lf = quadratic(temperature, 0.15, 9.16, 37.73) # mosquito lifespan + DENV
+#     b = briere(temperature, 8.49e-4, 17.05, 35.83) # proportion of infectious bites infecting S humans (mosquito - to - human)
+#     c = briere(temperature, 4.91e-4, 12.22, 37.46) # proportion of bites on I humans infecting S mosquitoes (human - to - mosquito)
+#     pdr = briere(temperature, 6.65e-5, 10.68, 45.90) # parasite development rate → 1/EIP
+
+#     res = a * a * b * c
+#     if lf > 0.0 and pdr > 0.0:
+#         res *= math.exp(-1.0 / (lf * pdr))
+#     res *= efd * pea * mdr * lf ** 3
+
+#     return math.sqrt(res) / 25.1551  # So that max scaling = 1 (for T = 29.04) --> this is specific for DENV + Aedes aegypti 
+
+
+
+
 def mordecai_scaling_albopictus(temperature):
     # Taken from: E. A. Mordecai et al, PLoS Negl Trop Dis 11 (2017)
     # Parameters are those for Aedes albopictus for DENV
@@ -55,7 +96,8 @@ def mordecai_scaling_albopictus(temperature):
     efd = briere(temperature, 4.88e-2, 8.02, 35.65) # Eggs per Female per Day
     pea = quadratic(temperature, 3.61e-3, 9.04, 39.33) # mosquito egg-to-adult survival probability
     mdr = briere(temperature, 6.38e-5, 8.60, 39.66) # mosquito immature development rate
-    lf = quadratic(temperature, 0.15, 9.16, 37.73) # mosquito lifespan + DENV 
+    # lf = quadratic(temperature, 0.15, 9.16, 37.73) # old version (keep for reference)
+    lf = quadratic(temperature, 1.43, 13.41, 31.51) # mosquito lifespan + DENV 
     b = briere(temperature, 7.35e-4, 15.84, 36.40) # proportion of infectious bites infecting S humans (mosquito - to - human)
     c = briere(temperature, 4.39e-4, 3.62, 36.82) # proportion of bites on I humans infecting S mosquitoes (human - to - mosquito)
     pdr = briere(temperature, 1.09e-4, 10.39, 43.05) # parasite development rate → 1/EIP
@@ -64,17 +106,19 @@ def mordecai_scaling_albopictus(temperature):
     if lf > 0.0 and pdr > 0.0:
         res *= math.exp(-1.0 / (lf * pdr))
     res *= efd * pea * mdr * lf ** 3
-    return math.sqrt(res) / 86.5331  # So that max scaling = 1 (at T = 28.40) --> this is specific for DENV + Aedes albopictus 
+    # print("New scaling factor normalization for albopictus is being used")
+    return math.sqrt(res) / 480.728  # So that max scaling = 1 (at T = 26.07) --> this is specific for DENV + Aedes albopictus 
 
 
 def mordecai_scaling_aegypti(temperature):
     # Taken from: E. A. Mordecai et al, PLoS Negl Trop Dis 11 (2017)
     # Parameters are those for Aedes aegypti for DENV
     a = briere(temperature, 2.02e-4, 13.35, 40.08) # per-mosquito biting rate
-    efd = briere(temperature, 8.66e-3, 14.58, 34.61) # Eggs per Female per Day
+    efd = briere(temperature, 8.56e-3, 14.58, 34.61) # Eggs per Female per Day
     pea = quadratic(temperature, 5.99e-3, 13.56, 38.29) # mosquito egg-to-adult survival probability
     mdr = briere(temperature, 7.86e-5, 11.36, 39.17) # mosquito immature development rate
-    lf = quadratic(temperature, 0.15, 9.16, 37.73) # mosquito lifespan + DENV
+    # lf = quadratic(temperature, 0.15, 9.16, 37.73) # mosquito lifespan + DENV
+    lf = quadratic(temperature, 0.148, 9.16, 37.73) # mosquito lifespan + DENV
     b = briere(temperature, 8.49e-4, 17.05, 35.83) # proportion of infectious bites infecting S humans (mosquito - to - human)
     c = briere(temperature, 4.91e-4, 12.22, 37.46) # proportion of bites on I humans infecting S mosquitoes (human - to - mosquito)
     pdr = briere(temperature, 6.65e-5, 10.68, 45.90) # parasite development rate → 1/EIP
@@ -83,10 +127,64 @@ def mordecai_scaling_aegypti(temperature):
     if lf > 0.0 and pdr > 0.0:
         res *= math.exp(-1.0 / (lf * pdr))
     res *= efd * pea * mdr * lf ** 3
+    # print("New scaling factor normalization for aegypti is being used")
+    return math.sqrt(res) / 24.4620  # So that max scaling = 1 (for T = 29.118) 
 
-    return math.sqrt(res) / 25.1551  # So that max scaling = 1 (for T = 29.04) --> this is specific for DENV + Aedes aegypti 
+def mordecai_scaling_mix(temperature):
+    # Taken from: E. A. Mordecai et al, PLoS Negl Trop Dis 11 (2017)
+    # Parameters are those for Aedes aegypti AND Aedes albopictus for DENV
+    a = briere(temperature, 2.71e-4, 14.67, 41.00) # per-mosquito biting rate
+    efd = briere(temperature, 2.08e-2, 14.06, 32.03) # Eggs per Female per Day
+    pea = quadratic(temperature, 3.36e-3, 7.68, 38.31) # mosquito egg-to-adult survival probability
+    mdr = briere(temperature, 1.49e-4, 15.12, 37.67) # mosquito immature development rate
+    # lf = quadratic(temperature, 0.15, 9.16, 37.73) # mosquito lifespan + DENV
+    lf = quadratic(temperature, 1.24e0, 16.63, 31.85) # mosquito lifespan + DENV
+    b = briere(temperature, 9.86e-4, 12.05, 32.79) # proportion of infectious bites infecting S humans (mosquito - to - human)
+    c = briere(temperature, 5.23e-4, 1.51, 34.74) # proportion of bites on I humans infecting S mosquitoes (human - to - mosquito)
+    pdr = briere(temperature, 1.04e-4, 11.50, 38.97) # parasite development rate → 1/EIP
 
+    res = a * a * b * c
+    if lf > 0.0 and pdr > 0.0:
+        res *= math.exp(-1.0 / (lf * pdr))
+    res *= efd * pea * mdr * lf ** 3
+    # print("New scaling factor normalization for aegypti is being used")
+    return math.sqrt(res) / 212.3596  # So that max scaling = 1 (for T = 26.78)
 
+# Test normalization for Aedes albopictus
+temps = np.linspace(14.7, 35, 100)
+scalings = [mordecai_scaling_albopictus(t) for t in temps]
+print("Max scaling (albopictus):", max(scalings), "at T =", temps[np.argmax(scalings)])
+
+# Test normalization for Aedes aegypti
+scalings_aeg = [mordecai_scaling_aegypti(t) for t in temps]
+print("Max scaling (aegypti):", max(scalings_aeg), "at T =", temps[np.argmax(scalings_aeg)])
+
+scalings_mix = [mordecai_scaling_mix(t) for t in temps]
+print("Max scaling (mixed):", max(scalings_mix), "at T =", temps[np.argmax(scalings_mix)])
+
+# Find the true max 
+temps = np.linspace(8.1, 37, 100) # based on min and max temp in daily Cienfuegos data
+raws_aeg = []
+for temperature in temps:
+    a = briere(temperature, 1.93e-4, 10.25, 38.32) # per-mosquito biting rate
+    efd = briere(temperature, 4.88e-2, 8.02, 35.65) # Eggs per Female per Day
+    pea = quadratic(temperature, 3.61e-3, 9.04, 39.33) # mosquito egg-to-adult survival probability
+    mdr = briere(temperature, 6.38e-5, 8.60, 39.66) # mosquito immature development rate
+    # lf = quadratic(temperature, 0.15, 9.16, 37.73) # old version (keep for reference)
+    lf = quadratic(temperature, 1.43, 13.41, 31.51) # mosquito lifespan + DENV 
+    b = briere(temperature, 7.35e-4, 15.84, 36.40) # proportion of infectious bites infecting S humans (mosquito - to - human)
+    c = briere(temperature, 4.39e-4, 3.62, 36.82) # proportion of bites on I humans infecting S mosquitoes (human - to - mosquito)
+    pdr = briere(temperature, 1.09e-4, 10.39, 43.05) # parasite development rate → 1/EIP
+    res = a * a * b * c
+    if lf > 0.0 and pdr > 0.0:
+        res *= math.exp(-1.0 / (lf * pdr))
+    res *= efd * pea * mdr * lf ** 3
+    if res > 0:
+        raws_aeg.append(math.sqrt(res))
+    else:
+        raws_aeg.append(0)
+max_raw_aeg = max(raws_aeg)
+print("Max raw (albo):", max_raw_aeg, "at T =", temps[np.argmax(raws_aeg)])
 
 
 # Standard seasonal forcing equation
@@ -198,7 +296,7 @@ def generate_scaling_factors(temperature_series, rainfall_series, dates, scaling
         rainfall_series (pd.Series): Time series of rainfall values.
         dates (pd.DatetimeIndex): Date indices for the time series.
         scaling_methods (list): List of scaling methods to use. Options:
-                                ['mordecai_aeg', 'mordecai_albo', 'lambrechts', 'perkins', 'seasonal_forcing'].
+                                ['mordecai_aeg', 'mordecai_albo', 'mordecai_mix', 'lambrechts', 'perkins', 'seasonal_forcing'].
                                 If None, all methods are calculated.
                                 
     Returns:
@@ -208,6 +306,7 @@ def generate_scaling_factors(temperature_series, rainfall_series, dates, scaling
     available_methods = {
         'mordecai_aeg': lambda: temperature_series.apply(mordecai_scaling_aegypti),
         'mordecai_albo': lambda: temperature_series.apply(mordecai_scaling_albopictus),
+        'mordecai_mix': lambda: temperature_series.apply(mordecai_scaling_mix),
         'lambrechts': lambda: temperature_series.apply(lambrechts_scaling),
         'perkins': lambda: pd.Series(
             [perkins_scaling_norm(temp, rain) for temp, rain in zip(temperature_series, rainfall_series)],
