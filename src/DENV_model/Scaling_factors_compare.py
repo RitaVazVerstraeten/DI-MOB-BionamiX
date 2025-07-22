@@ -177,11 +177,11 @@ def plot_cuban_scaling_factors(scaling_factors, start_date=None, end_date=None, 
             data_to_plot = data_to_plot[mask]
             index_to_plot = index_to_plot[mask]
         
-        plt.plot(index_to_plot, data_to_plot, linewidth=2.5, label=name.replace('_', ' ').title(), color=color)
+        plt.plot(index_to_plot, data_to_plot, linewidth=1.5, label=name.replace('_', ' ').title(), color=color)
     
     plt.xlabel('Date', fontsize=12, fontweight='bold')
     plt.ylabel('Scaling Factor', fontsize=12, fontweight='bold')
-    plt.title('Temperature-Dependent Scaling Factors for Dengue Transmission in Cuba', fontsize=14, fontweight='bold')
+    plt.title('Temperature-Dependent Scaling Factors for Dengue Transmission in Cienfuegos', fontsize=14, fontweight='bold')
     plt.legend(loc='best', fontsize=10)
     plt.grid(True, alpha=0.3)
     
@@ -230,7 +230,7 @@ def plot_comprehensive_meteo_scaling_epi(meteo_data, scaling_factors, epi_data, 
     
     # Create subplots
     fig, axes = plt.subplots(4, 1, figsize=figsize, sharex=True)
-    fig.suptitle('Meteorological Data, Scaling Factors, and Epidemiological Cases', fontsize=16, fontweight='bold')
+    fig.suptitle('Meteorological Data, Scaling Factors, and Epidemiological Cases Cienfuegos', fontsize=16, fontweight='bold')
     
     # 1. Temperature plot
     ax1 = axes[0]
@@ -259,9 +259,9 @@ def plot_comprehensive_meteo_scaling_epi(meteo_data, scaling_factors, epi_data, 
     for i, (name, sf_data) in enumerate(scaling_filtered.items()):
         color = colors[i % len(colors)]
         if isinstance(sf_data, pd.DataFrame) and 'sf' in sf_data.columns:
-            ax3.plot(sf_data.index, sf_data['sf'], linewidth=2, label=name, color=color)
+            ax3.plot(sf_data.index, sf_data['sf'], linewidth=1.2, label=name, color=color)
         elif isinstance(sf_data, pd.Series):
-            ax3.plot(sf_data.index, sf_data, linewidth=2, label=name, color=color)
+            ax3.plot(sf_data.index, sf_data, linewidth=1.5, label=name, color=color)
     ax3.set_ylabel('Scaling Factor', fontweight='bold')
     ax3.set_title('Scaling Factors Over Time')
     ax3.legend(loc='upper right', fontsize=9)
@@ -269,7 +269,7 @@ def plot_comprehensive_meteo_scaling_epi(meteo_data, scaling_factors, epi_data, 
     
     # 4. Epidemiological cases plot
     ax4 = axes[3]
-    ax4.plot(epi_filtered.index, epi_filtered.values, 'k-', linewidth=2, marker='o', markersize=3, label='Cases')
+    ax4.plot(epi_filtered.index, epi_filtered.values, 'k-', linewidth=1.2, marker='o', markersize=2, label='Cases')
     ax4.fill_between(epi_filtered.index, 0, epi_filtered.values, alpha=0.3, color='red')
     ax4.set_ylabel('Cases', fontweight='bold')
     ax4.set_xlabel('Date', fontweight='bold')
