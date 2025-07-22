@@ -162,12 +162,15 @@ cython_debug/
 # R history file
 .Rhistory
 
+# Ignore sampler output files and directories
+sampler_output/
 # PDFs
-=======
 *.pdf
 
-# data file 
+# Any file in the Data folder
 /data
 
 # Ignore sampler output files and directories
-sampler_output/
+sampler_output_*/
+
+src/DENV_model/pySODM

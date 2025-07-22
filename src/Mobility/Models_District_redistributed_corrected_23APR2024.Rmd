@@ -21,12 +21,13 @@ knitr::opts_chunk$set(
 #install.packages("gridExtra")
 library(gridExtra)
 library(grid)
+library(readxl)
+
 ```
 
 ## Loading the Belgian census mobility data - this is our mobility matrix $M$
 ```{r mobility data from excel}
-library(readxl)
-mob <- read_xlsx("/home/rita/Documents/DI-MOB/Mobility_Model/Census_mobility_Districts_20MAR2024.xlsx", skip = 2) # this file contains the distric data after redistribution of the columns "province XX, town and district unknown" using the destination population as weights
+mob <- read_xlsx("/home/rita/Documents/DI-MOB/Mobility_Model/Census_mobility_Districts_20MAR2024.xlsx", skip = 2) # this file contains the district data after redistribution of the columns "province XX, town and district unknown" using the destination population sizes as weights
 mob_backup <- mob
 mob <- mob[,-c(1,2)]
 rownames(mob) <- colnames(mob)
@@ -276,34 +277,41 @@ ggplot(data=melted_M) +
                              barheight=0.5,
                              frame.colour='black',
                              ticks=TRUE))
-ggsave("MobMatrix_BE_District_Census_NIS_23APR2024.png")
+# ggsave("MobMatrix_BE_District_Census_NIS_23APR2024.png")
 ```
 
 
 ## Fit the gravity and radiation models  - departure-diffusion have been added
 ```{r fit}
 modRad <- mobility(data=matrix_list, model='radiation', type='basic', DIC=TRUE)
-#modRadFinite <- mobility(data=matrix_list, model='radiation', type='finite', DIC= TRUE)
+# modRadFinite <- mobility(data=matrix_list, model='radiation', type='finite', DIC= TRUE)
 
 modGrav <- mobility(data=matrix_list, model='gravity', type='power', DIC=TRUE)
-#modGravExp <- mobility(data=matrix_list, model='gravity', type='exp', DIC=TRUE)
-#modGravPowerNorm <- mobility(data=matrix_list, model='gravity', type='power_norm', DIC=TRUE)
+modGravPowerNorm <- mobility(data=matrix_list, model='gravity', type='power_norm', DIC=TRUE)
 
-modDepDifGrav <- mobility(data=matrix_list, model='departure-diffusion', type='power')
-modDepDifRad <-  mobility(data=matrix_list, model='departure-diffusion', type='radiation')
+modGravExp <- mobility(data=matrix_list, model='gravity', type='exp', DIC=TRUE)
+modGravExpNorm <- mobility(data=matrix_list, model = 'gravity', type = 'exp_norm', DIC=TRUE)
+
+modDepDifGrav <- mobility(data=matrix_list, model='departure-diffusion', type='power', DIC=TRUE)
+modDepDifRad <-  mobility(data=matrix_list, model='departure-diffusion', type='radiation', DIC=TRUE)
+modDepDifExpGrav <- mobility(data=matrix_list, model='departure-diffusion', type='exp', DIC=TRUE)
 ```
 
 Fitting a mobility model to a large number of locations (e.g. $\gt 100$) or drawing a large number of samples from posterior distributions (e.g. 10000) may take several minutes. If computation is cumbersome, then the model can run sampling chains in parallel instead of sequentially by specifying `parallel = TRUE`.
 
 The fitting function `mobility()` returns results as a `mobility.model` that contains information on the type of model, the data used, and the estimated model parameters.
 ```{r chains}
-str(modRad)
 summary(modRad) # no parameters in this model
-str(modGrav)
-summary(modGrav)
+
+summary(modGrav) # gravity - power
+summary(modGravPowerNorm) # gravity - power-norm
+
+summary(modGravExp) # gravity - exponential
+summary(modGravExpNorm) # gravity - exponential-norm
 
 summary(modDepDifGrav)
-summary(modDepDifRad)
+summary(modDepDifExpGrav) 
+summary(modDepDifRad) 
 ```
 
 The `check()` function provides goodness of fit metrics and summary plots for the fitted model.
@@ -404,7 +412,7 @@ ggplot(data=melted_Mhat) +
                              barheight=0.5,
                              frame.colour='black',
                              ticks=TRUE))
-ggsave("MobMatrix_BE_District_Radiation_23APR2024.png")
+# ggsave("MobMatrix_BE_District_Radiation_23APR2024.png")
 ```
 
 # Plot absolute difference Census - radiation
@@ -435,7 +443,7 @@ ggplot(data=melted_dif) +
                              barheight=0.5,
                              frame.colour='black',
                              ticks=TRUE))
-ggsave("Difference_District_Census_Radiation_23APR2024.png")
+# ggsave("Difference_District_Census_Radiation_23APR2024.png")
 ```
 
 ## Plot the gravity model
@@ -465,7 +473,7 @@ ggplot(data=melted_Mhat) +
                              barheight=0.5,
                              frame.colour='black',
                              ticks=TRUE))
-ggsave("MobMatrix_BE_District_Gravity_23APR2024.png")
+# ggsave("MobMatrix_BE_District_Gravity_23APR2024.png")
 ```
 
 # Plot absolute difference Census - gravity
@@ -497,7 +505,7 @@ ggplot(data=melted_dif) +
                              barheight=0.5,
                              frame.colour='black',
                              ticks=TRUE))
-ggsave("Difference_District_Census_Gravity_23APR2024.png")
+# ggsave("Difference_District_Census_Gravity_23APR2024.png")
 ```
 
 Plotting the histograms for the census, gravity and radiation data. Measuring the modeled mobility's distance from the census data using Kolmogorov-Smirnov Distance measure. 
@@ -572,7 +580,7 @@ ggplot(data=melted_Mhat) +
                              barheight=0.5,
                              frame.colour='black',
                              ticks=TRUE))
-ggsave("MobMatrix_BE_District_DepDifGrav_23APR2024.png")
+# ggsave("MobMatrix_BE_District_DepDifGrav_23APR2024.png")
 ```
 
 ## Plot the Departure-Diffusion with Radiation model
@@ -602,7 +610,7 @@ ggplot(data=melted_Mhat) +
                              barheight=0.5,
                              frame.colour='black',
                              ticks=TRUE))
-ggsave("MobMatrix_BE_District_DepDifRad_23APR2024.png")
+# ggsave("MobMatrix_BE_District_DepDifRad_23APR2024.png")
 ```
 
 # Plot absolute difference Census - Departure-Diffusion_gravity
@@ -635,7 +643,7 @@ ggplot(data=melted_dif) +
                              barheight=0.5,
                              frame.colour='black',
                              ticks=TRUE))
-ggsave("Difference_District_Census_DepDifGrav_23APR2024.png")
+# ggsave("Difference_District_Census_DepDifGrav_23APR2024.png")
 ```
 
 # Plot absolute difference Census - Departure-Diffusion_radiation
@@ -668,7 +676,7 @@ ggplot(data=melted_dif) +
                              barheight=0.5,
                              frame.colour='black',
                              ticks=TRUE))
-ggsave("Difference_District_Census_DepDifRad_23APR2024.png")
+# ggsave("Difference_District_Census_DepDifRad_23APR2024.png")
 ```
 
 ## making histograms and calculating distance from census data 
@@ -1150,3 +1158,154 @@ permTS(depdifgrav_vector, prox_vector, alternative="two.sided") # (difference) Z
 permTS(depdifrad_vector, prox_vector, alternative="two.sided") # (difference) Z = -0.10992, p-value = 0.9125
 ```
 There are no remarkable differences between the PermTS test among the different models compared to the Proximus data. 
+
+
+# EXTRA -> PREDICTION AND PLOTS FOR ADDITIONAL MODELS: 
+
+## PREDICTION FOR ADDITIONAL MODELS: 
+```{r prediction & plots extra models}
+M_hatRad <- predict(modRad)
+M_hatGrav <- predict(modGrav)
+M_hatmodGravPowerNorm <- predict(modGravPowerNorm)
+M_hatmodGravExp <- predict(modGravExp)
+M_hatmodGravExpNorm <- predict(modGravExpNorm)
+M_hatmodDepDifRad <- predict(modDepDifRad)
+M_hatmodDepDifGrav <- predict(modDepDifGrav)
+M_hatmodDepDifExpGrav <- predict(modDepDifExpGrav)
+
+save(M_hatGrav, M_hatRad, M_hatmodGravPowerNorm, M_hatmodGravExp, M_hatmodGravExpNorm, M_hatmodDepDifGrav, M_hatmodDepDifExpGrav, M_hatmodDepDifRad, file = "predicted_mobility_models_district.RData")
+```
+## Calculate AIC
+
+I now want to calculate the AIC values for each model: 
+```{r functions to calculate AIC}
+# # To calculate the AIC value we first need the loglikelihood
+library(matrixStats)
+
+likelihood_function <- function(model_prediction, true_data){
+  # Calculate likelihood for each data point
+  model_rounded <- round(model_prediction +1) # +1 is done to avoid zero probability --> likelihood -Inf
+  true_rounded <- round(true_data +1) 
+  likelihoods <- dpois(true_rounded, lambda = model_rounded, log = TRUE)
+  # Sum the log-likelihoods across all data points
+  total_log_likelihood <- sum(likelihoods, na.rm = TRUE)
+  
+  return(total_log_likelihood)
+}
+
+Loglik_modRad <- likelihood_function(model_prediction = M_hatRad, true_data = matrix_list$M)
+Loglik_modGrav <- likelihood_function(model_prediction = M_hatGrav, true_data = matrix_list$M)
+Loglik_modGravPowerNorm <- likelihood_function(model_prediction = M_hatmodGravPowerNorm, true_data = matrix_list$M)
+Loglik_modGravExp <- likelihood_function(model_prediction = M_hatmodGravExp, true_data = matrix_list$M)
+Loglik_modGravExpNorm <- likelihood_function(model_prediction = M_hatmodGravExpNorm, true_data = matrix_list$M)
+Loglik_modDepDifRad <- likelihood_function(model_prediction = M_hatmodDepDifRad, true_data = matrix_list$M)
+Loglik_modDepDifGrav <- likelihood_function(model_prediction = M_hatmodDepDifGrav, true_data = matrix_list$M)
+Loglik_modDepDifExpGrav <- likelihood_function(model_prediction = M_hatmodDepDifExpGrav, true_data = matrix_list$M)
+print("LL Values:")
+Loglik_modRad # [1] -11416864
+
+Loglik_modGrav # [1] -8650365
+Loglik_modGravPowerNorm
+
+Loglik_modGravExp
+Loglik_modGravExpNorm
+
+Loglik_modDepDifRad
+Loglik_modDepDifGrav
+Loglik_modDepDifExpGrav
+
+# Now I can calculate the AIC value: 
+calculate_AIC <- function(log_likelihood, num_parameters) {
+    AIC_value <- -2 * log_likelihood + 2 * num_parameters
+    return(AIC_value)
+}
+AIC_modRad <- calculate_AIC(Loglik_modRad, num_parameters = 0)
+
+AIC_modGrav <- calculate_AIC(Loglik_modGrav, num_parameters = 4)
+AIC_modGravPowerNorm <- calculate_AIC(Loglik_modGravPowerNorm, num_parameters = 3)
+
+AIC_modGravExp <- calculate_AIC(Loglik_modGravExp, num_parameters = 4)
+AIC_modGravExpNorm <- calculate_AIC(Loglik_modGravExpNorm, num_parameters = 3)
+
+AIC_modDepDifRad <- calculate_AIC(Loglik_modDepDifRad, num_parameters = 3)
+AIC_modDepDifGrav <- calculate_AIC(Loglik_modDepDifGrav, num_parameters = 4)
+AIC_modDepDifExpGrav <- calculate_AIC(Loglik_modDepDifExpGrav, num_parameters = 4)
+print("AIC Values:")
+AIC_modRad # 4081059
+
+AIC_modGrav # 3156838
+AIC_modGravPowerNorm # 3099023
+
+AIC_modGravExp # 1619617
+AIC_modGravExpNorm # 1308457
+
+AIC_modDepDifRad # 2003111
+AIC_modDepDifGrav # 1034095 -> BEST ONE BASED ON AIC
+AIC_modDepDifExpGrav # 1034713
+```
+## DIC, RMSE, MAPE and R2
+```{r calculate selection criteria for models}
+check(modRad)
+check(modGrav)
+check(modGravPowerNorm)
+check(modGravExp)
+check(modGravExpNorm)
+check(modDepDifRad)
+check(modDepDifGrav)
+check(modDepDifExpGrav)
+```
+
+```{r compare histograms per model}
+## PLOTTING THE HISTOGRAMS 
+census_vector <- as.vector(M)
+Rad_vector <- as.vector(M_hatRad) #column-wise vectorization of the radiation mobility matrix
+
+Grav_vector <- as.vector(M_hatGrav)
+GravPowerNorm_vector <- as.vector(M_hatmodGravPowerNorm) #column-wise vectorization of the radiation mobility matrix
+
+GravExp_vector <- as.vector(M_hatmodGravExp)
+GravExpNorm_vector <- as.vector(M_hatmodGravExpNorm) #column-wise vectorization of the radiation mobility matrix
+
+DepDifRad_vector <- as.vector(M_hatmodDepDifRad)
+DepDifGrav_vector <- as.vector(M_hatmodDepDifGrav) #column-wise vectorization of the radiation mobility matrix
+DepDifExpGrav_vector <- as.vector(M_hatmodDepDifExpGrav)
+
+library(ggplot2)
+census_vector_transf <- log(census_vector)
+Rad_vector_transf <- log(Rad_vector) #
+Grav_vector_transf <- log(Grav_vector) # 
+GravPowerNorm_vector_transf <- log(GravPowerNorm_vector) #
+GravExp_vector_transf <- log(GravExp_vector) #
+GravExpNorm_vector_transf <- log(GravExpNorm_vector) #
+DepDifRad_vector_transf <- log(DepDifRad_vector) #
+DepDifGrav_vector_transf <- log(DepDifGrav_vector) #
+DepDifExpGrav_vector_transf <- log(DepDifExpGrav_vector) #
+
+
+# png("/home/rita/Documents/DI-MOB/Mobility_Model/Histograms_Mobility_Models_23APR2024.png", width = 1000, height = 600)
+par(mfrow = c(3, 3))
+hist(census_vector_transf, xlab = "log transformed mobility counts", main = "Census model")
+hist(Rad_vector_transf, xlab = "log transformed mobility counts", main = "Radiation model")
+hist(Grav_vector_transf, xlab = "log transformed mobility counts", main = "Gravity-Power model")
+hist(GravPowerNorm_vector_transf, xlab = "log transformed mobility counts", main = "Gravity-PowerNorm model")
+hist(GravExp_vector_transf, xlab = "log transformed mobility counts", main = "Gravity-Exp model")
+hist(GravExpNorm_vector_transf, xlab = "log transformed mobility counts", main = "Gravity-Exp-Norm model")
+hist(DepDifRad_vector_transf, xlab = "log transformed mobility counts", main = "DD-Rad model")
+hist(DepDifGrav_vector_transf, xlab = "log transformed mobility counts", main = "DD-Grav model")
+hist(DepDifExpGrav_vector_transf, xlab = "log transformed mobility counts", main = "DD-Grav-Exp model")
+# Print the current plotting device
+dev.off()
+
+# plotting the counts without log transformation
+par(mfrow = c(3, 3))
+hist(census_vector, xlab = "mobility counts", main = "Census model")
+hist(Rad_vector, xlab = "mobility counts", main = "Radiation model")
+hist(Grav_vector, xlab = "mobility counts", main = "Gravity-Power model")
+hist(GravPowerNorm_vector, xlab = "mobility counts", main = "Gravity-PowerNorm model")
+hist(GravExp_vector, xlab = "mobility counts", main = "Gravity-Exp model")
+hist(GravExpNorm_vector, xlab = "mobility counts", main = "Gravity-Exp-Norm model")
+hist(DepDifRad_vector, xlab = "mobility counts", main = "DD-Rad model")
+hist(DepDifGrav_vector, xlab = "mobility counts", main = "DD-Grav model")
+hist(DepDifExpGrav_vector, xlab = "mobility counts", main = "DD-Grav-Exp model")
+
+```
