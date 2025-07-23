@@ -142,12 +142,13 @@ plot_meteo_scaling_epi(
 
 # Additional plotting functions
 
-def plot_cuban_scaling_factors(scaling_factors, start_date=None, end_date=None, save_path=None):
+def plot_cuban_scaling_factors(scaling_factors, params, start_date=None, end_date=None, save_path=None):
     """
-    Simple function to plot just the scaling factors for Cuban data.
+    Simple function to plot beta(t) values for Cuban data.
     
     Parameters:
     - scaling_factors: Dictionary of scaling factors
+    - params: Dictionary containing beta_0 parameter
     - start_date, end_date: Optional date range
     - save_path: Optional path to save the figure
     """
@@ -158,15 +159,18 @@ def plot_cuban_scaling_factors(scaling_factors, start_date=None, end_date=None, 
     # Color palette for different scaling factors
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
     
+    # Get beta_0 value
+    beta_0 = params["beta_0"] if isinstance(params["beta_0"], float) else params["beta_0"][0]
+    
     for i, (name, sf_data) in enumerate(scaling_factors.items()):
         color = colors[i % len(colors)]
         
         # Handle both DataFrame and Series
         if isinstance(sf_data, pd.DataFrame) and 'sf' in sf_data.columns:
-            data_to_plot = sf_data['sf']
+            data_to_plot = beta_0 * sf_data['sf']  # Calculate beta(t)
             index_to_plot = sf_data.index
         elif isinstance(sf_data, pd.Series):
-            data_to_plot = sf_data
+            data_to_plot = beta_0 * sf_data  # Calculate beta(t)
             index_to_plot = sf_data.index
         else:
             continue
@@ -180,8 +184,8 @@ def plot_cuban_scaling_factors(scaling_factors, start_date=None, end_date=None, 
         plt.plot(index_to_plot, data_to_plot, linewidth=1.5, label=name.replace('_', ' ').title(), color=color)
     
     plt.xlabel('Date', fontsize=12, fontweight='bold')
-    plt.ylabel('Scaling Factor', fontsize=12, fontweight='bold')
-    plt.title('Temperature-Dependent Scaling Factors for Dengue Transmission in Cienfuegos', fontsize=14, fontweight='bold')
+    plt.ylabel('Beta(t)', fontsize=12, fontweight='bold')
+    plt.title('Time-dependent Beta(t) for Dengue Transmission in Cienfuegos', fontsize=14, fontweight='bold')
     plt.legend(loc='best', fontsize=10)
     plt.grid(True, alpha=0.3)
     
@@ -253,13 +257,18 @@ def plot_comprehensive_meteo_scaling_epi(meteo_data, scaling_factors, epi_data, 
     ax2.set_title('Precipitation Over Time')
     ax2.grid(True, alpha=0.3)
     
-    # 3. Scaling factors plot
+    # 3. Beta(t) plot
     ax3 = axes[2]
     colors = ['green', 'orange', 'purple', 'brown', 'pink', 'gray']
+    
+    # Get beta_0 value
+    beta_0 = params["beta_0"] if isinstance(params["beta_0"], float) else params["beta_0"][0]
+    
     for i, (name, sf_data) in enumerate(scaling_filtered.items()):
         color = colors[i % len(colors)]
         if isinstance(sf_data, pd.DataFrame) and 'sf' in sf_data.columns:
-            ax3.plot(sf_data.index, sf_data['sf'], linewidth=1.2, label=name, color=color)
+            beta_t = beta_0 * sf_data['sf']  # Calculate beta(t)
+            ax3.plot(sf_data.index, beta_t, linewidth=1.2, label=name, color=color)
         elif isinstance(sf_data, pd.Series):
             ax3.plot(sf_data.index, sf_data, linewidth=1.5, label=name, color=color)
     ax3.set_ylabel('Scaling Factor', fontweight='bold')
@@ -298,6 +307,7 @@ fig_sf = plot_cuban_scaling_factors(
     scaling_factors=scaling_factors_filtered,
     start_date=start_date,
     end_date=end_date,
+    params=params,
     save_path=None
 )
 
