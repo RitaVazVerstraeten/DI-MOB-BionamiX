@@ -189,7 +189,9 @@ class JumpProcess_SEIR4_beta_by_Temp_sf_BirthDeath_reported_d_1_3_ICF(JumpProces
             if np.isnan(T) or T == 0:
                 print(f"[DEBUG] T is invalid at t={t}: T={T}, state_array={state_array[:5]}, beta_t={beta_t}")
             else:
-                forces[sero] = beta_t * (primary_val + psi * sum_higher) / T
+                # forces[sero] = beta_t * (primary_val + psi * sum_higher) / T
+                # clip forces to be between 0 and 1 -> to avoid ValueError: p < 0, p > 1 or p contains NaNs
+                forces[sero] = np.clip(beta_t * (primary_val + psi * sum_higher) / T, 0, 1)
 
 
         #######################
@@ -233,7 +235,7 @@ class JumpProcess_SEIR4_beta_by_Temp_sf_BirthDeath_reported_d_1_3_ICF(JumpProces
                 
             elif state.startswith("I") and state not in ["I_new", "I_cum", "I_rep", "I_1_rep", "I_2_rep", "I_3_rep", "I_4_rep"]:
                 rates[state] = [
-                    (1 / gamma) * np.ones(state_array[idx].shape),
+                    np.clip((1 / gamma) * np.ones(state_array[idx].shape), 0,1), # avoid rates >1 for infectious period
                     d * np.ones(state_array[idx].shape)]
                 
             elif state.startswith("R"):
@@ -249,7 +251,7 @@ class JumpProcess_SEIR4_beta_by_Temp_sf_BirthDeath_reported_d_1_3_ICF(JumpProces
         for state, rate_list in rates.items():
             for i, rate in enumerate(rate_list):
                 arr = np.array(rate)
-                if np.any(arr < 0)  or np.any(np.isnan(arr)):
+                if np.any(arr < 0) or np.any(arr > 1) or np.any(np.isnan(arr)):
                     print(f"[DEBUG] Invalid rate in state '{state}' (rate idx {i}), NaNs={np.isnan(arr).sum()}")
                     print(f"  Rate values (first 5): {arr[:5]}")
                     print(f"  State value: {state_array[idx]}")
@@ -258,7 +260,7 @@ class JumpProcess_SEIR4_beta_by_Temp_sf_BirthDeath_reported_d_1_3_ICF(JumpProces
 
         return rates
     
-
+    
            
                
     @staticmethod
