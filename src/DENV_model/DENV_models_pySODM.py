@@ -33,6 +33,161 @@ class ODE_SEIR2_model(ODE):
         
         return dS, dE1, dE2, dI1, dI2, dR1, dR2, dH1, dH2, dR12
 
+
+################################################################################################
+# SEIR MODEL + SF + BIRTHS & DEATHS - 23/09/2025
+################################################################################################
+
+class JumpProcess_SEIR_beta_by_Temp_sf_BirthDeath_reported(JumpProcess): 
+    """
+    Stochastic SEIR model for DENV with one single serotype + seasonal forcing + births and deaths
+    No inclusion of age. All births go into susceptible compartment. All deaths leave from every possible compartment (they are unrelated to DENV). 
+
+    All the E, I, R compartments are available twice in the model to represent both serotypes
+    The S and R are independent of serotype
+
+    -- Parameters -- 
+    b : birth rate - constant for now
+    d : death rate - constant for now and not the same as b
+    sigma : incubation period
+    gamma : infectious period
+    psi : enhanced / inhibited infectiousness of secondary infection
+    rho: Percentage of the I_new compartments that's reported
+    ---------------
+
+    The temperature depedence is implemented through an equation that represents the temperature-dependence of mosquito variables by Mordecai et al (2017). 
+    -- Parameters --
+        beta_0 : the baseline beta 
+    -- Temperature dependence functions ---
+        scaling factor -> time series added to model
+    ---------------
+
+    """
+    
+    states = ['S','E','I', 'R', 'I_new', 'I_cum', 'I_rep']
+    parameters = ['b', 'd', 'beta_0', 'sigma', 'gamma', 'rho', 'sf', 'lag', 'epi_uf', 'f_imm', 'pop_uf']
+
+    @staticmethod
+    def compute_rates(t, S, E, I, R, I_new, I_cum, I_rep, b, d, beta_0, sigma, gamma, rho, sf, lag, epi_uf, f_imm, pop_uf):
+
+        # Calculate total population
+        T = S+E+I+R
+
+        beta_t = beta_0 # needs to be used with time_dependent_beta function when simulating the model 
+        # Compute rates per model state
+        rates = {
+            'S': [beta_t*(I/T), b*np.ones(T.shape), d*np.ones(T.shape)], 
+            'E': [(1/sigma)*np.ones(T.shape), d*np.ones(T.shape)], 
+            'I': [(1/gamma)*np.ones(T.shape), d*np.ones(T.shape)], 
+            'R': [d*np.ones(T.shape),], 
+            }            
+        # print(f"\nrates at timepoint {t}", rates)
+        return rates
+    
+    @staticmethod
+    def apply_transitionings(t, tau, transitionings, S, E, I, R, I_new, I_cum, I_rep,  b, d, beta_0, sigma, gamma,  rho, sf, lag, epi_uf, f_imm, pop_uf):
+
+        # print("\n t in apply_transitionings", t)
+        # transitionings = {k: [int(np.round(v, 0)) for v in (v if isinstance(v, list) else [v])] for k, v in transitionings.items()} # to avoid that the states become non-integegers and therefore go below 0
+        # transitionings = {k: [int(np.round(v, 0))] for k, v in transitionings.items()}
+        transitionings = {k: [np.round(arr).astype(int) for arr in v] for k, v in transitionings.items()}
+
+
+        S_new  = S - transitionings['S'][0] + transitionings['S'][1] - transitionings['S'][2] # - EXPOSED + BIRTHS - DEATHS
+        E_new = E + transitionings['S'][0] - transitionings['E'][0] - transitionings['E'][1] # + EXPOSED - INCUBATED - DEATHS
+        I_new = I + transitionings['E'][0] - transitionings['I'][0] - transitionings['I'][1] # + INCUBATED - RECOVERED - DEATHS
+        R_new = R + transitionings['I'][0] - transitionings['R'][0] # + RECOVERED - DEATHS
+
+        # derivative state: 
+        I_new_new = transitionings['E'][0] 
+        I_cum_new = I_cum + I_new
+        I_rep_new = rho*I_new_new
+
+        # print("\nTransitionings", transitionings)
+
+        # print("\nNew states: ", "S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,  R_new,I_new_new, I_cum_new, I_rep_new")
+        # print("\nNew states: ", S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,  R_new,I_new_new, I_cum_new, I_rep_new)
+
+        return S_new, E_new, I_new,  R_new,I_new_new, I_cum_new, I_rep_new
+
+
+class JumpProcess_SEIR_beta_by_Temp_sf_BirthDeath_reported_seasonalforcingParams(JumpProcess): 
+    """
+    Stochastic SEIR model for DENV with one single serotype + seasonal forcing + births and deaths
+    No inclusion of age. All births go into susceptible compartment. All deaths leave from every possible compartment (they are unrelated to DENV). 
+
+    All the E, I, R compartments are available twice in the model to represent both serotypes
+    The S and R are independent of serotype
+
+    -- Parameters -- 
+    b : birth rate - constant for now
+    d : death rate - constant for now and not the same as b
+    sigma : incubation period
+    gamma : infectious period
+    psi : enhanced / inhibited infectiousness of secondary infection
+    rho: Percentage of the I_new compartments that's reported
+    freq: frequency of seasonal forcing (e.g., 52 for weekly data, 365 for daily data)
+    ampl: amplitude of seasonal forcing
+    shift: shift of seasonal forcing (in same units as freq)
+    
+    ---------------
+
+    The temperature depedence is implemented through an equation that represents the temperature-dependence of mosquito variables by Mordecai et al (2017). 
+    -- Parameters --
+        beta_0 : the baseline beta 
+    -- Temperature dependence functions ---
+        scaling factor -> time series added to model
+    ---------------
+
+    """
+    
+    states = ['S','E','I', 'R', 'I_new', 'I_cum', 'I_rep']
+    parameters = ['b', 'd', 'beta_0', 'sigma', 'gamma', 'rho', 'freq', 'ampl', 'shift', 'epi_uf', 'f_imm', 'pop_uf']
+
+    @staticmethod
+    def compute_rates(t, S, E, I, R, I_new, I_cum, I_rep, b, d, beta_0, sigma, gamma, rho, freq, ampl, shift,  epi_uf, f_imm, pop_uf):
+
+        # Calculate total population
+        T = S+E+I+R
+
+        beta_t = beta_0 # needs to be used with time_dependent_beta function when simulating the model 
+        # Compute rates per model state
+        rates = {
+            'S': [beta_t*(I/T), b*np.ones(T.shape), d*np.ones(T.shape)], 
+            'E': [(1/sigma)*np.ones(T.shape), d*np.ones(T.shape)], 
+            'I': [(1/gamma)*np.ones(T.shape), d*np.ones(T.shape)], 
+            'R': [d*np.ones(T.shape),], 
+            }            
+        # print(f"\nrates at timepoint {t}", rates)
+        return rates
+    
+    @staticmethod
+    def apply_transitionings(t, tau, transitionings, S, E, I, R, I_new, I_cum, I_rep,  b, d, beta_0, sigma, gamma,  rho, freq, ampl, shift, epi_uf, f_imm, pop_uf):
+
+        # print("\n t in apply_transitionings", t)
+        # transitionings = {k: [int(np.round(v, 0)) for v in (v if isinstance(v, list) else [v])] for k, v in transitionings.items()} # to avoid that the states become non-integegers and therefore go below 0
+        # transitionings = {k: [int(np.round(v, 0))] for k, v in transitionings.items()}
+        transitionings = {k: [np.round(arr).astype(int) for arr in v] for k, v in transitionings.items()}
+
+
+        S_new  = S - transitionings['S'][0] + transitionings['S'][1] - transitionings['S'][2] # - EXPOSED + BIRTHS - DEATHS
+        E_new = E + transitionings['S'][0] - transitionings['E'][0] - transitionings['E'][1] # + EXPOSED - INCUBATED - DEATHS
+        I_new = I + transitionings['E'][0] - transitionings['I'][0] - transitionings['I'][1] # + INCUBATED - RECOVERED - DEATHS
+        R_new = R + transitionings['I'][0] - transitionings['R'][0] # + RECOVERED - DEATHS
+
+        # derivative state: 
+        I_new_new = transitionings['E'][0] 
+        I_cum_new = I_cum + I_new
+        I_rep_new = rho*I_new_new
+
+        # print("\nTransitionings", transitionings)
+
+        # print("\nNew states: ", "S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,  R_new,I_new_new, I_cum_new, I_rep_new")
+        # print("\nNew states: ", S_new, S1_new, S2_new, E1_new, E2_new, E12_new, E21_new, I1_new, I2_new, I12_new,I21_new,  R1_new, R2_new,  R_new,I_new_new, I_cum_new, I_rep_new)
+
+        return S_new, E_new, I_new,  R_new,I_new_new, I_cum_new, I_rep_new
+
+
 class JumpProcess_SEIR2_model(JumpProcess):
     """
     Stochastic SEIR2 model for DENV with age-groups and 2 serotypes - same beta for all ages
