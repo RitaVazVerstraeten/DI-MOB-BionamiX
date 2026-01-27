@@ -174,3 +174,7 @@ sampler_output/
 sampler_output_*/
 
 src/DENV_model/pySODM
+
+# ignore the R folder in results
+results/DENV_model/R/
+src/R
