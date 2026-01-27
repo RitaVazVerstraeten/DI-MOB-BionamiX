@@ -1,0 +1,440 @@
+---
+title: "Entomological Database Creation – Cienfuegos"
+author: "Rita Verstraeten"
+date: "`r Sys.Date()`"
+output: 
+  html_notebook:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+editor_options:
+  chunk_output_type: console
+---
+
+## Install R packages
+```{r setup, include = FALSE}
+# renv::init()  # creates renv/ folder and lockfile
+# Install necessary packages
+# if (!requireNamespace("readxl", quietly = TRUE)) install.packages("readxl")
+# if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr")
+library(readxl)
+library(dplyr)
+# install.packages(c("lubridate", "readr"))
+library(lubridate)
+library(readr)
+library(DT)
+library(ggplot2)
+# if (interactive() && isTRUE(capabilities("httpgd"))) {
+#   httpgd::hgd(silent = TRUE)  # use httpgd only in interactive sessions
+# }
+library(httpgd)
+
+knitr::opts_chunk$set(echo = TRUE, fig.width = 10, fig.height = 6)
+
+# install.packages(c("rmarkdown", "rticles", "pagedown", "blogdown"))
+```
+
+
+# Entomological data
+```{r read the entomo file}
+
+# general path to all data files
+data_path <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing"
+
+# path to the mosquito surveillance data 
+entomo_path <- file.path(data_path, "WP2_Entomological_Data", "Entomo_surveillance_11-24_secondary_DB_Month_Mz_v05082025.xlsx")
+
+# Read and merge the Excel files
+# Specify col_types to avoid warnings about AP column mixing logical/text
+entomo_data <- read_excel(entomo_path, sheet = "Data", col_types = c(rep("guess", 5), "text", rep("guess", 10)))
+entomo_data <- entomo_data %>%
+  mutate(year_month = as.Date(paste(Year, Month, "01", sep = "-")))%>%  # create year-month date
+  # select(year_month, CODIGO_DIMOB, CP, Area, Inspected_houses, Houses_pos_L)
+  select(year_month, CODIGO_DIMOB, Inspected_houses, Houses_pos_L)
+
+entomo_data$Inspected_houses <- as.integer(entomo_data$Inspected_houses)
+entomo_data$Houses_pos_L <- as.integer(entomo_data$Houses_pos_L)
+
+print(tail(entomo_data))
+# View(entomo_data)
+```
+
+Now that the entomological data is loaded, we can perform some logical checks.
+```{r logical checks entomo}
+message("Number of missing Manzana names: ", sum(entomo_data$CODIGO_DIMOB == "DD")) # 168!!
+```
+
+# Epidemiological data
+```{r read the epi data}
+epi_path <- file.path(data_path, "WP1_Epidemiological_Data", "DENV", "DENV_secondaryDB_12_24_spatial_smoothed_v14102025_forsharing.xlsx")
+
+epi_data <- read_excel(epi_path, sheet="DENV data")
+print(head(epi_data))
+print(colnames(epi_data))
+```
+
+Keep you only the relevant columns: 
+- date of diagnosis
+- manzana code
+<!-- - CP
+- Area
+- CMF --> we will be getting this from the shapefiles direclty. 
+
+```{r keep selected epi columns}
+epi_data <- epi_data %>%
+  mutate(date = as.Date(Date_diagnosis),              # ensure date is Date type
+         year_month = floor_date(date, "month")) %>%    # extract year-month as Date
+  # select(year_month, CODIGO_DIMOB, CP, Area, CMF) 
+  select(year_month, CODIGO_DIMOB) 
+
+head(epi_data)
+```
+
+Summarize the weekly cases to monthly values per house block (CODIGO_DIMOB)
+```{r count cases per block-month}
+epi_data <- epi_data %>%
+  group_by(CODIGO_DIMOB, year_month) %>%
+  summarise(
+    cases = n(),
+    # CP = first(CP),
+    # Area = first(Area),
+    # CMF = first(CMF),
+    .groups = "drop"
+  ) %>%
+  arrange(year_month, CODIGO_DIMOB)
+head(epi_data)
+# DT::datatable(epi_data)
+```
+
+# Combine entomological & epidemiological data 
+
+```{r combine entomo and epi based on time and block}
+# ensure both are Date
+stopifnot(inherits(entomo_data$year_month, "Date"))
+stopifnot(inherits(epi_data$year_month, "Date"))
+
+# # aggregate entomo by month/block (sums here; adjust if you need mean/other)
+# message("number of rows before aggregation:", nrow(entomo_data))
+# entomo_month <- entomo_data %>%
+#   group_by(CODIGO_DIMOB, year_month) %>%
+#   summarise(
+#     Total_houses = sum(Total_houses, na.rm = TRUE),
+#     Houses_pos_L = sum(Houses_pos_L, na.rm = TRUE),
+#     .groups = "drop"
+#   )
+# message("number of rows after aggregation:", nrow(entomo_month)) # -> the same, so not needed here
+
+# join and fill missing combos with zeros
+ento_epi_data <- full_join(entomo_data, epi_data, by = c("CODIGO_DIMOB", "year_month")) %>%
+  mutate(
+    Inspected_houses = coalesce(Inspected_houses, 0), # return Inspected_houses, or 0 if NA
+    Houses_pos_L = coalesce(Houses_pos_L, 0),
+    cases = coalesce(cases, 0)
+  ) %>%
+  arrange(year_month, CODIGO_DIMOB)
+
+```
+
+# Filter for 2015-2017
+```{r filter for 2015-2017}
+ento_epi_data <- ento_epi_data %>%
+  filter(year_month >= as.Date("2015-01-01") & year_month <= as.Date("2017-12-31"))
+# DT::datatable(ento_epi_data)
+
+```
+
+# Create some plots 
+
+## Load the maps 
+the shapefile corresponding to the Manzanas in Cienfuegos is in Projected CRS: NAD27 / Cuba Norte. 
+This is very important to keep in mind when joining the environmental data later on. 
+
+```{r load the mz maps}
+library(sf)
+shapefile_path <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders"
+# Read the shapefile
+dimob_manzanas <- st_read(file.path(shapefile_path, "Manzanas vectores 21_11_2024_CMF column uncleaned/manzanero_AS_1a8_19112024.shp"))
+dimob_areas <- st_read(file.path(shapefile_path, "Area de Salud/AS LIMITES 3022025.shp"))
+dimob_cps <- st_read(file.path(shapefile_path, "Consejo Popular/CONSEJOS Populares Cfgos 3022025.shp"))
+
+# head(dimob_manzanas)
+# head(dimob_areas)
+# head(dimob_cps)
+```
+
+### Remove all accents and set to uppercase for consistency
+```{r clean names in shapefiles}
+library(stringi)
+
+# Clean NOMBRE column in all shapefiles: remove accents and uppercase
+# dimob_manzanas <- dimob_manzanas %>%
+#   mutate(CODIGO_ = stri_trans_general(CODIGO_, "Latin-ASCII"),
+#          CODIGO_ = toupper(CODIGO_))
+
+# dimob_areas <- dimob_areas %>%
+#   mutate(NOMBRE = stri_trans_general(NOMBRE, "Latin-ASCII"),
+#          NOMBRE = toupper(NOMBRE))
+
+dimob_cps <- dimob_cps %>%
+  mutate(NOMBRE = stri_trans_general(NOMBRE, "Latin-ASCII"),
+         NOMBRE = toupper(NOMBRE),
+         NOMBRE = gsub("-", " ", NOMBRE))
+
+head(dimob_cps$NOMBRE)
+```
+
+
+```{r safety check}
+# let's check that the manzana names in the shapefile correspond to those in the ento_epi_data
+shapefile_mz_names <- unique(dimob_manzanas$CODIGO_)
+data_mz_names <- unique(ento_epi_data$CODIGO_DIMOB)
+
+# print number of unique manzanas in shapefiles
+cat("Number of unique manzanas in shapefile: \n", length(shapefile_mz_names), "\n") # 1410
+
+# check which manzanas ARE in the shapefiles, but not in the data
+cat("\nManzanas in shapefile but not in data:\n")
+unique(setdiff(shapefile_mz_names, data_mz_names))  # NA               "A4CPSLMzTaller"
+
+# check which manzanas ARE in the data, but not in the shapefiles
+cat("\nManzanas in data but not in shapefile: \n")
+unique(setdiff(data_mz_names, shapefile_mz_names))  #  "A7CNAMzPPESC" "DD"   
+length(unique(setdiff(data_mz_names, shapefile_mz_names)))  # should be 0 -> is now 2
+
+```
+
+Let's filter out the data-points in the 2 manzanas that are not in the shapefile.
+```{r filter out datapoint that do not have a valid location}
+cat("Number of rows before filtering: ", nrow(ento_epi_data), "\n") #50760
+ento_epi_data <- ento_epi_data %>%
+  filter(!CODIGO_DIMOB %in% c("A7CNAMzPPESC", "DD"))
+cat("Number of rows after filtering: ", nrow(ento_epi_data), "\n") # 50688 -> 72 removed
+```
+
+## Add the CP, Area, and CMF to each manzana based on the shapefiles
+```{r add CP CMF and Area to ento_epi_data}
+# After loading dimob_manzanas, extract the non-geometry columns
+manzana_info <- st_drop_geometry(dimob_manzanas) %>%
+  select(CODIGO_, AS, CP, CMF) %>%
+  rename(CODIGO_DIMOB = CODIGO_) %>%
+  distinct()  # keep one row per manzana in case of duplicates
+
+# Then join to ento_epi_data
+ento_epi_data <- ento_epi_data %>%
+  left_join(manzana_info, by = "CODIGO_DIMOB")
+
+head(ento_epi_data)
+```
+
+
+Let's try out a plot for all the Mzs with entomo data for the entire year of 2015. 
+
+```{r plot entomo data 2015}
+# aggregate to annual: sum counts, keep unique inspected_houses per block
+ento_epi_year <- ento_epi_data %>%
+  mutate(year = floor_date(year_month, "year")) %>%
+  group_by(CODIGO_DIMOB, year) %>%
+  summarise(
+    Houses_pos_L = sum(Houses_pos_L, na.rm = TRUE),
+    cases = sum(cases, na.rm = TRUE),
+    Inspected_houses = first(Inspected_houses),
+    .groups = "drop"
+  ) %>%
+  arrange(year, CODIGO_DIMOB)
+
+# View(ento_epi_year)
+```
+
+Plot the Houses_pos_L for 2015 per manzana
+add the areas map in the background for context
+```{r plot 2015 to 2017 entomo}
+
+# Plot Houses_pos_L for 2015–2017 on the manzana map (faceted)
+plot_entomo_facets <- ento_epi_year %>%
+  filter(year %in% as.Date(c("2015-01-01", "2016-01-01", "2017-01-01"))) %>%
+  rename(CODIGO_ = CODIGO_DIMOB) %>%
+  right_join(dimob_manzanas, by = "CODIGO_") %>%
+  st_as_sf() %>%
+  filter(!is.na(year)) %>%
+  ggplot() +
+  geom_sf(data = dimob_areas, fill = NA, color = "grey60", linewidth = 0.4) + # add the area boundaries in background
+  geom_sf(aes(fill = Houses_pos_L), color = NA) +
+  scale_fill_viridis_c(option = "plasma", na.value = "grey90") +
+  labs(title = "Nr. of houses positive for larvae by Consejo Popular",
+       fill = "Houses_pos_L") +
+  facet_wrap(~year, ncol = 3) +
+  theme_minimal()
+
+plot_entomo_facets
+```
+
+Plot the cases for 2015
+```{r plot 2015 epi data}
+plot_entomo_cases <- ento_epi_year %>%
+  filter(year %in% as.Date(c("2015-01-01", "2016-01-01", "2017-01-01"))) %>%
+  rename(CODIGO_ = CODIGO_DIMOB) %>%
+  right_join(dimob_manzanas, by = "CODIGO_") %>%
+  st_as_sf() %>%
+  filter(!is.na(year)) %>%
+  ggplot() +
+  geom_sf(data = dimob_areas, fill = NA, color = "grey60", linewidth = 0.4) +
+  geom_sf(aes(fill = cases), color = NA) +
+  scale_fill_viridis_c(option = "plasma", na.value = "grey90") +
+  labs(title = "Nr. of cases by Manzana",
+       fill = "Cases") +
+  facet_wrap(~year, ncol = 3) +
+  theme_minimal()
+
+plot_entomo_cases
+```
+
+## Now we make the plot per CP 
+```{r plot the CP shapefile alone}
+# Quick plot of the CP shapefile
+ggplot(dimob_cps) +
+  geom_sf(fill = "lightblue", color = "black") +
+  geom_sf_text(aes(label = CP), size = 2, check_overlap = TRUE) +
+  labs(title = "Consejo Popular Boundaries") +
+  theme_minimal()
+```
+
+```{r plot case data for 2015 to 2017 per CP}
+# Aggregate to annual by CP
+ento_epi_year_cp <- ento_epi_data %>%
+  mutate(year = floor_date(year_month, "year")) %>%
+  group_by(CP, year) %>%
+  summarise(
+    Houses_pos_L = sum(Houses_pos_L, na.rm = TRUE),
+    cases = sum(cases, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(year, CP)
+
+plot_cases_cp <- ento_epi_year_cp %>%
+  filter(year %in% as.Date(c("2015-01-01", "2016-01-01", "2017-01-01"))) %>%
+  right_join(dimob_cps, by = c("CP" = "NOMBRE"), relationship = "many-to-many") %>%
+  st_as_sf() %>%
+  filter(!is.na(year)) %>%
+  ggplot() +
+  geom_sf(data = dimob_areas, fill = NA, color = "grey60", linewidth = 0.4) +
+  geom_sf(aes(fill = cases), color = NA) +
+  scale_fill_viridis_c(option = "plasma", na.value = "grey90") +
+  labs(title = "Cases by Consejo Popular", fill = "Cases") +
+  facet_wrap(~year, ncol = 3) +
+  theme_minimal()
+
+plot_cases_cp
+```
+
+# average manzana surface area
+```{r average mz area}
+dimob_manzanas <- dimob_manzanas %>%
+  st_transform(crs = 26917)  # NAD27 / UTM zone 17N
+dimob_manzanas$area_m2 <- st_area(dimob_manzanas)
+average_area_m2 <- mean(as.numeric(dimob_manzanas$area_m2))
+median_area_m2 <- median(as.numeric(dimob_manzanas$area_m2))
+
+average_area_m2  # ~93693.96 m2 -> ~ 100.000m2
+```
+This average area per manzana seems way too large... 
+```{r plot the manzanas with area}
+ggplot(dimob_manzanas) +
+  geom_sf(aes(fill = as.numeric(area_m2)/10000), color = "grey40", linewidth = 0.1) + # area in hectares
+  geom_sf_text(aes(label = CODIGO_), size = 1.5, check_overlap = TRUE) +
+  scale_fill_viridis_c(option = "plasma", name = "Area (ha)") +
+  labs(title = "Manzanas by Area") +
+  theme_minimal()
+```
+
+```{r histogram of manzana areas}
+# Create histogram of manzana areas
+ggplot(dimob_manzanas, aes(x = as.numeric(area_m2))) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "black", alpha = 0.7) +
+  scale_x_log10(labels = scales::comma) +
+  labs(title = "Distribution of Manzana Areas (log scale)",
+       x = "Area (m²)",
+       y = "Frequency") +
+  theme_minimal() +
+  geom_vline(xintercept = average_area_m2, color = "red", linetype = "dashed", linewidth = 1) +
+  geom_vline(xintercept = median_area_m2, color = "blue", linetype = "dashed", linewidth = 1) +
+  annotate("text", x = average_area_m2, y = Inf, 
+           label = paste0("Mean: ", round(average_area_m2, 0), " m²"), 
+           hjust = -0.1, vjust = 2, color = "red") +
+  annotate("text", x = median_area_m2, y = Inf, 
+           label = paste0("Median: ", round(median_area_m2, 0), " m²"), 
+           hjust = -0.1, vjust = 4, color = "blue")
+```
+
+There is a very large variation in manzana sizes. Averaging over the manzana surface therefore doesn't seem like a safe option. 
+What would make most sense -> to use the houseblock location itself (centroid) + 400m buffer around it to extract environmental data.
+
+**Actually**, the manzanas that have classification "TB" in the "MZ" variable indicate that these are *terreno baldio*, which means emtpy terrain. 
+So, these manzanas are actually not of interest for our analysis given that there will not be any mosquito measures in absence of houses (and therefore population). 
+
+### Filter manzanas to exclude those with "TB" in the MZ field
+```{r filter manzanas without TB}
+# Keep only manzanas that do NOT have "TB" in the MZ field
+dimob_manzanas_filtered <- dimob_manzanas %>%
+  filter(!grepl("TB", MZ, ignore.case = TRUE))
+
+cat("Original number of manzanas:", nrow(dimob_manzanas), "\n") #1480
+cat("Number of manzanas after filtering out TB:", nrow(dimob_manzanas_filtered), "\n") # 1415
+cat("Number of TB manzanas removed:", nrow(dimob_manzanas) - nrow(dimob_manzanas_filtered), "\n") # 65 removed
+```
+
+### Re-plot the manzanas + area with indication of the TB manzanas
+```{r plot the non-TB manzanas}
+dimob_manzanas_filtered <- dimob_manzanas_filtered %>%
+  st_transform(crs = 26917)  # NAD27 / UTM zone 17N
+dimob_manzanas_filtered$area_m2 <- st_area(dimob_manzanas_filtered)
+average_area_m2 <- mean(as.numeric(dimob_manzanas_filtered$area_m2))
+median_area_m2 <- median(as.numeric(dimob_manzanas_filtered$area_m2))
+average_area_m2  # ~29258.98 m2 -> ~ 30.000 m2
+
+# plot the filtered manzanas shapefile
+ggplot(dimob_manzanas_filtered) +
+  geom_sf(aes(fill = as.numeric(area_m2)/10000), color = "grey40", linewidth = 0.1) + # area in hectares
+  geom_sf_text(aes(label = CODIGO_), size = 1.5, check_overlap = TRUE) +
+  scale_fill_viridis_c(option = "plasma", name = "Area (ha)") +
+  labs(title = "Manzanas by Area") +
+  theme_minimal()
+```
+
+```{r manzana area histogram after filtering out empty spaces}
+
+# histogram of the manzana areas after filtering out TB manzanas
+ggplot(dimob_manzanas_filtered, aes(x = as.numeric(area_m2))) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "black", alpha = 0.7) +
+  scale_x_log10(labels = scales::comma) +
+  labs(title = "Distribution of Manzana Areas (log scale)",
+       x = "Area (m²)",
+       y = "Frequency") +
+  theme_minimal() +
+  geom_vline(xintercept = average_area_m2, color = "red", linetype = "dashed", linewidth = 1) +
+  geom_vline(xintercept = median_area_m2, color = "blue", linetype = "dashed", linewidth = 1) +
+  annotate("text", x = average_area_m2, y = Inf, 
+           label = paste0("Mean: ", round(average_area_m2, 0), " m²"), 
+           hjust = -0.1, vjust = 2, color = "red") +
+  annotate("text", x = median_area_m2, y = Inf, 
+           label = paste0("Median: ", round(median_area_m2, 0), " m²"), 
+           hjust = -0.1, vjust = 4, color = "blue")
+```
+
+However, for the larger manzanas, I wonder whether we have the exact houseblock location coordinates. 
+
+
+Some manzanas are in fact huge. 
+
+
+Final choice: use centroid per manzana + 500m buffer to extract environmental data.
+This gives us an area of $\pi$*400^2 = 502.400 m2, which is larger than the average manzana size (around 30,000 m2 after removing TB manzanas).
+
+
+
+# Add the environmental data to the ento_epi_data
+
+
+
+
+
+
