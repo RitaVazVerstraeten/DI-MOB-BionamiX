@@ -10,6 +10,37 @@ output:
 editor_options:
   chunk_output_type: console
 ---
+# Database creation for entomological modelling ~ climate & dengue cases in Cienfuegos
+The core table for the analysis should look like: 
+
+Observations table (one row per block-time combination):
+
+|Column |	Type |	Description |
+-----------------------------------------------------------
+|manzana |	String	| manzana identifier (1 to B) |
+|time |	Integer	| time period identifier (1 to T) |
+|N_HH |	Integer	| Number of households inspected (universo) |
+|Cases |	Integer	| Number of dengue cases observed in that block-time |
+|Houses_pos_IS |	Integer	| Number of positive mosquito samples detected |
+|n_bt |	Integer	| Total inspection events (N_HH + reactive adjustments) |
+
+|ndvi |	Numeric	| Normalized Difference Vegetation Index for manzana-month |
+|ndmi |	Numeric	| Normalized Difference Moisture Index for manzana-month |
+|ndwi |	Numeric	| Normalized Difference Water Index for manzana-month |
+
+|wS2M |	Numeric	| average windspeed at 2 meter height in m/s |
+|wS10M  |	Numeric	| average windspeed at 10 meter height in m/s |
+|wS50M |	Numeric	| average windspeed at 50 meter height in m/s |
+
+|landcover |	categorical	| dominant landcover value for that mz |
+|wui |	Integer	| 0/1 value for wild-land urban interface for that manzana |
+|wi |	Integer	| 0/1 value for water interface for that manzana |
+
+|avg_temp |	Numeric	| average temperature (°C) for that manzana-month |
+|total_precip |	Numeric	| cummulative precipitation (mm) for that manzana-month |
+|rel_hum |	Numeric	| average relative humidity (%) for that manzana-month |
+
+|omega |	Numeric	| Reactive bias weight (calculated from C_bt) |
 
 ## Install R packages
 ```{r setup, include = FALSE}
@@ -24,6 +55,8 @@ library(lubridate)
 library(readr)
 library(DT)
 library(ggplot2)
+library(readxl)
+library(tidyr)  # for pivot_longer
 # if (interactive() && isTRUE(capabilities("httpgd"))) {
 #   httpgd::hgd(silent = TRUE)  # use httpgd only in interactive sessions
 # }
@@ -50,10 +83,10 @@ entomo_data <- read_excel(entomo_path, sheet = "Data", col_types = c(rep("guess"
 entomo_data <- entomo_data %>%
   mutate(year_month = as.Date(paste(Year, Month, "01", sep = "-")))%>%  # create year-month date
   # select(year_month, CODIGO_DIMOB, CP, Area, Inspected_houses, Houses_pos_L)
-  select(year_month, CODIGO_DIMOB, Inspected_houses, Houses_pos_L)
+  select(year_month, CODIGO_DIMOB, Inspected_houses, Houses_pos_IS)
 
 entomo_data$Inspected_houses <- as.integer(entomo_data$Inspected_houses)
-entomo_data$Houses_pos_L <- as.integer(entomo_data$Houses_pos_L)
+entomo_data$Houses_pos_IS <- as.integer(entomo_data$Houses_pos_IS)
 
 print(tail(entomo_data))
 # View(entomo_data)
@@ -65,12 +98,35 @@ message("Number of missing Manzana names: ", sum(entomo_data$CODIGO_DIMOB == "DD
 ```
 
 # Epidemiological data
-```{r read the epi data}
-epi_path <- file.path(data_path, "WP1_Epidemiological_Data", "DENV", "DENV_secondaryDB_12_24_spatial_smoothed_v14102025_forsharing.xlsx")
+In the epidemiological data we will add both DENV and ZIKV data. 
+This is done because the main focus of the analysis is on environmental drives of Aedes mosquito presence. 
+The disease data is only used to correct for reactive mosquito surveillance post febrile-illness report at the hospital.  
 
-epi_data <- read_excel(epi_path, sheet="DENV data")
-print(head(epi_data))
-print(colnames(epi_data))
+```{r read the epi data}
+denv_path <- file.path(data_path, "WP1_Epidemiological_Data", "DENV", "DENV_secondaryDB_12_24_spatial_smoothed_v14102025_forsharing.xlsx")
+zikv_path <- file.path(data_path, "WP1_Epidemiological_Data", "ZIKA", "ZIKA_secondaryDB_16-18_spatial_v09042025_forsharing.xlsx")
+
+denv_data <- read_excel(denv_path, sheet="DENV data")
+zikv_data <- read_excel(zikv_path, sheet="ZIKA data")
+print(head(denv_data))
+print(colnames(denv_data))
+print(colnames(zikv_data))
+```
+
+```{r combine DENV and ZIKV data}
+
+# cat("\nPresent in ZIKV but not in DENV data: ", setdiff(colnames(zikv_data), colnames(denv_data)))  # check which columns are different
+# cat("\nPresent in DENV but not in ZIKV data: ",setdiff(colnames(denv_data), colnames(zikv_data)))  # check which columns are different
+
+zikv_data <- zikv_data %>%
+  select("CODIGO_DIMOB", "Date_diagnosis")  # keep only columns present in DENV data
+
+zikv_data$arbovirus <- "ZIKV"
+denv_data$arbovirus <- "DENV"
+# add the zikv data to the denv data based on date of diagnosis and manzana code
+
+epi_data <- bind_rows(denv_data, zikv_data) %>%
+  arrange(Date_diagnosis, CODIGO_DIMOB)
 ```
 
 Keep you only the relevant columns: 
@@ -85,7 +141,7 @@ epi_data <- epi_data %>%
   mutate(date = as.Date(Date_diagnosis),              # ensure date is Date type
          year_month = floor_date(date, "month")) %>%    # extract year-month as Date
   # select(year_month, CODIGO_DIMOB, CP, Area, CMF) 
-  select(year_month, CODIGO_DIMOB) 
+  select(year_month, CODIGO_DIMOB, arbovirus) 
 
 head(epi_data)
 ```
@@ -128,17 +184,17 @@ stopifnot(inherits(epi_data$year_month, "Date"))
 ento_epi_data <- full_join(entomo_data, epi_data, by = c("CODIGO_DIMOB", "year_month")) %>%
   mutate(
     Inspected_houses = coalesce(Inspected_houses, 0), # return Inspected_houses, or 0 if NA
-    Houses_pos_L = coalesce(Houses_pos_L, 0),
+    Houses_pos_IS = coalesce(Houses_pos_IS, 0), # return Houses_pos_IS, or 0 if NA
     cases = coalesce(cases, 0)
   ) %>%
   arrange(year_month, CODIGO_DIMOB)
 
 ```
 
-# Filter for 2015-2017
-```{r filter for 2015-2017}
+# Filter for 2015-2019
+```{r filter for 2015-2019}
 ento_epi_data <- ento_epi_data %>%
-  filter(year_month >= as.Date("2015-01-01") & year_month <= as.Date("2017-12-31"))
+  filter(year_month >= as.Date("2015-01-01") & year_month <= as.Date("2019-12-31"))
 # DT::datatable(ento_epi_data)
 
 ```
@@ -160,6 +216,16 @@ dimob_cps <- st_read(file.path(shapefile_path, "Consejo Popular/CONSEJOS Popular
 # head(dimob_manzanas)
 # head(dimob_areas)
 # head(dimob_cps)
+```
+
+# WARNING, THE MANZANA A8APSMMzFcSAMA IS OUTSIDE THE CIENFUEGOS MUNICIPALITY SHAPE AND WILL BE REMOVED IN THE ANALYSIS
+
+```{r remove A8APSMMzFcSAMA from the list of manzanas and all the data}
+dimob_manzanas <- dimob_manzanas %>%
+  filter(CODIGO_ != "A8APSMMzFcSAMA")
+
+ento_epi_data <- ento_epi_data %>%
+  filter(CODIGO_DIMOB != "A8APSMMzFcSAMA")
 ```
 
 ### Remove all accents and set to uppercase for consistency
@@ -235,7 +301,7 @@ ento_epi_year <- ento_epi_data %>%
   mutate(year = floor_date(year_month, "year")) %>%
   group_by(CODIGO_DIMOB, year) %>%
   summarise(
-    Houses_pos_L = sum(Houses_pos_L, na.rm = TRUE),
+    Houses_pos_IS = sum(Houses_pos_IS, na.rm = TRUE),
     cases = sum(cases, na.rm = TRUE),
     Inspected_houses = first(Inspected_houses),
     .groups = "drop"
@@ -245,33 +311,33 @@ ento_epi_year <- ento_epi_data %>%
 # View(ento_epi_year)
 ```
 
-Plot the Houses_pos_L for 2015 per manzana
+Plot the Houses_pos_IS for 2015 per manzana
 add the areas map in the background for context
-```{r plot 2015 to 2017 entomo}
+```{r plot 2015 to 2019 entomo}
 
-# Plot Houses_pos_L for 2015–2017 on the manzana map (faceted)
+# Plot Houses_pos_IS for 2015–2019 on the manzana map (faceted)
 plot_entomo_facets <- ento_epi_year %>%
-  filter(year %in% as.Date(c("2015-01-01", "2016-01-01", "2017-01-01"))) %>%
+  filter(year %in% as.Date(c("2015-01-01", "2016-01-01", "2017-01-01", "2018-01-01", "2019-01-01"))) %>%
   rename(CODIGO_ = CODIGO_DIMOB) %>%
   right_join(dimob_manzanas, by = "CODIGO_") %>%
   st_as_sf() %>%
   filter(!is.na(year)) %>%
   ggplot() +
   geom_sf(data = dimob_areas, fill = NA, color = "grey60", linewidth = 0.4) + # add the area boundaries in background
-  geom_sf(aes(fill = Houses_pos_L), color = NA) +
+  geom_sf(aes(fill = Houses_pos_IS), color = NA) +
   scale_fill_viridis_c(option = "plasma", na.value = "grey90") +
-  labs(title = "Nr. of houses positive for larvae by Consejo Popular",
-       fill = "Houses_pos_L") +
+  labs(title = "Nr. of houses positive for immature stages by Consejo Popular",
+       fill = "Houses_pos_IS") +
   facet_wrap(~year, ncol = 3) +
   theme_minimal()
 
 plot_entomo_facets
 ```
 
-Plot the cases for 2015
+Plot the cases for 2015 per manzana
 ```{r plot 2015 epi data}
-plot_entomo_cases <- ento_epi_year %>%
-  filter(year %in% as.Date(c("2015-01-01", "2016-01-01", "2017-01-01"))) %>%
+plot_epi_cases <- ento_epi_year %>%
+  filter(year %in% as.Date(c("2015-01-01"))) %>%
   rename(CODIGO_ = CODIGO_DIMOB) %>%
   right_join(dimob_manzanas, by = "CODIGO_") %>%
   st_as_sf() %>%
@@ -280,12 +346,14 @@ plot_entomo_cases <- ento_epi_year %>%
   geom_sf(data = dimob_areas, fill = NA, color = "grey60", linewidth = 0.4) +
   geom_sf(aes(fill = cases), color = NA) +
   scale_fill_viridis_c(option = "plasma", na.value = "grey90") +
-  labs(title = "Nr. of cases by Manzana",
+  labs(title = "Nr. of dengue cases by Manzana",
        fill = "Cases") +
   facet_wrap(~year, ncol = 3) +
-  theme_minimal()
+  theme_minimal()+  
+  theme(axis.text = element_blank(),    # removes axis text (numbers)
+        axis.title = element_blank())   # removes axis titles (lon/lat)
 
-plot_entomo_cases
+plot_epi_cases
 ```
 
 ## Now we make the plot per CP 
@@ -298,20 +366,21 @@ ggplot(dimob_cps) +
   theme_minimal()
 ```
 
-```{r plot case data for 2015 to 2017 per CP}
+```{r plot case data for 2015 to 2019 per CP}
 # Aggregate to annual by CP
 ento_epi_year_cp <- ento_epi_data %>%
   mutate(year = floor_date(year_month, "year")) %>%
   group_by(CP, year) %>%
   summarise(
-    Houses_pos_L = sum(Houses_pos_L, na.rm = TRUE),
+    Houses_pos_IS = sum(Houses_pos_IS, na.rm = TRUE),
     cases = sum(cases, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   arrange(year, CP)
 
 plot_cases_cp <- ento_epi_year_cp %>%
-  filter(year %in% as.Date(c("2015-01-01", "2016-01-01", "2017-01-01"))) %>%
+  filter(year %in% as.Date(c("2015-01-01", "2016-01-01", "2017-01-01", "2018-01-01", "2019-01-01"))) %>%
+  mutate(year_label = format(year, "%Y")) %>%  # extract just the year
   right_join(dimob_cps, by = c("CP" = "NOMBRE"), relationship = "many-to-many") %>%
   st_as_sf() %>%
   filter(!is.na(year)) %>%
@@ -320,8 +389,10 @@ plot_cases_cp <- ento_epi_year_cp %>%
   geom_sf(aes(fill = cases), color = NA) +
   scale_fill_viridis_c(option = "plasma", na.value = "grey90") +
   labs(title = "Cases by Consejo Popular", fill = "Cases") +
-  facet_wrap(~year, ncol = 3) +
-  theme_minimal()
+  facet_wrap(~year_label, ncol = 3) +
+  theme_minimal()+ 
+  theme(axis.text = element_blank(),    # removes axis text (numbers)
+        axis.title = element_blank())   # removes axis titles (lon/lat)
 
 plot_cases_cp
 ```
@@ -336,6 +407,7 @@ median_area_m2 <- median(as.numeric(dimob_manzanas$area_m2))
 
 average_area_m2  # ~93693.96 m2 -> ~ 100.000m2
 ```
+
 This average area per manzana seems way too large... 
 ```{r plot the manzanas with area}
 ggplot(dimob_manzanas) +
@@ -371,15 +443,15 @@ What would make most sense -> to use the houseblock location itself (centroid) +
 **Actually**, the manzanas that have classification "TB" in the "MZ" variable indicate that these are *terreno baldio*, which means emtpy terrain. 
 So, these manzanas are actually not of interest for our analysis given that there will not be any mosquito measures in absence of houses (and therefore population). 
 
-### Filter manzanas to exclude those with "TB" in the MZ field
+### Filter manzanas to exclude those with "TB" in the MZ field and empty mz names
 ```{r filter manzanas without TB}
-# Keep only manzanas that do NOT have "TB" in the MZ field
+# Keep only manzanas that do NOT have "TB" in the MZ field and have non-empty MZ names
 dimob_manzanas_filtered <- dimob_manzanas %>%
-  filter(!grepl("TB", MZ, ignore.case = TRUE))
+  filter(!grepl("TB", MZ, ignore.case = TRUE) & CODIGO_ != "")
 
 cat("Original number of manzanas:", nrow(dimob_manzanas), "\n") #1480
 cat("Number of manzanas after filtering out TB:", nrow(dimob_manzanas_filtered), "\n") # 1415
-cat("Number of TB manzanas removed:", nrow(dimob_manzanas) - nrow(dimob_manzanas_filtered), "\n") # 65 removed
+cat("Number of TB manzanas removed:", nrow(dimob_manzanas) - nrow(dimob_manzanas_filtered), "\n") # 65 removed -> 71
 ```
 
 ### Re-plot the manzanas + area with indication of the TB manzanas
@@ -426,15 +498,650 @@ However, for the larger manzanas, I wonder whether we have the exact houseblock 
 Some manzanas are in fact huge. 
 
 
-Final choice: use centroid per manzana + 500m buffer to extract environmental data.
-This gives us an area of $\pi$*400^2 = 502.400 m2, which is larger than the average manzana size (around 30,000 m2 after removing TB manzanas).
+~~Final choice: use centroid per manzana + 500m buffer to extract environmental data.~~
+~~This gives us an area of $\pi$*400^2 = 502.400 m2, which is larger than the average manzana size (around 30,000 m2 after removing TB manzanas).~~
 
 
 
-# Add the environmental data to the ento_epi_data
+# Add the environmental data together
+
+1. Create one single environmental dataset with all variables + timestamps
+  - NDVI -> mazana-month
+  - NDMI -> mazana-month
+  - NDWI -> mazana-month
+  - temperature -> month
+  - precipitation -> month
+  - humidity -> month
+  - wind speed -> month
+  - WI -> manzana
+  - WUI -> manzana
+  - LandCover -> manzana
+
+2. Join this environmental dataset to the ento_epi_data based on year_month and manzana
+
+```{r prepare the evironmental dataset first}
+env_data_path <- "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/CF_Municipality"
+
+ndvi <- read_csv(file.path(env_data_path, "NDVI", "NDVI_per_manzana_2015_2019_all_months.csv"), show_col_types = FALSE)
+ndwi <- read_csv(file.path(env_data_path, "NDWI", "NDWI_per_manzana_2015_2019_all_months.csv"), show_col_types = FALSE)
+ndmi <- read_csv(file.path(env_data_path, "NDMI", "NDMI_per_manzana_2015_2019_all_months.csv"), show_col_types = FALSE)
+windspeed <- read_csv(file.path(env_data_path, "WindSpeed", "wind_speed_2015_2019_monthly.csv"), show_col_types = FALSE)
+landcover <- read_csv(file.path(env_data_path, "LandCover", "LandCover_per_manzana_2021.csv"), show_col_types = FALSE)
+wi <- read_csv(file.path(env_data_path, "WI", "WI_per_manzana_NoBuffer_classification.csv"), show_col_types = FALSE)
+wui <- read_csv(file.path(env_data_path, "WUI", "WUI_per_manzana_NoBuffer_classification.csv"), show_col_types = FALSE)
+meteo_daily <- read_xlsx("/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx")
+```
+
+```{r keep relevant columns from ndvi, ndwi, and ndmi}
+ndvi <- ndvi %>%
+  select(manzana_id, year, month, mean_ndvi) %>%
+  filter(!is.na(manzana_id) & manzana_id != "None" & manzana_id != "") %>%
+  mutate(year_month = paste0(year, "_", sprintf("%02d", month))) %>%
+  select(manzana_id, year_month, mean_ndvi) %>%
+  distinct()  # remove any duplicates
+
+ndmi <- ndmi %>%
+  select(manzana_id, year, month, mean_ndmi) %>%
+  filter(!is.na(manzana_id) & manzana_id != "None" & manzana_id != "") %>%
+  mutate(year_month = paste0(year, "_", sprintf("%02d", month))) %>%
+  select(manzana_id, year_month, mean_ndmi) %>%
+  distinct()  
+
+ndwi <- ndwi %>%
+  select(manzana_id, year, month, mean_ndwi) %>%
+  filter(!is.na(manzana_id) & manzana_id != "None" & manzana_id != "") %>%
+  mutate(year_month = paste0(year, "_", sprintf("%02d", month))) %>% 
+  select(manzana_id, year_month, mean_ndwi) %>%
+  distinct()  
+```
+
+```{r checks}
+head(ndvi)
+```
+
+```{r keep relevant columns for WI and wUI}
+wi <- wi %>%
+  rename(manzana_id = ID) %>%
+  select(manzana_id, is_WI)
+wui <- wui %>%
+  rename(manzana_id = ID) %>%
+  select(manzana_id, is_WUI)
+```
+
+```{r keep relevant columns for landcover}
+# print(colnames(landcover))
+landcover <- landcover %>%
+  select(manzana_code, dominant_landcover) %>%
+  rename(manzana_id = manzana_code)
+```
+
+```{r check windspeed data}
+head(windspeed)
+windspeed$date <- gsub(windspeed$date, pattern = "-", replacement = "_")
+windspeed <- windspeed %>%
+  select(!c(year, month, WS2M_min, WS2M_max, WS10M_min, WS10M_max, WS50M_min, WS50M_max)) %>%
+  rename(year_month = date)
+```
+
+### Clean the meteorological data
+
+```{r aggregate daily meteorological data to monthly}
+meteo_daily <- read_xlsx("/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx")
+
+# Select relevant years
+meteo_daily <- meteo_daily %>%
+  filter(Ano >= 2015 & Ano <= 2019)
+
+# select relevant columns and create year_month 
+meteo_daily <- meteo_daily %>%
+  rename(Temp_med = "Temp med", Humedad_r_med = "Humedad r med") %>%
+  select(Ano, Mes, Dia, Temp_med, Humedad_r_med, precip_ponderada) %>%
+  mutate(year_month = paste0(Ano, "_", sprintf("%02d", Mes))) 
+
+meteo_monthly <- meteo_daily %>%
+  group_by(year_month) %>%
+  summarise(
+    avg_temp = mean(Temp_med, na.rm = TRUE),
+    rel_hum = mean(Humedad_r_med, na.rm = TRUE),
+    total_precip = sum(precip_ponderada, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
 
 
+**Temporal variables** 
+  - temperature -> month (2015-01 -> 2019-12)
+  - precipitation -> month (2015-01 -> 2019-12)
+  - humidity -> month (2015-01 -> 2019-12)
+  - wind speed -> month (2015-01 -> 2019-12)
+
+**Spatial variables**
+  - WI -> manzana
+  - WUI -> manzana
+  - LandCover -> manzana
+
+**Spatio-temporal variables**
+  - NDVI -> mazana-month (2016-04 -> 2019-12)
+  - NDMI -> mazana-month (2016-04 -> 2019-12)
+  - NDWI -> mazana-month (2016-04 -> 2019-12)
+
+## Aggregate the temporal variables 
+```{r aggregate the temporal variables based on year_month}
+environmental_temp <- meteo_monthly %>%
+  left_join(windspeed, by = "year_month") %>%
+  rename(WS2M = WS2M_mean, WS10M = WS10M_mean, WS50M = WS50M_mean)
+
+# select only the temporal var's as of 2016-04, since the spatio-temporal variables are only available from 2016-04 onwards
+environmental_temp <- environmental_temp %>%
+  filter(year_month >= "2016_04") 
+```
 
 
+## Aggregate the spatial variables 
+```{r aggregate the spatial variables based on manzana_id}
+setdiff(unique(landcover$manzana_id), wi$manzana_id)  # check if all manzanas in landcover are in wi
+setdiff(unique(landcover$manzana_id), wui$manzana_id)
+
+environmental_spatial <- landcover %>%
+  left_join(wi, by = "manzana_id") %>%
+  left_join(wui, by = "manzana_id")
+```
+
+## Aggregate the spatio-temporal variables
+```{r aggregate the spatio-temporal variables based on manzana_id and year_month}
+
+environmental_spatio_temp <- ndmi %>%
+  left_join(ndwi, by = c("manzana_id", "year_month"), relationship = "one-to-one") %>%
+  left_join(ndvi, by = c("manzana_id", "year_month"), relationship = "one-to-one")
+
+```
+
+## Aggregate the temporal and the spatial to the spatio-temporal variables
+For the temporal variables, we will repeat the same value for all manzanas within the same month, since these variables are only available at the monthly level.
+Same for the spatial variables, we will repeat the same value for all months within the same manzana, since these variables are only available at the manzana level.
+
+```{r aggregate all environmental variables into one dataset}
+
+# Define the time range
+start_month <- "2016_04"
+end_month <- "2019_12"
+
+# Get all unique manzanas from spatial data
+all_manzanas <- unique(dimob_manzanas_filtered$CODIGO_)
+
+# Create all expected months in range
+all_expected_months <- seq(as.Date("2016-04-01"), as.Date("2019-12-01"), by="month")
+all_months <- format(all_expected_months, "%Y_%m")
+
+cat("Building complete grid...\n")
+cat("Number of manzanas:", length(all_manzanas), "\n")
+cat("Number of months (2016-04 to 2019-12):", length(all_months), "\n")
+cat("Expected total rows:", length(all_manzanas) * length(all_months), "\n")
+
+# Create complete grid starting with temporal variables (which have all months)
+complete_grid <- expand.grid(
+  manzana_id = all_manzanas,
+  year_month = all_months,
+  stringsAsFactors = FALSE
+)
+
+# Start with the complete grid and the temporal variables
+env_all <- complete_grid %>%
+  left_join(environmental_temp, by = "year_month")
+
+# Join spatio-temporal variables (NDVI, NDMI, NDWI) - these may have NAs
+env_all <- env_all %>%
+  left_join(environmental_spatio_temp, by = c("manzana_id", "year_month"))
+
+# Join spatial variables (landcover, WI, WUI)
+env_all <- env_all %>%
+  left_join(environmental_spatial, by = "manzana_id")
+
+env_all <- env_all %>%
+  rename(manzana = manzana_id, landcover = dominant_landcover) %>%
+  arrange(year_month, manzana)
+
+cat("\nFinal environmental dataset dimensions:", nrow(env_all), "x", ncol(env_all), "\n")
+```
+
+## Save the resulting environmental dataset
+```{r save the final environmental dataset}
+final_env_data_path <- "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/CF_Municipality"
+write_csv(env_all, file.path(final_env_data_path, "all_environmental_data_per_manzana_2016_04_to_2019_12.csv"))
+```
+
+# Missing data checks for environmental dataset
+```{r check final file}
+
+# Check the final result
+head(env_all)
+cat("\nFinal environmental dataset dimensions:", nrow(env_all), "x", ncol(env_all), "\n")
+cat("\nColumn names:\n")
+print(colnames(env_all))
+
+# Check for missing values
+cat("\nMissing values per column:\n")
+print(colSums(is.na(env_all)))
+```
+
+There are some missing values in the environmental dataset. 
+- ndmi, ndwi -> 10541
+- ndvi ->  14768 
 
 
+```{r quality checks final manzanas in env data}
+# let's check whether all year_month - Manzana combinations are in the env_all dataset
+length(unique(dimob_manzanas_filtered$CODIGO_))
+length(unique(env_all$manzana))
+
+cat("The manzanas in our final environmental dataset are the same as the manzanas in our filtered shapefile: ", 
+    all(unique(dimob_manzanas_filtered$CODIGO_) %in% unique(env_all$manzana)) & 
+      all(unique(env_all$manzana) %in% unique(dimob_manzanas_filtered$CODIGO_)), "\n")
+
+cat("All the manzanas in our final shapefile are in the environmental dataset: ", 
+    all(unique(dimob_manzanas_filtered$CODIGO_) %in% unique(env_all$manzana)), "\n")
+```
+
+
+# Check which values (months and/or manzana) are missing for the finale dataset 
+
+### Check missing data for any variable in env_all
+```{r function to check missing data for any variable}
+
+check_missing_by_month <- function(data, variable_name) {
+  
+  # Create a symbol for the variable
+  var_sym <- sym(variable_name)
+  
+  # Count how much data is missing per month
+  missing_summary <- data %>%
+    group_by(year_month) %>%
+    summarise(
+      total_rows = n(),
+      missing_count = sum(is.na(!!var_sym)),
+      available_count = sum(!is.na(!!var_sym)),
+      pct_missing = round(100 * sum(is.na(!!var_sym)) / n(), 1),
+      .groups = "drop"
+    ) %>%
+    arrange(year_month)
+  
+  cat("\n=====================================\n")
+  cat("MISSING DATA ANALYSIS: ", variable_name, "\n")
+  cat("=====================================\n\n")
+  
+  # Show full table
+  cat("Summary by month:\n")
+  print(missing_summary)
+  
+  # Find months where ALL data is missing
+  completely_empty <- missing_summary %>%
+    filter(missing_count == total_rows)
+  
+  if(nrow(completely_empty) > 0) {
+    cat("\n⚠️  MONTHS WITH ALL MISSING DATA:\n")
+    cat(paste(completely_empty$year_month, collapse = ", "), "\n")
+  } else {
+    cat("\n✓ No months have completely missing data\n")
+  }
+  
+  # Find months with some missing data
+  partial_empty <- missing_summary %>%
+    filter(missing_count > 0 & missing_count < total_rows)
+  
+  if(nrow(partial_empty) > 0) {
+    cat("\n⚠️  MONTHS WITH PARTIAL MISSING DATA:\n")
+    print(partial_empty)
+  } else {
+    cat("✓ No months have partial missing data\n")
+  }
+  
+  cat("\n")
+}
+```
+
+```{r check missing data by month for NDVI, ndmi, ndwi}
+check_missing_by_month(env_all, "mean_ndvi")
+check_missing_by_month(env_all, "mean_ndmi")
+check_missing_by_month(env_all, "mean_ndwi")
+```
+
+
+## Visualize missing data patterns by manzana and month
+
+```{r visualize missing data heatmap function}
+
+visualize_missing_data <- function(data, variable_name, sample_manzanas = NULL) {
+  
+  var_sym <- sym(variable_name)
+  
+  # If sample_manzanas is provided, filter to those manzanas
+  if (!is.null(sample_manzanas)) {
+    plot_data <- data %>%
+      filter(manzana %in% sample_manzanas)
+    subtitle <- paste0("(showing ", length(sample_manzanas), " manzanas)")
+  } else {
+    plot_data <- data
+    subtitle <- paste0("(all ", length(unique(data$manzana)), " manzanas)")
+  }
+  
+  # Create missing indicator
+  plot_data <- plot_data %>%
+    mutate(is_missing = is.na(!!var_sym))
+  
+  # Create the heatmap
+  p <- ggplot(plot_data, aes(x = year_month, y = manzana, fill = is_missing)) +
+    geom_tile(color = "white", size = 0.1) +
+    scale_fill_manual(
+      values = c("FALSE" = "#4CAF50", "TRUE" = "#F44336"),
+      labels = c("FALSE" = "Available", "TRUE" = "Missing"),
+      name = "Data Status"
+    ) +
+    labs(
+      title = paste("Missing Data Pattern:", variable_name),
+      subtitle = subtitle,
+      x = "Year-Month",
+      y = "Manzana"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+      axis.text.y = element_blank(),  # too many manzanas to show labels
+      panel.grid = element_blank(),
+      legend.position = "bottom"
+    )
+  
+  print(p)
+  
+  # Summary statistics
+  cat("\n=== MISSING DATA SUMMARY ===\n")
+  cat("Variable:", variable_name, "\n")
+  cat("Total observations:", nrow(plot_data), "\n")
+  cat("Missing:", sum(plot_data$is_missing), 
+      "(", round(100 * mean(plot_data$is_missing), 1), "%)\n")
+  
+  # Manzanas with most missing data
+  manzana_missing <- plot_data %>%
+    group_by(manzana) %>%
+    summarise(
+      total = n(),
+      missing = sum(is_missing),
+      pct_missing = round(100 * mean(is_missing), 1)
+    ) %>%
+    arrange(desc(missing))
+  
+  cat("\nTop 10 manzanas with most missing data:\n")
+  print(head(manzana_missing, 10))
+  
+  # Months with most missing data
+  month_missing <- plot_data %>%
+    group_by(year_month) %>%
+    summarise(
+      total = n(),
+      missing = sum(is_missing),
+      pct_missing = round(100 * mean(is_missing), 1)
+    ) %>%
+    arrange(desc(missing))
+  
+  cat("\nMonths with most missing data:\n")
+  print(head(month_missing, 10))
+  
+  return(invisible(plot_data))
+}
+```
+
+```{r visualize NDVI missing data - sample}
+# Show a sample of 50 random manzanas for better visibility
+set.seed(123)
+sample_mz <- sample(unique(env_all$manzana), min(50, length(unique(env_all$manzana))))
+visualize_missing_data(env_all, "mean_ndvi", sample_manzanas = sample_mz)
+```
+
+```{r missing data visualize ndvi, ndmi, ndwi - all manzanas}
+# Or show all manzanas (will be compressed but shows overall pattern)
+visualize_missing_data(env_all, "mean_ndvi")
+visualize_missing_data(env_all, "mean_ndmi")
+visualize_missing_data(env_all, "mean_ndwi")
+```
+
+
+## Comprehensive missing data overview for ALL variables
+
+```{r missing data overview for all variables}
+
+# Get all variable names (excluding identifiers)
+all_vars <- setdiff(colnames(env_all), c("manzana", "year_month"))
+
+# Create summary table for all variables
+missing_overview <- data.frame(
+  variable = all_vars,
+  total_obs = nrow(env_all),
+  missing_count = sapply(all_vars, function(v) sum(is.na(env_all[[v]]))),
+  pct_missing = sapply(all_vars, function(v) round(100 * mean(is.na(env_all[[v]])), 2))
+) %>%
+  arrange(desc(pct_missing))
+
+cat("=== MISSING DATA OVERVIEW: ALL VARIABLES ===\n\n")
+print(missing_overview)
+
+# Visualize comparison across variables
+ggplot(missing_overview, aes(x = reorder(variable, pct_missing), y = pct_missing)) +
+  geom_col(aes(fill = pct_missing > 0), show.legend = FALSE) +
+  scale_fill_manual(values = c("TRUE" = "#F44336", "FALSE" = "#4CAF50")) +
+  scale_y_continuous(limits = c(0, 100)) +
+  coord_flip() +
+  labs(
+    title = "Missing Data Across All Environmental Variables",
+    subtitle = paste0("Total observations: ", nrow(env_all)),
+    x = "Variable",
+    y = "% Missing"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_blank()
+  )
+
+# Identify variable categories by missingness
+cat("\n\n=== VARIABLE CATEGORIES BY MISSINGNESS ===\n")
+cat("Complete variables (0% missing):\n")
+complete_vars <- missing_overview %>% filter(pct_missing == 0)
+if(nrow(complete_vars) > 0) {
+  cat(paste(complete_vars$variable, collapse = ", "), "\n")
+} else {
+  cat("None\n")
+}
+
+cat("\nPartially missing (0-50%):\n")
+partial_vars <- missing_overview %>% filter(pct_missing > 0 & pct_missing <= 50)
+if(nrow(partial_vars) > 0) {
+  print(partial_vars)
+} else {
+  cat("None\n")
+}
+
+cat("\nMostly missing (>50%):\n")
+mostly_missing_vars <- missing_overview %>% filter(pct_missing > 50)
+if(nrow(mostly_missing_vars) > 0) {
+  print(mostly_missing_vars)
+} else {
+  cat("None\n")
+}
+```
+
+```{r missing data heatmap: variables x months}
+
+# Create a summary of missing data by variable and month
+missing_by_var_month <- env_all %>%
+  select(year_month, all_of(all_vars)) %>%
+  group_by(year_month) %>%
+  summarise(across(everything(), ~sum(is.na(.))), .groups = "drop") %>%
+  pivot_longer(cols = -year_month, names_to = "variable", values_to = "missing_count")
+
+# Calculate total observations per month
+n_manzanas <- length(unique(env_all$manzana))
+missing_by_var_month <- missing_by_var_month %>%
+  mutate(pct_missing = round(100 * missing_count / n_manzanas, 1))
+
+# Create heatmap
+ggplot(missing_by_var_month, aes(x = year_month, y = variable, fill = pct_missing)) +
+  geom_tile(color = "white", size = 0.5) +
+  scale_fill_gradient2(
+    low = "#4CAF50", 
+    mid = "#FFC107",
+    high = "#F44336",
+    midpoint = 50,
+    name = "% Missing",
+    limits = c(0, 100)
+  ) +
+  labs(
+    title = "Missing Data Heatmap: All Variables Across Time",
+    subtitle = paste0("Each cell shows % of ", n_manzanas, " manzanas with missing data"),
+    x = "Year-Month",
+    y = "Variable"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+    axis.text.y = element_text(size = 9),
+    panel.grid = element_blank()
+  )
+
+# Print which months have most complete data
+cat("\n\n=== MONTHS WITH MOST COMPLETE DATA ===\n")
+complete_by_month <- missing_by_var_month %>%
+  group_by(year_month) %>%
+  summarise(
+    avg_pct_missing = round(mean(pct_missing), 1),
+    n_complete_vars = sum(pct_missing == 0),
+    .groups = "drop"
+  ) %>%
+  arrange(avg_pct_missing)
+
+cat("Top 10 months with most complete data:\n")
+print(head(complete_by_month, 10))
+
+cat("\n\nMonths with most missing data:\n")
+print(tail(complete_by_month, 10))
+```
+
+
+# Add the epi entomo data to the environmental data
+
+## Prep entomo_epi data columns for joining
+```{r prepare ento_epi_data for joining}
+
+# First, check the date format and convert if needed
+cat("ento_epi_data structure:\n")
+str(ento_epi_data[1:5, ])
+
+# Convert ento_epi_data year_month to character format matching env_all (YYYY_MM)
+ento_epi_join <- ento_epi_data %>%
+  mutate(
+    year_month = format(year_month, "%Y_%m"),  # convert Date to "YYYY_MM" format
+    manzana = CODIGO_DIMOB  # rename to match env_all
+  ) %>%
+  select(manzana, year_month, Inspected_houses, Houses_pos_IS, cases)
+
+head(ento_epi_join)
+```
+
+## Join entomo_epi data + env data
+
+```{r join ento_epi with environmental data}
+
+# Filter env_all to only include months that have ento_epi data (2016-04 onwards)
+final_dataset <- env_all %>%
+  left_join(ento_epi_join, by = c("manzana", "year_month"))
+
+cat("\n=== FINAL DATASET ===\n")
+cat("Dimensions:", nrow(final_dataset), "x", ncol(final_dataset), "\n")
+cat("\nColumn names:\n")
+print(colnames(final_dataset))
+
+cat("\nFirst few rows:\n")
+head(final_dataset)
+
+cat("\n\nMissing values in final dataset:\n")
+print(colSums(is.na(final_dataset)))
+
+cat("\n\nData type summary:\n")
+cat("Entomological data (Inspected_houses, Houses_pos_IS, cases):\n")
+cat("  - Inspected_houses missing:", sum(is.na(final_dataset$Inspected_houses)), "\n")
+cat("  - Houses_pos_IS missing:", sum(is.na(final_dataset$Houses_pos_IS)), "\n")
+cat("  - cases missing:", sum(is.na(final_dataset$cases)), "\n")
+
+missing_ento_epi_join <- final_dataset %>%
+  filter(is.na(Inspected_houses) & is.na(Houses_pos_IS) & is.na(cases))
+```
+
+## Check which months/manzanas have ento_epi data and whether they are successfully joined to the env data
+```{r check which months/manzanas have ento_epi data}
+
+# Show coverage of ento_epi data
+ento_epi_coverage <- final_dataset %>%
+  filter(!is.na(Inspected_houses)) %>%
+  summarise(
+    n_rows = n(),
+    n_unique_manzanas = n_distinct(manzana),
+    n_unique_months = n_distinct(year_month),
+    month_range = paste0(min(year_month), " to ", max(year_month))
+  )
+
+cat("\n=== ENTOMOLOGICAL-EPIDEMIOLOGICAL DATA COVERAGE ===\n")
+print(ento_epi_coverage)
+
+# Show any months/manzanas in ento_epi but missing from env_all
+ento_epi_not_in_env <- ento_epi_join %>%
+  anti_join(env_all, by = c("manzana", "year_month"))
+
+if(nrow(ento_epi_not_in_env) > 0) {
+  cat("\n⚠️  Rows in ento_epi data NOT in environmental data:\n")
+  print(ento_epi_not_in_env)
+} else {
+  cat("\n✓ All ento_epi data successfully joined with environmental data\n")
+}
+```
+
+## Check that the Houses_inspected is in fact consistent across months for the same manzana. 
+```{r check consistency of Inspected_houses per manzana}
+
+cat("\n=== CHECKING CONSISTENCY OF Inspected_houses ===\n\n")
+
+# For each manzana, check if Inspected_houses has the same value across all months
+inconsistent_manzanas <- final_dataset %>%
+  filter(!is.na(Inspected_houses)) %>%
+  group_by(manzana) %>%
+  summarise(
+    n_obs = n(),
+    n_unique_values = n_distinct(Inspected_houses),
+    min_value = min(Inspected_houses, na.rm = TRUE),
+    max_value = max(Inspected_houses, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(n_unique_values > 1)  # Keep only those with inconsistent values
+
+if(nrow(inconsistent_manzanas) > 0) {
+  cat("⚠️  MANZANAS WITH INCONSISTENT Inspected_houses VALUES:\n")
+  cat("Number of manzanas with inconsistent values:", nrow(inconsistent_manzanas), "\n\n")
+  print(inconsistent_manzanas)
+  
+  # Show examples
+  cat("\n\nExample: First manzana with inconsistent values\n")
+  example_mz <- inconsistent_manzanas$manzana[1]
+  cat("Manzana:", example_mz, "\n")
+  print(final_dataset %>% 
+          filter(manzana == example_mz & !is.na(Inspected_houses)) %>%
+          select(manzana, year_month, Inspected_houses))
+} else {
+  cat("✓ All manzanas have CONSISTENT Inspected_houses values across months\n")
+  cat("✓ This is correct - Inspected_houses is a static characteristic per manzana\n")
+}
+```
+
+## Save the final entomo + epi + environmental dataset
+```{r save final dataset with environmental entomological and epi data}
+final_epi_entomo_env_data_path <- "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/CF_Municipality"
+final_epi_entomo_env_data_path_2 <- "/home/rita/PyProjects/DI-MOB-BionamiX/data"
+
+write_csv(final_dataset, file.path(final_epi_entomo_env_data_path, "env_epi_entomo_data_per_manzana_2016_04_to_2019_12.csv"))
+write_csv(final_dataset, file.path(final_epi_entomo_env_data_path_2, "env_epi_entomo_data_per_manzana_2016_04_to_2019_12.csv"))
+```

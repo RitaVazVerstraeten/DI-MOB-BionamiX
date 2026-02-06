@@ -1,0 +1,579 @@
+---
+title: "Variability analysis entomological indicators"
+author: "Rita Verstraeten"
+date: "`r Sys.Date()`"
+output:
+  pagedown::html_paged:
+    toc: true
+    # change to true for a self-contained document, but it'll be a litte slower for Pandoc to render
+    self_contained: false
+lot: true # insert a list of tables
+lof: true # insert a list of figures
+# uncomment this line to produce HTML and PDF in RStudio:
+#knit: pagedown::chrome_print
+---
+
+```{r setup, include=FALSE}
+source("renv/activate.R")
+# renv::init()  # creates renv/ folder and lockfile
+# Install necessary packages
+# if (!requireNamespace("readxl", quietly = TRUE)) install.packages("readxl")
+# if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr")
+library(readxl)
+library(dplyr)
+# install.packages(c("lubridate", "readr"))
+library(lubridate)
+library(readr)
+library(DT)
+library(ggplot2)
+# if (interactive() && isTRUE(capabilities("httpgd"))) {
+#   httpgd::hgd(silent = TRUE)  # use httpgd only in interactive sessions
+# }
+library(httpgd)
+library(sf)
+knitr::opts_chunk$set(echo = TRUE, fig.width = 10, fig.height = 6)
+
+results_dir <- "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/images"
+```
+
+# Introduction
+
+This file checks the entomological indicator named: "Houses_pos_IS" for temporal variability both at the manzana and at the CMF level. 
+The variability can be decomposed into two components: 
+  1. Whether Houses_pos_IS > 0 (positivity)
+  2. The actual value of Houses_pos_IS when > 0 
+
+The original database has been filled such that every year-month combination is present. In case there was no entomological finding for 
+that year-month combination in a particular manzana, the manzana was added with Houses_pos_IS = 0.
+
+# Load data
+
+### Entomological data
+```{r load the entomological data}
+entomo_path <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Entomological_Data/Entomo_surveillance_11-24_secondary_DB_Month_Mz_v05082025.xlsx"
+entomo <- suppressWarnings(read_excel(entomo_path, sheet = "Data"))
+colnames(entomo)
+entomo <- entomo %>%
+  select(Year, Month, CODIGO_DIMOB, CMF, CP, Area, Houses_pos_IS, Inspected_houses)
+head(entomo)
+```
+
+### Shapefiles 
+```{r load the shapefiles}
+mz_file_path <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders/Manzanas vectores 21_11_2024_CMF column uncleaned/manzanero_AS_1a8_19112024.shp"
+cmf_file_path <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders/CMF/Poligonos CMF Cienfuegos_28032025.shp"
+
+mz_shape <- st_read(mz_file_path)
+cmf_shape <- st_read(cmf_file_path)
+
+```
+
+### Manzana allocation to CMF file 
+```{r load the manzana allocation file}
+mz_allocation_path <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_ Demographic_Data/Mzlist_overview CMF allocation_Shared between Areas_Original Mzlist_PerArea.xlsx"
+mz_allocation <- suppressWarnings(read_excel(mz_allocation_path, sheet = "unique CMF allocation")) %>%
+  select(1:10) %>% # selects first 10 columns (A-J)
+  select(CODIGO_DIMOB, Area...2, MAP_PC, CMF_unico, MAP_Universo, Poblacion_3) %>%
+  rename(CP = MAP_PC, 
+  AREA = Area...2,
+  CMF = CMF_unico,
+  UNIVERSE = MAP_Universo)
+
+head(mz_allocation)
+# print(colnames(mz_allocation))
+```
+
+## Add the correct CMF to the entomological data based on the mz allocation file
+```{r correction CMF entomo data}
+entomo <- entomo %>%
+  left_join(mz_allocation %>% select(CODIGO_DIMOB, CMF), 
+            by = "CODIGO_DIMOB") %>%
+            rename(CMF_ento = CMF.x, 
+                   CMF_alloc = CMF.y)
+
+head(entomo)
+colnames(entomo)
+```
+
+```{r check the differences between CMF in entomo and the allocation file}
+# inspect the differences between CMF_ento and CMF_alloc
+entomo$CMF_ento = as.character(entomo$CMF_ento)
+entomo$CMF_alloc = as.character(entomo$CMF_alloc)
+entomo_diff <- entomo %>%
+  filter(CMF_ento != CMF_alloc) %>%
+  select(CODIGO_DIMOB, CMF_ento, CMF_alloc) 
+
+nrow(entomo_diff)  # 168 differences
+print(unique(entomo_diff))  # A8APGuMzFcPSOL 17       16
+```
+
+The differences in allocation between the CMFs in the entomological database and in the manzana allocation file are all about the same manzana: 
+A8APGuMzFcPSOL, which is allocated to CMF 17 in the entomological database and to CMF 16 in the allocation file.
+
+I will keep the allocations from the allocation file, as these are more up to date.
+
+```{r update CMF in entomo data}
+entomo <- entomo %>%
+  select(-CMF_ento) %>%
+  rename(CMF = CMF_alloc)%>%
+  relocate(CMF, .after = CODIGO_DIMOB)
+head(entomo)
+```
+
+# Entomo data MANZANA LEVEL - descriptive analysis 
+### Check for missing values in Houses_pos_IS, CMF and Inspected_houses
+```{r check missing variables CMF and Houses_inspected}
+skimr::skim(entomo)
+
+message("Number of missing Houses_pos_IS:", sum(is.na(entomo$Houses_pos_IS)))  # 0
+message("Number of missing CMFs:", sum(is.na(entomo$CMF)))  # 672
+message("Number of missing Inspected_houses:", sum(is.na(entomo$Inspected_houses)))  # 168
+
+# check the manzanas with missing CMFs
+missing_cmf_mz <- entomo %>%
+  filter(is.na(CMF)) %>%
+  select(CODIGO_DIMOB)
+
+message("\n======= Missing CMF analysis =======")
+message("Number entomo data entries with missing CMF value:", nrow(missing_cmf_mz))  # 672 manzanas with missing CMF
+message("Number of unique manzanas with missing CMF value:", length(unique(missing_cmf_mz$CODIGO_DIMOB)))  # 4 manzanas with missing CMF
+message("Manzanas with missing CMF value:", unique(missing_cmf_mz$CODIGO_DIMOB))  # A6Mz71   , A6MzFcJUCA , A6MzPASSAC , DD  
+
+message("\n======= Missing Inspected_houses analysis =======")
+missing_insp_houses <- entomo %>%
+  filter(is.na(Inspected_houses)) %>%
+  select(CODIGO_DIMOB)
+
+message("Number entomo data entries with missing Inspected_houses value:", nrow(missing_insp_houses))  # 168 manzanas with missing Inspected_houses
+message("Number of unique manzanas with missing Inspected_houses value:", length(unique(missing_insp_houses$CODIGO_DIMOB)))  # 1 manzana with missing Inspected_houses
+message("Manzana with missing Inspected_houses value:", unique(missing_insp_houses$CODIGO_DIMOB))  # DD
+
+
+message("\n======= Missing CODIGO_DIMOB analysis =======")
+print(sum(is.na(entomo$CODIGO_DIMOB)))  # 0)
+message("Number of entomo entries with MZ == DD:", nrow(entomo %>% filter(CODIGO_DIMOB == "DD")))  # 168
+# missing_mz <- entomo %>%
+#   filter(is.na(CODIGO_DIMOB)) %>%
+
+# print(head(missing_mz))
+```
+
+### For now, remove the entries with MZ == DD 
+```{r plot the Houses_pos_IS time series at manzana level}
+entomo <- entomo %>%
+  filter(CODIGO_DIMOB != "DD")
+
+message("final database size: ", nrow(entomo))  # 236712 entries
+length(unique(entomo$CODIGO_DIMOB))  # 1409 unique manzanas
+```
+
+### Filter for 2015-2018
+```{r filter entomo data for 2015-2018}
+entomo <- entomo %>%
+  filter(Year >= 2015 & Year <= 2018)
+message("final database size (2015-2018): ", nrow(entomo))  # 56688 entries
+```
+
+## Plot time series of Houses_pos_IS at manzana level 
+
+### Heatmap of Houses_pos_IS over time for all manzanas
+
+Create the helper variable is_positive to indicate whether Houses_pos_IS > 0. 
+Follow this up with a logarithmic transformation of Houses_pos_IS (when is_positive) to better visualise the differences.
+```{r plot Houses_pos_IS at manzana level}
+
+# create the date to plot with
+entomo_heatmap <- entomo %>%
+  mutate(
+    date = make_date(Year, Month, 1),
+    is_positive = Houses_pos_IS > 0,
+    Houses_pos_IS_log = ifelse(Houses_pos_IS > 0,
+                               log1p(Houses_pos_IS), # log(1+x)
+                               NA_real_)
+  )
+
+# # order manzanas by frequency of positivity
+# entomo_heatmap_order <- entomo_heatmap %>%
+#   group_by(CODIGO_DIMOB) %>%
+#   summarise(
+#     prop_positive = mean(is_positive, na.rm = TRUE)
+#   ) %>%
+#   arrange(prop_positive) %>%
+#   pull(CODIGO_DIMOB)
+
+# entomo_heatmap <- entomo_heatmap %>%
+#   mutate(
+#     CODIGO_DIMOB = factor(CODIGO_DIMOB, levels = entomo_heatmap_order)
+#   )
+
+entomo_heatmap <- entomo_heatmap %>%
+  arrange(Area, CMF) %>%
+  mutate(
+    CODIGO_DIMOB = factor(CODIGO_DIMOB, levels = unique(CODIGO_DIMOB))
+  )
+```
+
+
+```{r heatmap log Houses_pos_IS manzana level}
+
+ggplot(entomo_heatmap, aes(x = date, y = CODIGO_DIMOB)) +
+  geom_tile(aes(fill = Houses_pos_IS_log)) +
+  scale_fill_viridis_c(
+    name = "log(1 + Houses_pos_IS)",
+    na.value = "grey95",
+    option = "C"
+  ) +
+  labs(
+    x = "Time",
+    y = "CODIGO_DIMOB",
+    title = "Temporal variability of Houses_pos_IS\n(zeros shown as background)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y  = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+ggsave(file.path(results_dir, "Entomo_Heatmap_Houses_pos_IS_Mz_level.png"), width = 12, height = 12)
+```
+
+## Occurance vs intensity decomposition
+
+```{r calculate manzana-level occurance metrics}
+entomo <- entomo %>%
+  mutate(
+    date = make_date(Year, Month, 1),
+    is_positive = Houses_pos_IS > 0
+  )
+
+occ_pos <- entomo %>%
+  group_by(CODIGO_DIMOB) %>%
+  summarise(
+    prop_positive = mean(is_positive, na.rm = FALSE),
+    n_positive = sum(is_positive, na.rm = FALSE),
+    occurrence_sd = sd(is_positive),
+    .groups = "drop"
+  )
+
+View(occ_pos)
+```
+
+```{r calculate manzana-level intensity metrics}
+entomo_pos <- entomo %>%
+  filter(Houses_pos_IS > 0)
+
+int_pos <- entomo_pos %>%
+  group_by(CODIGO_DIMOB) %>%
+  summarise(
+    mean_intensity = mean(Houses_pos_IS, na.rm = FALSE),
+    intensity_sd = sd(Houses_pos_IS, na.rm = FALSE),
+    cv_intensity = intensity_sd / mean_intensity,
+    max_intensity = max(Houses_pos_IS, na.rm = FALSE),
+    .groups = "drop"
+  )
+```
+cv_intensity = sd(houses_pos) / mean(houses_pos) filtered for houses_pos > 0
+So we scale variability relative to the mean. This measures the intrinsic variability of the positive values.
+
+```{r combine occurance and intensity metrics at manzana level}
+manzana_varianca_decomp <- occ_pos %>%
+  left_join(int_pos, by = "CODIGO_DIMOB")
+
+manzana_varianca_decomp %>%
+  summarise(
+    median_prop_positive = median(prop_positive, na.rm = TRUE),
+    median_occurrence_sd = median(occurrence_sd, na.rm = TRUE),
+    median_cv_intensity = median(cv_intensity, na.rm = TRUE)
+  )
+
+print(manzana_varianca_decomp)
+```
+
+1. The median manzana is positive 0.0625 months (i.e., 6.25% of months).
+2. The median occurance sd is near 0.25 -> presence/absence fluctuates STRONGLY. 
+3. The median cv_intensity is moderate -> when positivity does occur, the intensity varies moderately (so reasonably stable). 
+
+**At the manzana level, the variability is almost entirely driven by rare, sporadic occurrence of posivity, while the magnitude is relatively stable when it does happen.**
+
+# Entomo data CMF LEVEL - descriptive analysis 
+
+### Aggregate the MZ-level counts to CMF level
+```{r aggregate entomo data to CMF level}
+entomo_cmf <- entomo %>%
+  group_by(Year, Month, Area, CMF) %>%
+  summarise(
+    Houses_pos_IS = sum(Houses_pos_IS, na.rm = TRUE),
+    Inspected_houses = sum(Inspected_houses, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(Area_CMF = paste0("A", Area, "CMF", CMF))
+``` 
+
+### Check missing values in CMF
+
+```{r check cmf entomo for missing values}
+skimr::skim(entomo_cmf)
+# View(entomo_cmf)
+message("Unique CMFs in entomo_cmf data:", length(unique(entomo_cmf$Area_CMF)))  # 152 unique CMFs
+```
+
+## Plot the Heatmap per CMF 
+
+Prep the data for heatmap plotting: add a date, order the CMFs by frequency of positivity. 
+
+```{r plot Houses_pos_IS at CMF level}
+# create the date to plot with
+entomo_cmf_heatmap <- entomo_cmf %>%
+  mutate(
+    date = make_date(Year, Month, 1),
+    is_positive = Houses_pos_IS > 0,
+    Houses_pos_IS_log = ifelse(Houses_pos_IS > 0,
+                               log1p(Houses_pos_IS), # log(1+x)
+                               NA_real_)
+  )
+
+# order cmfs by Area (roman numeral) then CMF number
+entomo_cmf_heatmap <- entomo_cmf_heatmap %>%
+  arrange(Area, CMF) %>%
+  mutate(
+    Area_CMF = factor(Area_CMF, levels = unique(Area_CMF))
+  )
+```
+
+```{r heatmap log Houses_pos_IS CMF level}
+
+ggplot(entomo_cmf_heatmap, aes(x = date, y = Area_CMF)) +
+  geom_tile(aes(fill = Houses_pos_IS_log)) +
+  scale_fill_viridis_c(
+    name = "log(1 + Houses_pos_IS)",
+    na.value = "grey95",
+    option = "C"
+  ) +
+  labs(
+    x = "Time",
+    y = "Area_CMF",
+    title = "Temporal variability of Houses_pos_IS at CMF level\n(zeros shown as background)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y  = element_text(size = 6)
+  )
+
+ggsave(file.path(results_dir, "Entomo_Heatmap_Houses_pos_IS_CMF_level.png"), width = 12, height = 12)
+```
+
+
+## Occurance vs intensity decomposition
+
+```{r calculate CMF-level occurance metrics}
+entomo_cmf <- entomo_cmf %>%
+  mutate(
+    date = make_date(Year, Month, 1),
+    is_positive = Houses_pos_IS > 0
+  )
+
+occ_pos_cmf <- entomo_cmf %>%
+  group_by(Area_CMF) %>%
+  summarise(
+    prop_positive = mean(is_positive, na.rm = FALSE),
+    n_positive = sum(is_positive, na.rm = FALSE),
+    occurrence_sd = sd(is_positive),
+    .groups = "drop"
+  )
+
+View(occ_pos_cmf)
+```
+
+```{r calculate cmf-level intensity metrics}
+entomo_pos_cmf <- entomo_cmf %>%
+  filter(Houses_pos_IS > 0)
+
+int_pos_cmf <- entomo_pos_cmf %>%
+  group_by(Area_CMF) %>%
+  summarise(
+    mean_intensity = mean(Houses_pos_IS, na.rm = FALSE),
+    intensity_sd = sd(Houses_pos_IS, na.rm = FALSE),
+    cv_intensity = intensity_sd / mean_intensity,
+    max_intensity = max(Houses_pos_IS, na.rm = FALSE),
+    .groups = "drop"
+  )
+```
+cv_intensity = sd(houses_pos) / mean(houses_pos) filtered for houses_pos > 0
+So we scale variability relative to the mean. This measures the intrinsic variability of the positive values.
+
+```{r combine occurance and intensity metrics at cmf level}
+cmf_varianca_decomp <- occ_pos_cmf %>%
+  left_join(int_pos_cmf, by = "Area_CMF")
+
+cmf_varianca_decomp %>%
+  summarise(
+    median_prop_positive = median(prop_positive, na.rm = TRUE),
+    median_occurrence_sd = median(occurrence_sd, na.rm = TRUE),
+    median_cv_intensity = median(cv_intensity, na.rm = TRUE)
+  )
+
+print(cmf_varianca_decomp)
+```
+
+1. The median CMF is positive 0.479 months (i.e., 50% of months). -> no longer a rare-event at CMF level
+2. The median occurance sd is near 0.47 -> presence/absence fluctuates STRONGLY. 
+3. The median cv_intensity is moderate -> when positivity does occur, the intensity is more variable towards the mean than at Mz level.  
+
+**Aggregation transformed the system from a rare-event, occurrence-dominated process into a frequently positive process, at the cost of increased relative variability in intensity due to spatial heterogeneity within CMFs**
+
+# Autocorrelation analysis at both scales 
+
+Most entomological models will assume memory. So if there are vectors in Mz x at timepoint t, then the chance is big that there will also be at t+1. 
+
+Because the Mz-level data is zero-inflated, there will be 2 kinds of memory: 
+1. **occurance*** memory -> this is more of a conditional probability than a correlation coeff 
+  At Mz level we saw that occurance was rare (median prop_positive = 0.0625), so occurance memory will be low.
+  At CMF level, occurance is more frequent (median prop_positive = 0.479), so occurance memory will be higher.
+2. **intensity** memory -> closer to a classic autocorr. 
+  At Mz level, 
+  At CMF level, 
+
+```{r prep the data for autocorr analysis}
+
+prep_autocorr <- function(df, unit_col) {
+  df %>%
+    rename(unit = {{ unit_col }}) %>%
+    mutate(
+      date = make_date(Year, Month, 1),
+      is_positive = Houses_pos_IS > 0
+    ) %>%
+    arrange(unit, date)
+}
+entomo_mz_p <- prep_autocorr(entomo, CODIGO_DIMOB)
+entomo_cmf_p   <- prep_autocorr(entomo_cmf, Area_CMF)
+```
+
+### Occurance persistance
+*If it's positive this month, does it stay positive next month?*
+
+```{r define occurance persistence function}
+occurrence_persistence <- function(df) {
+  df %>%
+    group_by(unit) %>%
+    mutate(lag_pos = lag(is_positive)) %>% # default is lag by 1
+    summarise(
+      p_pos_given_pos = mean(is_positive & lag_pos, na.rm = TRUE) / # prop of still pos when pos last time
+                        mean(lag_pos, na.rm = TRUE),
+      p_pos_given_zero = mean(is_positive & !lag_pos, na.rm = TRUE) / # prop of pos when zero last time
+                         mean(!lag_pos, na.rm = TRUE),
+      p_neg_given_zero = mean(!is_positive & !lag_pos, na.rm = TRUE) / # prop of neg when zero last time
+                         mean(!lag_pos, na.rm = TRUE),
+      persistence_diff = p_pos_given_pos - p_pos_given_zero,  # difference in persistence
+      .groups = "drop"
+    )
+}
+
+occ_mz <- occurrence_persistence(entomo_mz_p)
+occ_cmf <- occurrence_persistence(entomo_cmf_p)
+```
+
+```{r print occurance persistence results}
+summary(occ_mz)
+
+summary(occ_mz$persistence_diff)
+summary(occ_cmf$persistence_diff)
+```
+
+### Intensity autocorrelation (lag 1)
+
+*When it is positive, does the number of positive houses carry over to the next month?*
+
+```{r compute lag-1 autocorrelation for intensity}
+intensity_autocorr <- function(df, unit) {
+  df %>%
+    filter(Houses_pos_IS > 0) %>%
+    group_by(unit) %>%
+    summarise(
+      acf1 = ifelse(
+        n() >= 3,
+        cor(
+          log1p(Houses_pos_IS[-n()]),
+          log1p(Houses_pos_IS[-1]),
+          use = "complete.obs"
+        ),
+        NA_real_
+      ),
+      .groups = "drop"
+    )
+}
+acintensity_mz <- intensity_autocorr(entomo_mz_p, CODIGO_DIMOB)
+acintensity_cmf <- intensity_autocorr(entomo_cmf_p, Area_CMF)
+```
+
+There are some warnings coming up when calculating the autocorr, this is because there are measurements that are consistently the same (likely 0). 
+So when there is no variance, the correlation cannot be calculated.
+
+```{r print intensity autocorr results}
+summary(acintensity_mz$acf1)
+summary(acintensity_cmf$acf1)
+```
+
+There is a stronger autocorrelation at the MZ level. However, this is negative! 
+This makes sense given that we know there are entomological interventions happening at the MZ level, which will likely reduce the intensity in the next month.
+
+At the CMF level, the autocorrelation is positive but weak (0.04). 
+
+```{r visualize intensity autocorr results}
+library(ggplot2)
+library(dplyr)
+
+# Combine DIMOB and CMF for comparison
+acf_combined <- bind_rows(
+  acintensity_mz %>% mutate(scale = "CODIGO_DIMOB"),
+  acintensity_cmf   %>% mutate(scale = "Area_CMF")
+)
+
+ggplot(acf_combined, aes(x = acf1, fill = scale)) +
+  geom_histogram(alpha = 0.5, position = "identity", bins = 30) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Lag-1 autocorrelation (log1p intensity)",
+    y = "Number of units",
+    title = "Distribution of intensity autocorrelation by spatial scale",
+    fill = "Scale"
+  ) +
+  theme_minimal()
+
+ggplot(acf_combined, aes(x = scale, y = acf1, fill = scale)) +
+  geom_violin(alpha = 0.5) +
+  geom_boxplot(width = 0.1, outlier.size = 1, alpha = 0.7) +
+  labs(
+    x = "Spatial scale",
+    y = "Lag-1 autocorrelation (log1p intensity)",
+    title = "Intensity autocorrelation by scale"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+```{r visualize ocurrence persistence}
+# Combine DIMOB and CMF
+occ_combined <- bind_rows(
+  occ_mz %>% mutate(scale = "CODIGO_DIMOB"),
+  occ_cmf   %>% mutate(scale = "Area_CMF")
+)
+
+# Gather for plotting
+occ_long <- occ_combined %>%
+  select(scale, p_pos_given_pos, p_pos_given_zero) %>%
+  tidyr::pivot_longer(cols = c(p_pos_given_pos, p_pos_given_zero),
+                      names_to = "conditional", values_to = "prob")
+
+ggplot(occ_long, aes(x = conditional, y = prob, fill = scale)) +
+  geom_violin(alpha = 0.5) +
+  geom_boxplot(width = 0.1, outlier.size = 1, alpha = 0.7) +
+  labs(
+    x = "Condition",
+    y = "Probability of positivity",
+    title = "Occurrence persistence by spatial scale",
+    fill = "Scale"
+  ) +
+  scale_x_discrete(labels = c("Given previous positive", "Given previous zero")) +
+  theme_minimal()
+
+```
