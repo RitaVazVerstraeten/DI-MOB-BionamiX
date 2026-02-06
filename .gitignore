@@ -170,6 +170,9 @@ sampler_output/
 # Any file in the Data folder
 /data
 
+# any .html file with results and data
+*.html
+
 # Ignore sampler output files and directories
 sampler_output_*/
 
