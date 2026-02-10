@@ -173,6 +173,9 @@ sampler_output/
 # any .html file with results and data
 *.html
 
+# Any output in figures
+*.png
+
 # Ignore sampler output files and directories
 sampler_output_*/
 
@@ -181,3 +184,23 @@ src/DENV_model/pySODM
 # ignore the R folder in results
 results/DENV_model/R/
 src/R
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.bbl
+*.blg
+*.dvi
+*.ps
+*.toc
+*.lof
+*.lot
+*.fmt
+*.fot
+*.cb
+*.cb2
+.texpadtmp/
