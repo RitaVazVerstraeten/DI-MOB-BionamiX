@@ -1,0 +1,242 @@
+\documentclass[12pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{booktabs}
+
+% Page layout
+\geometry{margin=1in}
+
+% Document information
+\title{Hierarchical Spatio-Temporal State-Space Model for Mosquito Surveillance in Cienfuegos}
+\author{Rita Verstraeten}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+This document presents a hierarchical spatio-temporal state-space model with an effort-dependent observation process for analyzing entomological surveillance data from Cienfuegos. The model aims to correct for biases introduced by different surveillance regimes while estimating the true mosquito presence probability as a function of environmental drivers.
+
+\section{Data Issues and Surveillance Context}
+
+\subsection{Entomological House-Visits}
+
+The surveillance system consists of \textbf{routine inspections} (every household, monthly), quality control re-inspections of a random subset of houses, and \textbf{reactive inspections} triggered by dengue cases (the affected household and, in some instances, nearby houses). A key difficulty is that routine and reactive inspections are not labeled in the data, absences are not recorded, and reactive effort inflates observed positivity during outbreaks.
+
+\section{Objective}
+
+The goal is to estimate $p_{bt} = \Pr(\text{mosquito immature stages are present in block } b \text{ at time } t)$, the true spatio-temporal mosquito presence probability, while correcting for observations that arise from two regimes: systematic surveillance (baseline, covering all households) and reactive surveillance (additional inspections triggered by dengue cases). The central challenge is that reactive surveillance inflates observed mosquito positivity during outbreaks, and the data do not label observations by surveillance type.
+
+\section{Model Framework}
+
+\subsection{Observations}
+
+For each block $b$ and time $t$, the dataset contains $y_{bt}$ (the total number of mosquito-positive inspection events), $N_b^{HH}$ (the number of households in the block, or universo), $C_{bt}$ (the number of dengue cases), and $X_{bt}$ (environmental covariates such as NDVI and meteorology). Operationally, every household is inspected once per period through systematic surveillance, additional inspections occur only when $C_{bt} > 0$, and reactive inspections are not separately recorded.
+
+\subsection{Total Number of Inspection Events}
+
+The total number of inspection events is defined as:
+\begin{equation}
+n_{bt} = N_b^{HH} + \kappa C_{bt},
+\end{equation}
+where $N_b^{HH}$ is known and fixed (universo), $C_{bt}$ is observed, and $\kappa$ is a scaling factor (typically fixed to 1). This encodes the assumption that each dengue case triggers approximately $\kappa$ additional mosquito inspections. We make the assumption that each dengue case will on average originate from a different household. 
+
+\subsection{Latent Ecological Process}
+
+The true mosquito presence probability is modeled as a latent spatio-temporal process:
+\begin{equation}
+\text{logit}(p_{bt}) = \alpha + X_{bt}\beta + u_b + v_t,
+\end{equation}
+where $\alpha$ is the baseline intercept, $X_{bt}$ represents environmental covariates (NDVI, temperature, rainfall, etc.), $\beta$ are regression coefficients, $u_b$ is a spatial random effect (CAR or GP), and $v_t$ is a temporal random effect (RW1, AR1, or seasonal). Crucially, dengue cases do not enter this equation. This equation defines the quantity of interest $p_{bt}$.
+
+\subsection{Reactive Surveillance Targeting Bias}
+
+\begin{equation}
+\text{logit}(p_{bt}^R) = \text{logit}(p_{bt}) + \delta_0 + \delta_1 \log(C_{bt}) \quad \text{for } C_{bt} > 0,
+\end{equation}
+where $\delta_0$ represents baseline targeting bias (reactive vs systematic), and $\delta_1$ captures increased targeting as outbreak intensity increases. This affects only the observation process, not ecology.
+
+\subsection{Combining Systematic and Reactive Surveillance}
+
+Each inspection event belongs to one of two types: systematic (with probability $p_{bt}$) or reactive (with probability $p_{bt}^R$). The fraction of inspections that are reactive is:
+\begin{equation}
+\omega_{bt} = \frac{\kappa C_{bt}}{N_b^{HH} + \kappa C_{bt}},
+\end{equation}
+which is implied by effort, not estimated.
+
+\subsection{Effective Observation Probability}
+
+The probability that a randomly selected inspection event is positive is:
+\begin{equation}
+\pi_{bt} = \begin{cases}
+p_{bt} & \text{if } C_{bt} = 0 \\
+(1 - \omega_{bt})p_{bt} + \omega_{bt}p_{bt}^R & \text{if } C_{bt} > 0
+\end{cases}.
+\end{equation}
+This is a mixture of unbiased and biased observation processes.
+
+\subsection{Observation Model}
+
+\begin{equation}
+y_{bt} \sim \text{Binomial}(n_{bt}, \pi_{bt}).
+\end{equation}
+
+\section{Extensions}
+
+\subsection{Distributed Lag Model}
+
+To consider lag effects of predictors, we model the effect of covariate $X_{bt}$ as:
+\begin{equation}
+\text{Effect of } X_{bt} = \sum_{\ell=0}^{L} w_\ell X_{bt-\ell},
+\end{equation}
+where $w_\ell$ is the lag weight (estimated) and $L$ is the maximum ecological memory. The original equation becomes:
+\begin{equation}
+\text{logit}(p_{bt}) = \alpha + \sum_{k=1}^{K} \sum_{\ell=0}^{L} w_{k\ell} X_{k,b,t-\ell} + s_b + u_t,
+\end{equation}
+where $k$ indexes the predictor, $w_{k\ell}$ are lag weights, $s_b$ are spatial random effects, and $u_t$ are temporal random effects (AR).
+
+\subsection{Temporal Autocorrelation}
+
+The temporal random effect is modeled with autoregression:
+\begin{equation}
+v_t = \rho v_{t-1} + \epsilon_t,
+\end{equation}
+where $\rho$ is the autoregressive parameter and $\epsilon_t$ is white noise.
+
+\subsubsection{Sources of Autocorrelation}
+
+Several factors drive autocorrelation in $p_{bt}$. Slowly varying environments (NDVI, urban form), seasonal climate, block-level structural risk, and imperfect control effectiveness all tend to increase temporal correlation. Conversely, larvae removal upon detection, targeted interventions during outbreaks, and reactive surveillance activities tend to reset states and reduce autocorrelation. Despite these opposing forces, we expect environmental suitability to dominate: Aedes recolonization is rapid, so monthly aggregation smoothens the effects of removal, and blocks remain ecologically suitable even after larvae are removed (high-risk remains high-risk).
+
+\section{Implementation}
+
+\subsection{Dataset Preparation}
+
+The analysis requires a dataset structured with one row per time--block combination. Each row must contain columns for $C_{bt}$ (dengue cases), all environmental covariates $X_{bt}$, the number of houses and larvae in block $b$ at time $t$, and $N_{HH}$ (the number of houses in that block, held constant across time).
+
+\subsection{Exploratory Analysis}
+
+Prior to modeling, we compute correlations between each variable and mosquito data, and examine correlations among all variables. When two variables exhibit strong correlation, we may optionally remove one to avoid collinearity issues.
+
+\subsection{Model Fitting}
+
+We test the modeling approach using R stan. In this framework, $\delta_0$ and $\delta_1$ are not estimated but must be fixed at reasonable values. If a fully Bayesian approach is desired, Stan can be used to estimate $\delta_0$ and $\delta_1$ along with their uncertainty.
+
+\subsection{Additional Considerations}
+
+When including lagged coefficients for the same variables, we must correct for temporal association. One option is to constrain the trajectory of coefficients (for a given environmental variable) using a polynomial function; see the ARBOALVO publication for this approach. Additionally, we may consider a hurdle Poisson model, which separately models the probability of zero and the distribution of non-zero values. Such models are well-suited when data contain excess zeros not sufficiently captured by standard models.
+
+\section{Alternative Approach: Household-Level Model}
+
+\subsection{Motivation}
+
+Since data generation starts at the household level, we can model the process mechanistically at that level and aggregate upward.
+
+\subsection{Latent State Variables}
+
+We define two latent state variables at the household level: $z_{ib,t} \in \{0,1\}$ indicating whether household $i$ in block $b$ has mosquito larvae at time $t$, and $v_{ib,t} \in \{0,1\}$ indicating whether the household was visited between time $t-1$ and $t$. The application of active control (removal) is defined deterministically as:
+\begin{equation}
+c_{ib,t} = v_{ib,t} \cdot z_{ib,t}.
+\end{equation}
+
+\subsection{Ecological Transitions}
+
+The probability of colonization (larvae appearing in a previously uninfested household) and persistence (larvae remaining despite control) are given by:
+\begin{equation}
+P(z_{ib,t} = 1 \mid z_{ib,t-1} = 0) = \text{Logit}^{-1}(\gamma_{bt})
+\end{equation}
+\begin{equation}
+P(z_{ib,t} = 1 \mid z_{ib,t-1} = 1) = \text{Logit}^{-1}(\phi_{bt} - \theta c_{ib,t}).
+\end{equation}
+The state $z_{ib,t}$ advances as:
+\begin{equation}
+z_{ib,t} \mid z_{ib,t-1} \sim \text{Bernoulli}\left(\text{Logit}^{-1}(\phi_{bt} - \theta c_{ib,t})z_{ib,t-1} + \text{Logit}^{-1}(\gamma_{bt})(1 - z_{ib,t-1})\right).
+\end{equation}
+
+\subsection{Visit Process}
+
+The probability of a new visit (systematic + reactive) and revisit are given by:
+\begin{equation}
+P(v_{ib,t} = 1 \mid v_{ib,t-1} = 0) = \text{Logit}^{-1}(\alpha_0 + \alpha_1 D_{bt})
+\end{equation}
+\begin{equation}
+P(v_{ib,t} = 1 \mid v_{ib,t-1} = 1) = \text{Logit}^{-1}(\alpha_0 + \alpha_1 D_{bt} + \alpha_2 v_{ib,t-1}),
+\end{equation}
+which yields:
+\begin{equation}
+v_{ib,t} \mid v_{ib,t-1} \sim \text{Bernoulli}\left(\text{Logit}^{-1}(\alpha_0 + \alpha_1 D_{bt} + \alpha_2 v_{ib,t-1})\right).
+\end{equation}
+
+\subsection{Environmental Drivers}
+
+Larvae colonization and persistence are modeled as purely driven by ecological covariates with spatio-temporal smoothing:
+\begin{align}
+\gamma_{bt} &= \alpha_0^\gamma + \mathbf{x}_{bt}^T \boldsymbol{\alpha}_{\gamma\phi} + s_b + u_t \\
+\phi_{bt} &= \alpha_0^\phi + \mathbf{x}_{bt}^T \boldsymbol{\alpha}_{\gamma\phi} + s_b + u_t
+\end{align}
+Note that we use different intercepts (persistence easier than colonization?) but shared ecological drivers and shared random effects as a deliberate design choice.
+
+\subsection{Observation and Aggregation}
+
+We define an observation variable at the household level:
+\begin{equation}
+y_{ib,t} = \mathbb{1}\{z_{ib,t} = 1, v_{ib,t} = 1\}.
+\end{equation}
+We observe the sum over households per block:
+\begin{equation}
+Y_{bt}^* = \sum_{i=1}^{N_b} y_{ib,t}.
+\end{equation}
+The latent variable of interest is the fraction of households with larvae (regardless of observation):
+\begin{equation}
+p_{bt} = \frac{\sum_{i=1}^{N_b} z_{ib,t}}{N_b}.
+\end{equation}
+
+\subsection{Implementation Challenge}
+
+Either build a POMP model (but this may be infeasible for hundreds of blocks with hundreds of households) or integrate over households analytically:
+\begin{equation}
+P(z_{ib,t} = 1, v_{ib,t} = 1) = P(z_{ib,t} = 1) \cdot P(v_{ib,t} = 1 \mid z_{ib,t} = 1).
+\end{equation}
+
+\subsection{Model Comparison}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}p{2.5cm}p{5.5cm}p{5.5cm}@{}}
+\toprule
+\textbf{Aspect} & \textbf{Original Model} & \textbf{Tijs' New Model} \\ 
+\midrule
+Level of modelling & Block-time, households integrated out implicitly & Household-level, explicit aggregation to blocks \\
+\midrule
+Latent state & $p_{bt}$ = Pr(larvae present at household) & 1. Ecological: $z_{ib,t} \in \{0,1\}$ (larvae present)\newline 2. Visit: $v_{ib,t} \in \{0,1\}$ (household visit) \\
+\midrule
+Dynamics & No explicit colonization/extinction\newline Temporal structure via random effects\newline Ecology drives $p_{bt}$ & Colonization: $P(z_{ib,t}=1|z_{ib,t-1}=0)$\newline Persistence with control: $P(z_{ib,t}=1|z_{ib,t-1}=1)$\newline Visit probability depends on dengue burden and previous visits \\
+\midrule
+Observation & Observation bias via systematic/reactive inspections\newline Dengue cases affect observation, not ecology & Define: $y_{ib,t} = \mathbb{1}\{z_{ib,t}=1, v_{ib,t}=1\}$\newline Observe: $Y_{bt}^* = \sum y_{ib,t}$\newline True hidden Markov model + partial observation \\
+\midrule
+Benefits & 1. Computation manageable\newline 2. Identifiability issues avoided\newline 3. Best for estimating $p_{bt}$ robustly\newline 4. Scaling\newline 5. Inference (not simulation) & 1. Understanding revisits \& removal\newline 2. Understanding control effectiveness in entomology \\
+\midrule
+Risks & 1. No distinction in why $p_{bt}$ changes\newline 2. Intervention effects absorbed into observation bias\newline 3. Need good non-dengue period & 1. Computation: $\sim$2,000,000 latent states\newline 2. Identifiability: never observe $z_{ib,t}=0, v_{ib,t}=1$ or $z_{ib,t}=1, v_{ib,t}=0$ \\
+\bottomrule
+\end{tabular}
+\caption{Comparison of modeling approaches}
+\end{table}
+
+\section{Discussion and Limitations}
+
+Both modeling approaches have important considerations. The block-level model is computationally tractable and avoids certain identifiability issues by anchoring inference during non-outbreak periods and using effort ratios instead of estimating visit probabilities directly. However, it does not distinguish mechanistically why $p_{bt}$ changes over time, and intervention effects are absorbed into the observation bias term. The household-level model offers greater mechanistic detail but faces computational challenges (approximately 2 million latent states for 1,410 blocks with 40 houses each over 36 months) and potential identifiability issues since we never observe households that are visited but have no larvae, or vice versa.
+
+Several limitations apply to the block-level approach. First, we assume that all households are visited monthly through systematic surveillance, but this may not hold in practice. Second, we do not correct for the possibility that multiple dengue cases $C_{bt}$ might originate from the same household, which would violate our assumption that each case triggers inspection of a distinct household. These limitations suggest that the model's correction for reactive surveillance bias may be imperfect, particularly in settings with irregular coverage or spatial clustering of cases.
+
+A key question remains: are we overdoing it by modeling household persistence, visit timing, and explicit colonization/extinction with the mechanistic model? The answer depends on the inferential goals. If the primary objective is robust estimation of $p_{bt}$ for prediction and surveillance evaluation, the simpler block-level model may suffice. If the goal is to understand the mechanistic drivers of mosquito dynamics and evaluate control effectiveness, the added complexity of the household-level model may be justified despite its computational cost.
+
+\end{document}
