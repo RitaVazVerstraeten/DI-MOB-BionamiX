@@ -35,12 +35,14 @@ Observations table (one row per block-time combination):
 |landcover |	categorical	| dominant landcover value for that mz |
 |wui |	Integer	| 0/1 value for wild-land urban interface for that manzana |
 |wi |	Integer	| 0/1 value for water interface for that manzana |
+|urban |	Integer	| 0/1 value for whether/not urban for that manzana |
+
 
 |avg_temp |	Numeric	| average temperature (°C) for that manzana-month |
 |total_precip |	Numeric	| cummulative precipitation (mm) for that manzana-month |
 |rel_hum |	Numeric	| average relative humidity (%) for that manzana-month |
 
-|omega |	Numeric	| Reactive bias weight (calculated from C_bt) |
+<!-- |omega |	Numeric	| Reactive bias weight (calculated from C_bt) | -->
 
 ## Install R packages
 ```{r setup, include = FALSE}
@@ -63,7 +65,7 @@ library(tidyr)  # for pivot_longer
 library(httpgd)
 
 knitr::opts_chunk$set(echo = TRUE, fig.width = 10, fig.height = 6)
-
+save_images_to <- "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/images"
 # install.packages(c("rmarkdown", "rticles", "pagedown", "blogdown"))
 ```
 
@@ -516,11 +518,12 @@ Some manzanas are in fact huge.
   - WI -> manzana
   - WUI -> manzana
   - LandCover -> manzana
+  - urbanization -> manzana
 
 2. Join this environmental dataset to the ento_epi_data based on year_month and manzana
 
 ```{r prepare the evironmental dataset first}
-env_data_path <- "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/CF_Municipality"
+env_data_path <- "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality"
 
 ndvi <- read_csv(file.path(env_data_path, "NDVI", "NDVI_per_manzana_2015_2019_all_months.csv"), show_col_types = FALSE)
 ndwi <- read_csv(file.path(env_data_path, "NDWI", "NDWI_per_manzana_2015_2019_all_months.csv"), show_col_types = FALSE)
@@ -529,8 +532,11 @@ windspeed <- read_csv(file.path(env_data_path, "WindSpeed", "wind_speed_2015_201
 landcover <- read_csv(file.path(env_data_path, "LandCover", "LandCover_per_manzana_2021.csv"), show_col_types = FALSE)
 wi <- read_csv(file.path(env_data_path, "WI", "WI_per_manzana_NoBuffer_classification.csv"), show_col_types = FALSE)
 wui <- read_csv(file.path(env_data_path, "WUI", "WUI_per_manzana_NoBuffer_classification.csv"), show_col_types = FALSE)
+urban <- read_csv(file.path(env_data_path, "WUI", "WSF_per_manzana_noBuffer_classification.csv"), show_col_types = FALSE)
 meteo_daily <- read_xlsx("/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx")
+aljibes <- read_csv(file.path(env_data_path, "aljibes", "10m_buffer_manzanas_aljibes.csv"), show_col_types=FALSE)
 ```
+
 
 ```{r keep relevant columns from ndvi, ndwi, and ndmi}
 ndvi <- ndvi %>%
@@ -566,6 +572,12 @@ wi <- wi %>%
 wui <- wui %>%
   rename(manzana_id = ID) %>%
   select(manzana_id, is_WUI)
+urban <- urban %>% 
+  rename(manzana_id = ID) %>%
+  select(manzana_id, is_urban)
+aljibes <- aljibes %>% 
+  rename(manzana_id = CODIGO_) %>%
+  select(manzana_id, has_aljibes, nr_aljibes)
 ```
 
 ```{r keep relevant columns for landcover}
@@ -644,7 +656,9 @@ setdiff(unique(landcover$manzana_id), wui$manzana_id)
 
 environmental_spatial <- landcover %>%
   left_join(wi, by = "manzana_id") %>%
-  left_join(wui, by = "manzana_id")
+  left_join(wui, by = "manzana_id") %>%
+  left_join(urban, by = "manzana_id") %>%
+  left_join(aljibes, by = "manzana_id")
 ```
 
 ## Aggregate the spatio-temporal variables
@@ -706,13 +720,17 @@ cat("\nFinal environmental dataset dimensions:", nrow(env_all), "x", ncol(env_al
 
 ## Save the resulting environmental dataset
 ```{r save the final environmental dataset}
-final_env_data_path <- "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/CF_Municipality"
+final_env_data_path <-  "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality"
+final_env_data_path_1 <-  "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data"
+
 write_csv(env_all, file.path(final_env_data_path, "all_environmental_data_per_manzana_2016_04_to_2019_12.csv"))
+write_csv(env_all, file.path(final_env_data_path_1, "all_environmental_data_per_manzana_2016_04_to_2019_12.csv"))
+
 ```
 
 # Missing data checks for environmental dataset
 ```{r check final file}
-
+env_all <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_manzana_2016_04_to_2019_12.csv")
 # Check the final result
 head(env_all)
 cat("\nFinal environmental dataset dimensions:", nrow(env_all), "x", ncol(env_all), "\n")
@@ -811,28 +829,22 @@ check_missing_by_month(env_all, "mean_ndwi")
 ```{r visualize missing data heatmap function}
 
 visualize_missing_data <- function(data, variable_name, sample_manzanas = NULL) {
-  
   var_sym <- sym(variable_name)
-  
-  # If sample_manzanas is provided, filter to those manzanas
+
   if (!is.null(sample_manzanas)) {
-    plot_data <- data %>%
-      filter(manzana %in% sample_manzanas)
+    plot_data <- data %>% filter(manzana %in% sample_manzanas)
     subtitle <- paste0("(showing ", length(sample_manzanas), " manzanas)")
   } else {
     plot_data <- data
     subtitle <- paste0("(all ", length(unique(data$manzana)), " manzanas)")
   }
-  
-  # Create missing indicator
-  plot_data <- plot_data %>%
-    mutate(is_missing = is.na(!!var_sym))
-  
-  # Create the heatmap
+
+  plot_data <- plot_data %>% mutate(is_missing = is.na(!!var_sym))
+
   p <- ggplot(plot_data, aes(x = year_month, y = manzana, fill = is_missing)) +
-    geom_tile(color = "white", size = 0.1) +
+  geom_tile(color = "white", size = 0.1, alpha = 1) +
     scale_fill_manual(
-      values = c("FALSE" = "#4CAF50", "TRUE" = "#F44336"),
+      values = c("FALSE" = "#1B5E20", "TRUE" = "#B71C1C"),  # fully opaque
       labels = c("FALSE" = "Available", "TRUE" = "Missing"),
       name = "Data Status"
     ) +
@@ -845,47 +857,12 @@ visualize_missing_data <- function(data, variable_name, sample_manzanas = NULL) 
     theme_minimal() +
     theme(
       axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
-      axis.text.y = element_blank(),  # too many manzanas to show labels
+      axis.text.y = element_blank(),
       panel.grid = element_blank(),
       legend.position = "bottom"
     )
-  
-  print(p)
-  
-  # Summary statistics
-  cat("\n=== MISSING DATA SUMMARY ===\n")
-  cat("Variable:", variable_name, "\n")
-  cat("Total observations:", nrow(plot_data), "\n")
-  cat("Missing:", sum(plot_data$is_missing), 
-      "(", round(100 * mean(plot_data$is_missing), 1), "%)\n")
-  
-  # Manzanas with most missing data
-  manzana_missing <- plot_data %>%
-    group_by(manzana) %>%
-    summarise(
-      total = n(),
-      missing = sum(is_missing),
-      pct_missing = round(100 * mean(is_missing), 1)
-    ) %>%
-    arrange(desc(missing))
-  
-  cat("\nTop 10 manzanas with most missing data:\n")
-  print(head(manzana_missing, 10))
-  
-  # Months with most missing data
-  month_missing <- plot_data %>%
-    group_by(year_month) %>%
-    summarise(
-      total = n(),
-      missing = sum(is_missing),
-      pct_missing = round(100 * mean(is_missing), 1)
-    ) %>%
-    arrange(desc(missing))
-  
-  cat("\nMonths with most missing data:\n")
-  print(head(month_missing, 10))
-  
-  return(invisible(plot_data))
+
+  return(p)
 }
 ```
 
@@ -898,9 +875,17 @@ visualize_missing_data(env_all, "mean_ndvi", sample_manzanas = sample_mz)
 
 ```{r missing data visualize ndvi, ndmi, ndwi - all manzanas}
 # Or show all manzanas (will be compressed but shows overall pattern)
-visualize_missing_data(env_all, "mean_ndvi")
-visualize_missing_data(env_all, "mean_ndmi")
-visualize_missing_data(env_all, "mean_ndwi")
+ndvi_plot <- visualize_missing_data(env_all, "mean_ndvi")
+ggsave(
+  filename = file.path(save_images_to, "missing_NDVI_block_month.png"),
+  plot = ndvi_plot,
+  width = 10,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+# visualize_missing_data(env_all, "mean_ndmi")
+# visualize_missing_data(env_all, "mean_ndwi")
 ```
 
 
@@ -1004,7 +989,12 @@ ggplot(missing_by_var_month, aes(x = year_month, y = variable, fill = pct_missin
     axis.text.y = element_text(size = 9),
     panel.grid = element_blank()
   )
-
+ggsave(
+  filename = file.path(save_images_to, "missing_env_data_heatmap.png"),
+  width = 10,
+  height = 6,
+  dpi = 300
+)
 # Print which months have most complete data
 cat("\n\n=== MONTHS WITH MOST COMPLETE DATA ===\n")
 complete_by_month <- missing_by_var_month %>%
@@ -1139,9 +1129,11 @@ if(nrow(inconsistent_manzanas) > 0) {
 
 ## Save the final entomo + epi + environmental dataset
 ```{r save final dataset with environmental entomological and epi data}
-final_epi_entomo_env_data_path <- "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/CF_Municipality"
+final_epi_entomo_env_data_path <- "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data"
+final_epi_entomo_env_data_path_1 <- "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality"
 final_epi_entomo_env_data_path_2 <- "/home/rita/PyProjects/DI-MOB-BionamiX/data"
 
 write_csv(final_dataset, file.path(final_epi_entomo_env_data_path, "env_epi_entomo_data_per_manzana_2016_04_to_2019_12.csv"))
+write_csv(final_dataset, file.path(final_epi_entomo_env_data_path_1, "env_epi_entomo_data_per_manzana_2016_04_to_2019_12.csv"))
 write_csv(final_dataset, file.path(final_epi_entomo_env_data_path_2, "env_epi_entomo_data_per_manzana_2016_04_to_2019_12.csv"))
 ```
