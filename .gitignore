@@ -185,7 +185,12 @@ src/DENV_model/pySODM
 results/DENV_model/R/
 src/R
 
+# LaTeX build output directory
+out.nosync/
+shared/ 
 # LaTeX build artifacts
+*.nav
+*.snm
 *.aux
 *.log
 *.out
@@ -203,4 +208,7 @@ src/R
 *.fot
 *.cb
 *.cb2
+*.vrb
+*.xdv
+
 .texpadtmp/

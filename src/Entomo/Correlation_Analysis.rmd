@@ -1,0 +1,186 @@
+---
+title: "Correlation Analysis - Environmental Variables"
+author: "Rita Verstraeten"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+editor_options:
+  chunk_output_type: console
+---
+
+# Correlation Analysis of Environmental Covariates
+
+## Setup
+
+```{r setup, include=FALSE}
+source("renv/activate.R")
+library(readxl)
+library(dplyr)
+# install.packages(c("lubridate", "readr"))
+library(lubridate)
+library(readr)
+library(DT)
+library(ggplot2)
+library(readxl)
+library(tidyr)  # for pivot_longer
+library(corrplot)
+library(rstatix)
+
+
+# if (interactive() && isTRUE(capabilities("httpgd"))) {
+#   httpgd::hgd(silent = TRUE)  # use httpgd only in interactive sessions
+# }
+library(httpgd)
+knitr::opts_chunk$set(echo = TRUE, fig.width = 10, fig.height = 6)
+
+
+# Load your processed data
+env_all <- read_csv("/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/all_environmental_data_per_manzana_2016_04_to_2019_12.csv")
+```
+
+## 1. Correlation between numeric variables
+
+### Select the variables
+```{r select_vars}
+categorical_vars <- c( "is_WI","is_WUI","is_urban","landcover")
+numeric_vars <- c("mean_ndvi", "mean_ndwi", "mean_ndmi", 
+                  "avg_temp", "total_precip", "rel_hum", "WS2M", "WS10M", "WS50M")
+
+# Create subset with only numeric env variables
+env_num <- env_all %>%
+  select(all_of(numeric_vars)) %>%
+  drop_na()
+
+head(env_num)
+dim(env_num)
+```
+
+### Compute Correlation Matrix
+
+```{r corr_matrix}
+# Pearson correlation
+corr_matrix <- cor(env_num, method = "pearson")
+
+# View the matrix
+round(corr_matrix, 3)
+```
+
+### Visualize Correlations
+
+```{r corr_plot}
+png(
+  filename = "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/images/correlation_matrix_numeric_vars.png",
+  width = 10,
+  height = 10,
+  units = "in",
+  res = 300,
+  bg = "white"
+)
+# Correlation heatmap
+corrplot(corr_matrix, 
+         method = "color",
+         type = "upper",
+         addCoef.col = "black",
+         diag = FALSE,
+         tl.col = "black")
+dev.off()
+
+```
+
+## 2. Correlation between categorical variables 
+### Select the variables
+```{r correlation categorical vars}
+
+# Select all categorical variables
+categorical_data <- env_all %>%
+  select(all_of(categorical_vars)) %>%
+  drop_na()
+
+head(categorical_data)
+```
+
+### Calculate the correlation 
+```{r calculate the cat var Cramers_v}
+# Create Cramér's V matrix manually
+cat_vars_list <- colnames(categorical_data)
+n_vars <- length(cat_vars_list)
+cramers_v <- matrix(NA, nrow = n_vars, ncol = n_vars)
+rownames(cramers_v) <- cat_vars_list
+colnames(cramers_v) <- cat_vars_list
+
+for (i in 1:n_vars) {
+  for (j in 1:n_vars) {
+    if (i == j) {
+      cramers_v[i, j] <- 1.0
+    } else if (i < j) {
+      # Chi-square test
+      contingency_table <- table(categorical_data[[i]], categorical_data[[j]])
+      chi2 <- chisq.test(contingency_table)$statistic
+      n <- sum(contingency_table)
+      min_dim <- min(nrow(contingency_table), ncol(contingency_table))
+      cramers_v[i, j] <- sqrt(chi2 / (n * (min_dim - 1)))
+      cramers_v[j, i] <- cramers_v[i, j]
+    }
+  }
+}
+
+round(cramers_v, 3)
+```
+### Visualize
+
+```{r visualize correlation cat var}
+png(
+  filename = "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/images/correlation_matrix_categorical_cramers_v.png",
+  width = 8,
+  height = 8,
+  units = "in",
+  res = 300,
+  bg = "white"
+)
+
+corrplot(cramers_v, 
+         method = "color",
+         type = "upper",
+         addCoef.col = "black",
+         diag = FALSE,
+         tl.col = "black")
+
+dev.off()
+```
+
+
+## 5. Mixed Correlation (Numeric + Binary)
+
+```{r mixed_corr}
+# Point-biserial correlation (numeric vs binary)
+# Use Spearman or Kendall which work better for mixed types
+
+mixed_data <- env_all %>%
+  select(all_of(numeric_vars), starts_with("is_")) %>%
+  mutate(across(starts_with("is_"), as.numeric)) %>%
+  drop_na()
+
+# Spearman (rank-based, more robust)
+spearman_corr <- cor(mixed_data, method = "spearman")
+
+png(
+  filename = "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/images/correlation_matrix_mixed_spearman.png",
+  width = 12,
+  height = 12,
+  units = "in",
+  res = 300,
+  bg = "white"
+)
+
+corrplot(spearman_corr, 
+         method = "color",
+         type = "upper",
+         addCoef.col = "black",
+         diag = FALSE,
+         tl.col = "black",
+         tl.cex = 0.8)
+
+dev.off()
+```
