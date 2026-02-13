@@ -1,0 +1,1005 @@
+---
+title: "Descriptive Statistics - Environmental Variables"
+author: "Rita Verstraeten"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+editor_options:
+  chunk_output_type: console
+---
+
+# Descriptive Statistics: Environmental Variables
+
+This document provides descriptive statistics for environmental variables used in entomological research in Cuba, organized by variable type and their spatial-temporal structure:
+
+- **Temporal variables**: How environmental conditions vary over time (months) across the study region
+- **Spatial variables**: How the study locations differ in their geographic and infrastructural characteristics (across 1,409 manzanas)
+- **Spatio-temporal variables**: How vegetation and water indices vary both across space and time
+
+## Setup
+
+```{r setup, include=FALSE}
+source("renv/activate.R")
+library(readxl)
+library(dplyr)
+library(lubridate)
+library(readr)
+library(ggplot2)
+library(tidyr)
+library(corrplot)
+library(rstatix)
+library(cowplot)
+library(gridExtra)
+library(knitr)
+library(sf)
+
+knitr::opts_chunk$set(echo = FALSE, fig.width = 12, fig.height = 7, message = FALSE, warning = FALSE)
+
+# Set up output directory for plots
+output_dir <- "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/images/descriptive"
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# Load data
+env_all <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_manzana_2016_04_to_2019_12.csv")
+
+# Load manzanas shapefile (assumed to be already loaded in environment as 'manzanas')
+# If not loaded, uncomment and adjust path:
+# manzanas <- st_read("path/to/manzanas.shp")
+
+shapefile_path <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders"
+manzanas <- st_read(file.path(shapefile_path, "Manzanas vectores 21_11_2024_CMF column uncleaned/manzanero_AS_1a8_19112024.shp"))
+manzanas <- manzanas %>% dplyr::filter(MZ != "TB", !is.na(CODIGO_), CODIGO_ != "")
+manzanas <- manzanas %>%
+  filter(CODIGO_ != "A8APSMMzFcSAMA")
+length(unique(manzanas$CODIGO_))
+
+municipality <- st_read(file.path(shapefile_path, "Municipality", "MUNICIPIO CFGOS 3022025.shp"))
+
+# Ensure year_month is recognized as date/factor
+if ("year_month" %in% colnames(env_all)) {
+  env_all <- env_all %>%
+    mutate(year_month = as.factor(year_month))
+}
+```
+
+---
+
+## Temporal Variables
+
+Temporal variables that vary over time and are measured consistently across all spatial units. Here we examine how environmental conditions change seasonally over the study period (April 2016 - December 2019).
+
+### Overall Summary Statistics
+
+```{r temporal_overall_summary}
+temporal_vars <- c("WS2M", "avg_temp", "total_precip", "rel_hum")
+
+temporal_data <- env_all %>%
+  select(all_of(temporal_vars)) %>%
+  drop_na()
+
+# Create summary statistics table
+temporal_summary <- temporal_data %>%
+  summarise(
+    across(everything(),
+      list(
+        n = ~n(),
+        Mean = ~mean(., na.rm = TRUE),
+        SD = ~sd(., na.rm = TRUE),
+        Min = ~min(., na.rm = TRUE),
+        Q25 = ~quantile(., probs = 0.25, na.rm = TRUE),
+        Median = ~median(., na.rm = TRUE),
+        Q75 = ~quantile(., probs = 0.75, na.rm = TRUE),
+        Max = ~max(., na.rm = TRUE)
+      ),
+      .names = "{.col}_{.fn}"
+    )
+  ) %>%
+  pivot_longer(everything(), names_to = "Statistic", values_to = "Value") %>%
+  separate(Statistic, into = c("Variable", "Stat"), sep = "_(?=n$|Mean|SD|Min|Q25|Median|Q75|Max)") %>%
+  pivot_wider(names_from = "Stat", values_from = "Value")
+
+knitr::kable(temporal_summary, digits = 2, caption = "Temporal Variables - Overall Summary Statistics (Pooled across all locations and months)")
+```
+
+### Summary Statistics by Month (Year-Month)
+
+```{r temporal_by_month_summary}
+if ("year_month" %in% colnames(env_all)) {
+  temporal_by_month <- env_all %>%
+    select(all_of(c("year_month", temporal_vars))) %>%
+    drop_na() %>%
+    group_by(year_month) %>%
+    summarise(
+      across(all_of(temporal_vars),
+        list(
+          Mean = ~mean(., na.rm = TRUE),
+          SD = ~sd(., na.rm = TRUE),
+          Min = ~min(., na.rm = TRUE),
+          Max = ~max(., na.rm = TRUE)
+        ),
+        .names = "{.col}_{.fn}"
+      ),
+      .groups = "drop"
+    ) %>%
+    pivot_longer(-year_month, names_to = "Stat_Var", values_to = "Value") %>%
+    separate(Stat_Var, into = c("Variable", "Statistic"), sep = "_(?=Mean|SD|Min|Max)") %>%
+    pivot_wider(names_from = "Statistic", values_from = "Value")
+  
+  knitr::kable(temporal_by_month, digits = 2, caption = "Temporal Variables - Summary by Month")
+} else {
+  cat("Note: year_month variable not found in dataset")
+}
+```
+
+### Temporal Distributions
+
+```{r temporal_distributions, fig.cap="Distribution of temporal variables (pooled across all locations and months)"}
+temporal_data_long <- temporal_data %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Value")
+
+p <- ggplot(temporal_data_long, aes(x = Value)) +
+  geom_histogram(bins = 30, fill = "steelblue", alpha = 0.7, color = "black") +
+  facet_wrap(~Variable, scales = "free", nrow = 2) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(face = "bold", size = 11),
+    axis.title = element_text(size = 10)
+  ) +
+  labs(title = "Distribution of Temporal Variables",
+       x = "Value",
+       y = "Frequency")
+print(p)
+ggsave(file.path(output_dir, "01_temporal_distributions.png"), p, width = 12, height = 8, dpi = 300)
+```
+
+### Temporal Variation Over Time
+
+```{r temporal_by_month, fig.cap="Temporal variables by month - showing seasonal patterns", fig.width=14, fig.height=10}
+if ("year_month" %in% colnames(env_all)) {
+  temporal_with_month <- env_all %>%
+    select(all_of(c("year_month", temporal_vars))) %>%
+    drop_na() %>%
+    pivot_longer(all_of(temporal_vars), names_to = "Variable", values_to = "Value")
+  
+  # Plot windspeed variables
+  ws_vars <- c("WS2M")
+  ws_data <- temporal_with_month %>% filter(Variable %in% ws_vars)
+  
+  p1 <- ggplot(ws_data, aes(x = year_month, y = Value, color = Variable, group = Variable)) +
+    geom_point(size = 2, alpha = 0.7) +
+    geom_line(alpha = 0.5) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 90, size = 6),
+      plot.title = element_text(size = 11, face = "bold")
+    ) +
+    labs(title = "Wind Speed Variables",
+         x = "Year-Month",
+         y = "Wind Speed (m/s)",
+         color = "Height (m)")
+  
+  # Plot individual other temporal variables
+  other_vars <- setdiff(temporal_vars, ws_vars)
+  
+  p2 <- ggplot(temporal_with_month %>% filter(Variable == "avg_temp"), 
+               aes(x = year_month, y = Value, color = Variable, group = Variable)) +
+    geom_point(size = 2, alpha = 0.7, color = "firebrick") +
+    geom_line(alpha = 0.5, color = "firebrick") +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 90, size = 6),
+      legend.position = "none",
+      plot.title = element_text(size = 11, face = "bold")
+    ) +
+    labs(title = "Average Temperature",
+         x = "Year-Month",
+         y = "Temperature (°C)")
+  
+  p3 <- ggplot(temporal_with_month %>% filter(Variable == "total_precip"), 
+               aes(x = year_month, y = Value, color = Variable, group = Variable)) +
+    geom_point(size = 2, alpha = 0.7, color = "steelblue") +
+    geom_line(alpha = 0.5, color = "steelblue") +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 90, size = 6),
+      legend.position = "none",
+      plot.title = element_text(size = 11, face = "bold")
+    ) +
+    labs(title = "Total Precipitation",
+         x = "Year-Month",
+         y = "Precipitation (mm)")
+  
+  p4 <- ggplot(temporal_with_month %>% filter(Variable == "rel_hum"), 
+               aes(x = year_month, y = Value, color = Variable, group = Variable)) +
+    geom_point(size = 2, alpha = 0.7, color = "mediumseagreen") +
+    geom_line(alpha = 0.5, color = "mediumseagreen") +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 90, size = 6),
+      legend.position = "none",
+      plot.title = element_text(size = 11, face = "bold")
+    ) +
+    labs(title = "Relative Humidity",
+         x = "Year-Month",
+         y = "Humidity (%)")
+  
+  # Combine into 2x2 grid
+  combined_plot <- cowplot::plot_grid(p1, p2, p3, p4, nrow = 2, ncol = 2)
+  
+  print(combined_plot)
+  ggsave(file.path(output_dir, "02_temporal_by_month.png"), combined_plot, width = 14, height = 10, dpi = 300)
+} else {
+  cat("Note: year_month variable not found in dataset")
+}
+```
+
+---
+
+## Spatial Variables
+
+Variables that describe the spatial characteristics of locations. With 1,409 spatial units (manzanas), we examine the geographic heterogeneity of the study region.
+
+## Continuous Spatial Variables (Distribution across 1,409 locations)
+
+Get an idea of the total number of houses in the database
+```{r}
+```
+
+```{r spatial_continuous_summary}
+continuous_spatial <- c("nr_aljibes")
+
+# Get unique locations to understand spatial distribution
+spatial_unique <- env_all %>%
+  select(all_of(c("manzana", continuous_spatial))) %>%
+  distinct(manzana, .keep_all = TRUE) %>%
+  drop_na()
+
+continuous_summary <- spatial_unique %>%
+  select(all_of(continuous_spatial)) %>%
+  summarise(
+    across(everything(),
+      list(
+        n_locations = ~n(),
+        Mean = ~mean(., na.rm = TRUE),
+        SD = ~sd(., na.rm = TRUE),
+        Min = ~min(., na.rm = TRUE),
+        Median = ~median(., na.rm = TRUE),
+        Max = ~max(., na.rm = TRUE)
+      ),
+      .names = "{.col}_{.fn}"
+    )
+  ) %>%
+  pivot_longer(everything(), names_to = "Statistic", values_to = "Value") %>%
+  separate(Statistic, into = c("Variable", "Stat"), sep = "_(?=n_locations|Mean|SD|Min|Median|Max)") %>%
+  pivot_wider(names_from = "Stat", values_from = "Value")
+
+knitr::kable(continuous_summary, digits = 2, caption = "Continuous Spatial Variables - Distribution Across 1,409 Manzanas")
+```
+
+## Binary Spatial Variables
+
+```{r binary_spatial_summary}
+binary_spatial <- c("is_WI", "is_WUI", "has_aljibes", "is_urban")
+
+binary_summary <- env_all %>%
+  select(all_of(binary_spatial)) %>%
+  drop_na() %>%
+  summarise(
+    across(everything(),
+      list(
+        Total_n = ~n(),
+        Count_TRUE = ~sum(. == TRUE, na.rm = TRUE),
+        Count_FALSE = ~sum(. == FALSE, na.rm = TRUE),
+        Pct_TRUE = ~sum(. == TRUE, na.rm = TRUE) / n() * 100
+      ),
+      .names = "{.col}_{.fn}"
+    )
+  ) %>%
+  pivot_longer(everything(), names_to = "Statistic", values_to = "Value") %>%
+  separate(Statistic, into = c("Variable", "Stat"), sep = "_(?=Total_n|Count_TRUE|Count_FALSE|Pct_TRUE)") %>%
+  pivot_wider(names_from = "Stat", values_from = "Value")
+
+knitr::kable(binary_summary, digits = 1, caption = "Descriptive Statistics - Binary Spatial Variables")
+```
+
+## Categorical Spatial Variables
+
+```{r categorical_spatial_summary}
+categorical_spatial <- c("landcover")
+
+categorical_summary <- env_all %>%
+  select(all_of(categorical_spatial)) %>%
+  drop_na() %>%
+  group_by(landcover) %>%
+  summarise(
+    Count = n(),
+    Percentage = n() / nrow(env_all %>% select(all_of(categorical_spatial)) %>% drop_na()) * 100,
+    .groups = "drop"
+  ) %>%
+  arrange(desc(Count))
+
+knitr::kable(categorical_summary, digits = 1, caption = "Descriptive Statistics - Landcover (Categorical)")
+```
+
+
+## Spatial Variables Visualizations
+
+```{r spatial_binary_barplot, fig.cap="Binary spatial variables frequency"}
+binary_data_long <- env_all %>%
+  select(all_of(binary_spatial)) %>%
+  drop_na() %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Value") %>%
+  group_by(Variable, Value) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  mutate(Percentage = paste0(round(Count / sum(Count) * 100, 1), "%"), .by = Variable)
+
+p <- ggplot(binary_data_long, aes(x = Variable, y = Count, fill = Value)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = Percentage), position = position_dodge(width = 0.9), vjust = -0.5, size = 3.5) +
+  theme_minimal() +
+  labs(title = "Binary Spatial Variables Distribution among manzanas",
+       x = "Variable",
+       y = "Count",
+       fill = "Value") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(p)
+ggsave(file.path(output_dir, "03_spatial_binary_barplot.png"), p, width = 10, height = 6, dpi = 300)
+```
+
+```{r spatial_categorical_barplot, fig.cap="Landcover distribution"}
+landcover_data <- env_all %>%
+  select(landcover) %>%
+  drop_na() %>%
+  group_by(landcover) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  mutate(Percentage = paste0(round(Count / sum(Count) * 100, 1), "%"))
+
+p <- ggplot(landcover_data, aes(x = reorder(landcover, -Count), y = Count, fill = landcover)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Percentage), vjust = -0.5, size = 3.5) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Landcover Distribution among manzanas",
+       x = "Landcover Type",
+       y = "Count")
+print(p)
+ggsave(file.path(output_dir, "04_spatial_categorical_barplot.png"), p, width = 10, height = 6, dpi = 300)
+```
+
+### Spatial Distribution Maps
+
+```{r spatial_maps_prep}
+# Prepare spatial data - get unique manzana values for each spatial variable
+spatial_map_data <- env_all %>%
+  select(manzana, all_of(c(binary_spatial, continuous_spatial, categorical_spatial))) %>%
+  distinct(manzana, .keep_all = TRUE)
+
+# Join with shapefile
+manzanas_spatial <- manzanas %>%
+  left_join(spatial_map_data, by = c("CODIGO_" = "manzana"))
+```
+
+```{r spatial_maps_binary, fig.cap="Spatial distribution of binary variables across manzanas", fig.width=14, fig.height=12}
+# Create maps for binary spatial variables
+binary_plots <- list()
+
+for (var in binary_spatial) {
+  p <- ggplot() +
+    geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+    geom_sf(data = manzanas_spatial, aes(fill = !!sym(var)), color = "gray30", size = 0.1) +
+    scale_fill_manual(values = c("TRUE" = "steelblue", "FALSE" = "gray90"),
+                      na.value = "white",
+                      labels = c("TRUE" = "Yes", "FALSE" = "No")) +
+    theme_minimal() +
+    theme(axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          panel.grid = element_blank(),
+          plot.title = element_text(face = "bold", size = 11)) +
+    labs(title = var, fill = "")
+  
+  binary_plots[[var]] <- p
+}
+
+# Combine into 2x2 grid
+combined_binary <- cowplot::plot_grid(plotlist = binary_plots, nrow = 2, ncol = 2)
+print(combined_binary)
+ggsave(file.path(output_dir, "08_spatial_maps_binary.png"), combined_binary, width = 14, height = 12, dpi = 300)
+```
+
+```{r spatial_maps_continuous, fig.cap="Spatial distribution of nr_aljibes across manzanas", fig.width=10, fig.height=8}
+# Map for continuous variable (nr_aljibes)
+p <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = manzanas_spatial, aes(fill = nr_aljibes), color = "gray30", size = 0.1) +
+  scale_fill_viridis_c(option = "viridis", na.value = "white") +
+  theme_minimal() +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = "Number of Aljibes per Manzana",
+       fill = "Count")
+
+print(p)
+ggsave(file.path(output_dir, "09_spatial_map_nr_aljibes.png"), p, width = 10, height = 8, dpi = 300)
+```
+
+```{r spatial_maps_categorical, fig.cap="Spatial distribution of landcover types across manzanas", fig.width=10, fig.height=8}
+# Map for categorical variable (landcover)
+p <- ggplot(manzanas_spatial) +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = manzanas_spatial, aes(fill = landcover), color = "gray30", size = 0.1) +
+  scale_fill_brewer(palette = "Set3", na.value = "white") +
+  theme_minimal() +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12),
+        legend.position = "bottom") +
+  labs(title = "Landcover Distribution",
+       fill = "Landcover Type")
+
+print(p)
+ggsave(file.path(output_dir, "10_spatial_map_landcover.png"), p, width = 10, height = 8, dpi = 300)
+```
+
+---
+
+## Spatio-Temporal Variables
+
+Variables that vary in both space and time, representing vegetation and water conditions across different time points and locations.
+
+## Summary Statistics - Overall
+
+```{r spatiotemporal_summary}
+spatiotemporal_vars <- c("mean_ndvi", "mean_ndmi", "mean_ndwi")
+
+spatiotemporal_data <- env_all %>%
+  select(all_of(spatiotemporal_vars)) %>%
+  drop_na()
+
+spatiotemporal_summary <- spatiotemporal_data %>%
+  summarise(
+    across(everything(),
+      list(
+        n = ~n(),
+        Mean = ~mean(., na.rm = TRUE),
+        SD = ~sd(., na.rm = TRUE),
+        Min = ~min(., na.rm = TRUE),
+        Q25 = ~quantile(., probs = 0.25, na.rm = TRUE),
+        Median = ~median(., na.rm = TRUE),
+        Q75 = ~quantile(., probs = 0.75, na.rm = TRUE),
+        Max = ~max(., na.rm = TRUE)
+      ),
+      .names = "{.col}_{.fn}"
+    )
+  ) %>%
+  pivot_longer(everything(), names_to = "Statistic", values_to = "Value") %>%
+  separate(Statistic, into = c("Variable", "Stat"), sep = "_(?=n$|Mean|SD|Min|Q25|Median|Q75|Max)") %>%
+  pivot_wider(names_from = "Stat", values_from = "Value")
+
+knitr::kable(spatiotemporal_summary, digits = 3, caption = "Spatio-Temporal Variables - Overall Summary (Pooled across all 1,409 locations and time periods)")
+```
+
+## Distributions
+
+```{r spatiotemporal_distributions, fig.cap="Distribution of spatio-temporal variables (pooled across all locations and months)"}
+spatiotemporal_data_long <- spatiotemporal_data %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Value")
+
+p <- ggplot(spatiotemporal_data_long, aes(x = Value)) +
+  geom_histogram(bins = 30, fill = "mediumseagreen", alpha = 0.7, color = "black") +
+  facet_wrap(~Variable, scales = "free", nrow = 1) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(face = "bold", size = 11),
+    axis.title = element_text(size = 10)
+  ) +
+  labs(title = "Distribution of Spatio-Temporal Variables",
+       x = "Index Value",
+       y = "Frequency")
+print(p)
+ggsave(file.path(output_dir, "05_spatiotemporal_distributions.png"), p, width = 14, height = 6, dpi = 300)
+```
+
+### Temporal Variation by Month
+
+```{r spatiotemporal_by_month, fig.cap="Spatio-temporal indices by month - showing seasonal patterns"}
+if ("year_month" %in% colnames(env_all)) {
+  spatial_temporal_by_month <- env_all %>%
+    select(all_of(c("year_month", spatiotemporal_vars))) %>%
+    drop_na() %>%
+    pivot_longer(all_of(spatiotemporal_vars), names_to = "Index", values_to = "Value")
+  
+  p <- ggplot(spatial_temporal_by_month, aes(x = year_month, y = Value, fill = year_month)) +
+    geom_boxplot(alpha = 0.7) +
+    facet_wrap(~Index, scales = "free_y", nrow = 1) +
+    theme_minimal() +
+    theme(
+      legend.position = "none",
+      axis.text.x = element_text(angle = 90, size = 7),
+      strip.text = element_text(face = "bold")
+    ) +
+    labs(title = "Spatio-Temporal Indices by Month - Seasonal Patterns",
+         x = "Year-Month",
+         y = "Index Value")
+  print(p)
+  ggsave(file.path(output_dir, "06_spatiotemporal_by_month.png"), p, width = 14, height = 6, dpi = 300)
+} else {
+  cat("Note: year_month variable not found in dataset")
+}
+```
+
+### Spatial Variation by Landcover
+
+```{r spatiotemporal_by_landcover, fig.cap="Spatio-temporal indices by landcover"}
+spatial_temporal_by_cover <- env_all %>%
+  select(all_of(c("landcover", spatiotemporal_vars))) %>%
+  drop_na() %>%
+  pivot_longer(all_of(spatiotemporal_vars), names_to = "Index", values_to = "Value")
+
+p <- ggplot(spatial_temporal_by_cover, aes(x = landcover, y = Value, fill = landcover)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~Index, scales = "free_y", nrow = 1) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(face = "bold")
+  ) +
+  labs(title = "Spatio-Temporal Indices by Landcover - Spatial Heterogeneity",
+       x = "Landcover Type",
+       y = "Index Value",
+       fill = "Landcover")
+print(p)
+ggsave(file.path(output_dir, "07_spatiotemporal_by_landcover.png"), p, width = 12, height = 6, dpi = 300)
+```
+
+---
+
+## Correlation Summary
+
+Quick overview of correlations between all environmental numeric variables.
+
+```{r all_vars_correlation}
+all_numeric <- c(temporal_vars, continuous_spatial, spatiotemporal_vars)
+
+correlation_data <- env_all %>%
+  select(all_of(all_numeric)) %>%
+  drop_na()
+
+corr_matrix <- cor(correlation_data, method = "spearman")
+
+corrplot(corr_matrix, 
+         method = "color",
+         type = "upper",
+         addCoef.col = "black",
+         diag = FALSE,
+         tl.col = "black",
+         tl.cex = 0.8)
+```
+
+### Correlation Among Categorical/Binary Spatial Variables
+
+```{r spatial_categorical_correlation}
+# Select binary and categorical spatial variables
+categorical_binary_vars <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "landcover")
+
+# Prepare data: convert all to numeric/factor format for correlation
+spatial_categ_data <- env_all %>%
+  select(all_of(categorical_binary_vars)) %>%
+  drop_na() %>%
+  mutate(
+    across(all_of(c("is_WI", "is_WUI", "is_urban", "has_aljibes")), ~as.numeric(.)),
+    landcover = as.factor(landcover)
+  )
+
+# Calculate Spearman correlation matrix (works for ordinal and numeric data)
+# For landcover (categorical), we'll convert to numeric codes for correlation purposes
+spatial_categ_numeric <- spatial_categ_data %>%
+  mutate(
+    landcover_numeric = as.numeric(landcover)
+  ) %>%
+  select(-landcover)
+
+corr_matrix_categ <- cor(spatial_categ_numeric, method = "spearman")
+
+# Create correlation plot
+corrplot(corr_matrix_categ,
+         method = "color",
+         type = "upper",
+         addCoef.col = "black",
+         diag = FALSE,
+         tl.col = "black",
+         tl.cex = 0.9,
+         title = "Spearman Correlation - Categorical/Binary Spatial Variables",
+         mar = c(0, 0, 2, 0))
+```
+
+---
+
+# Descriptive Statistics - Entomological Indicators
+```{r load the entomo_epi_env data}
+# Load data
+env_epi_ento <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_manzana_2016_04_to_2019_12.csv")
+
+# Ensure year_month is recognized as date/factor
+if ("year_month" %in% colnames(env_epi_ento)) {
+  env_epi_ento <- env_epi_ento %>%
+    mutate(year_month = as.factor(year_month))
+}
+```
+
+## Part 1: Mosquito Survey Data
+
+### Overall Positivity Rates
+
+```{r ento_overall_positivity}
+# Calculate positivity rate across all block-month combinations
+# Houses_pos_IS: number of houses with immature stages per block-month
+# Inspected_houses: number of houses inspected per block (constant over time)
+
+if (all(c("Houses_pos_IS", "Inspected_houses") %in% colnames(env_epi_ento))) {
+  overall_positivity <- env_epi_ento %>%
+    summarise(
+      Total_Block_Months = n(),
+      Total_Houses_Inspected = sum(Inspected_houses, na.rm = TRUE),
+      Total_Positive_Houses = sum(Houses_pos_IS, na.rm = TRUE),
+      Missing_Positivity = sum(is.na(Houses_pos_IS)),
+      Overall_Positivity_Rate_Pct = sum(Houses_pos_IS, na.rm = TRUE) / sum(Inspected_houses, na.rm = TRUE) * 100
+    )
+  
+  knitr::kable(overall_positivity, digits = 2, caption = "Overall Mosquito Survey Positivity Rates Across All Block-Months")
+} else {
+  cat("Note: Houses_pos_IS or Inspected_houses variable not found in dataset.")
+}
+```
+
+### Total Number of Unique Houses in Database
+
+```{r ento_total_houses}
+if ("Inspected_houses" %in% colnames(env_epi_ento)) {
+  # Get unique manzanas and their Inspected_houses values (constant per manzana)
+  unique_houses <- env_epi_ento %>%
+    select(manzana, Inspected_houses) %>%
+    distinct(manzana, .keep_all = TRUE) %>%
+    drop_na()
+  
+  total_unique_houses <- sum(unique_houses$Inspected_houses, na.rm = TRUE)
+  n_unique_manzanas <- nrow(unique_houses)
+  
+  cat("\n**Total Number of Houses in Database:**\n\n")
+  cat("- Number of unique manzanas: ", n_unique_manzanas, "\n")
+  cat("- Total number of inspected houses (summed across unique manzanas): ", total_unique_houses, "\n")
+  cat("- Average houses per manzana: ", round(total_unique_houses / n_unique_manzanas, 1), "\n")
+} else {
+  cat("Note: Inspected_houses variable not found in dataset.")
+}
+```
+
+### Temporal Distribution of Positivity by Month
+
+```{r ento_temporal_positivity}
+if (all(c("Houses_pos_IS", "Inspected_houses", "year_month") %in% colnames(env_epi_ento))) {
+  temporal_positivity <- env_epi_ento %>%
+    select(year_month, Houses_pos_IS, Inspected_houses) %>%
+    drop_na() %>%
+    group_by(year_month) %>%
+    summarise(
+      N_Block_Months = n(),
+      Total_Houses_Inspected = sum(Inspected_houses, na.rm = TRUE),
+      Total_Positive = sum(Houses_pos_IS, na.rm = TRUE),
+      Positivity_Rate_Pct = sum(Houses_pos_IS, na.rm = TRUE) / sum(Inspected_houses, na.rm = TRUE) * 100,
+      .groups = "drop"
+    ) %>%
+    arrange(year_month)
+  
+  knitr::kable(temporal_positivity, digits = 2, caption = "Mosquito Positivity Rates by Month - Seasonal Patterns")
+} else {
+  cat("Note: Required variables not found in dataset.")
+}
+```
+
+### Temporal Trend Visualization
+
+```{r ento_temporal_trend_plot, fig.cap="Mosquito positivity rates over time showing seasonal patterns"}
+if (all(c("Houses_pos_IS", "Inspected_houses", "year_month") %in% colnames(env_epi_ento))) {
+  temporal_pos_data <- env_epi_ento %>%
+    select(year_month, Houses_pos_IS, Inspected_houses) %>%
+    drop_na() %>%
+    group_by(year_month) %>%
+    summarise(
+      Positivity_Rate = sum(Houses_pos_IS) / sum(Inspected_houses) * 100,
+      N_Blocks = n(),
+      .groups = "drop"
+    )
+  
+  p <- ggplot(temporal_pos_data, aes(x = year_month, y = Positivity_Rate, group = 1)) +
+    geom_point(size = 3, color = "darkred", alpha = 0.7) +
+    geom_line(color = "darkred", alpha = 0.5, linewidth = 1) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 90, size = 8),
+      plot.title = element_text(face = "bold", size = 12)
+    ) +
+    labs(title = "Mosquito Survey Positivity Rate Over Time",
+         x = "Year-Month",
+         y = "Positivity Rate (%)")
+  
+  print(p)
+  ggsave(file.path(output_dir, "11_ento_temporal_positivity.png"), p, width = 12, height = 6, dpi = 300)
+}
+```
+
+### Spatial Distribution of Positivity by Manzana
+
+```{r ento_spatial_positivity_summary}
+# Summary statistics at manzana level (aggregated across all time periods)
+if (all(c("manzana", "Houses_pos_IS", "Inspected_houses") %in% colnames(env_epi_ento))) {
+  manzana_positivity <- env_epi_ento %>%
+    select(manzana, Houses_pos_IS, Inspected_houses) %>%
+    drop_na() %>%
+    group_by(manzana) %>%
+    summarise(
+      N_Block_Months = n(),
+      Total_Houses_Inspected = sum(Inspected_houses, na.rm = TRUE),
+      Total_Positive = sum(Houses_pos_IS, na.rm = TRUE),
+      Positivity_Rate = sum(Houses_pos_IS, na.rm = TRUE) / sum(Inspected_houses, na.rm = TRUE) * 100,
+      .groups = "drop"
+    ) %>%
+    arrange(desc(Positivity_Rate))
+  
+  # Summary of manzana-level statistics
+  manzana_summary <- manzana_positivity %>%
+    summarise(
+      N_Manzanas = n(),
+      Mean_Positivity = mean(Positivity_Rate, na.rm = TRUE),
+      SD_Positivity = sd(Positivity_Rate, na.rm = TRUE),
+      Min_Positivity = min(Positivity_Rate, na.rm = TRUE),
+      Max_Positivity = max(Positivity_Rate, na.rm = TRUE),
+      Median_Positivity = median(Positivity_Rate, na.rm = TRUE),
+      Zero_Positive_Manzanas = sum(Positivity_Rate == 0, na.rm = TRUE),
+      High_Transmission_Manzanas = sum(Positivity_Rate > 50, na.rm = TRUE)
+    )
+  
+  knitr::kable(manzana_summary, digits = 2, caption = "Spatial Heterogeneity in Mosquito Positivity - Manzana Level Summary (Aggregated Across All Time Periods)")
+  
+  # Show top 20 highest positivity manzanas
+  cat("\n\n**Top 20 Manzanas with Highest Mosquito Positivity Rates:**\n")
+  knitr::kable(head(manzana_positivity, 20), digits = 2)
+} else {
+  cat("Note: Required variables for spatial analysis not found in dataset.")
+}
+```
+
+### Positivity Distribution Across Manzanas
+
+```{r ento_positivity_histogram, fig.cap="Distribution of mosquito positivity rates across manzanas"}
+if (all(c("manzana", "Houses_pos_IS", "Inspected_houses") %in% colnames(env_epi_ento))) {
+  manzana_pos_dist <- env_epi_ento %>%
+    select(manzana, Houses_pos_IS, Inspected_houses) %>%
+    drop_na() %>%
+    group_by(manzana) %>%
+    summarise(
+      Positivity_Rate = sum(Houses_pos_IS) / sum(Inspected_houses) * 100,
+      .groups = "drop"
+    )
+  
+  p <- ggplot(manzana_pos_dist, aes(x = Positivity_Rate)) +
+    geom_histogram(bins = 30, fill = "darkred", alpha = 0.7, color = "black") +
+    theme_minimal() +
+    theme(plot.title = element_text(face = "bold", size = 12)) +
+    labs(title = "Distribution of Mosquito Positivity Rates Across Manzanas",
+         x = "Positivity Rate (%) grouped by manzana",
+         y = "Number of Manzanas")
+  
+  print(p)
+  ggsave(file.path(output_dir, "12_ento_positivity_distribution.png"), p, width = 10, height = 6, dpi = 300)
+}
+```
+
+### Spatial Map of Mosquito Positivity
+
+```{r ento_spatial_map, fig.cap="Spatial distribution of mosquito positivity rates across manzanas - handled for zero-inflation"}
+if (all(c("manzana", "Houses_pos_IS", "Inspected_houses") %in% colnames(env_epi_ento))) {
+  # Calculate positivity rate per manzana (aggregated across time)
+  manzana_pos_map <- env_epi_ento %>%
+    select(manzana, Houses_pos_IS, Inspected_houses) %>%
+    drop_na() %>%
+    group_by(manzana) %>%
+    summarise(
+      Positivity_Rate = sum(Houses_pos_IS) / sum(Inspected_houses) * 100,
+      .groups = "drop"
+    )
+  
+  # Join with shapefile
+  manzanas_ento <- manzanas %>%
+    left_join(manzana_pos_map, by = c("CODIGO_" = "manzana"))
+  
+  # Create quantile-based categories to handle zero-inflation
+  # Separate zeros and non-zeros
+  manzanas_ento <- manzanas_ento %>%
+    mutate(
+      Positivity_Category = case_when(
+        is.na(Positivity_Rate) ~ "No Data",
+        Positivity_Rate == 0 ~ "Zero",
+        Positivity_Rate > 0 & Positivity_Rate <= quantile(Positivity_Rate[Positivity_Rate > 0], 0.33, na.rm = TRUE) ~ "Low (1st tertile)",
+        Positivity_Rate > quantile(Positivity_Rate[Positivity_Rate > 0], 0.33, na.rm = TRUE) & 
+        Positivity_Rate <= quantile(Positivity_Rate[Positivity_Rate > 0], 0.67, na.rm = TRUE) ~ "Medium (2nd tertile)",
+        Positivity_Rate > quantile(Positivity_Rate[Positivity_Rate > 0], 0.67, na.rm = TRUE) ~ "High (3rd tertile)",
+        TRUE ~ "No Data"
+      )
+    )
+  
+  # Create map with categorical coloring
+  p <- ggplot() +
+    geom_sf(data = municipality, fill = NA, color = "black", linewidth = 0.8) +
+    geom_sf(data = manzanas_ento, aes(fill = Positivity_Category), color = "gray40", linewidth = 0.1) +
+    scale_fill_manual(
+      values = c(
+        "Zero" = "#f7fbff",
+        "Low (1st tertile)" = "#deebf7",
+        "Medium (2nd tertile)" = "#9ecae1",
+        "High (3rd tertile)" = "#3182bd",
+        "No Data" = "white"
+      ),
+      na.value = "white",
+      breaks = c("Zero", "Low (1st tertile)", "Medium (2nd tertile)", "High (3rd tertile)", "No Data")
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text = element_blank(),
+      axis.ticks = element_blank(),
+      panel.grid = element_blank(),
+      plot.title = element_text(face = "bold", size = 12),
+      legend.position = "right",
+      legend.text = element_text(size = 9)
+    ) +
+    labs(
+      title = "Mosquito Survey Positivity Rates Across Manzanas",
+      subtitle = "(Stratified by tertiles due to zero-inflation)",
+      fill = "Positivity\nCategory"
+    )
+  
+  print(p)
+  ggsave(file.path(output_dir, "14_ento_spatial_map_positivity.png"), p, width = 11, height = 9, dpi = 300)
+  
+  # Print summary of categories for reference
+  cat("\n**Positivity Category Breakdown:**\n")
+  category_summary <- manzanas_ento %>%
+    st_drop_geometry() %>%
+    group_by(Positivity_Category) %>%
+    summarise(
+      Count = n(),
+      Mean_Rate = mean(Positivity_Rate, na.rm = TRUE),
+      Min_Rate = min(Positivity_Rate, na.rm = TRUE),
+      Max_Rate = max(Positivity_Rate, na.rm = TRUE),
+      .groups = "drop"
+    )
+  print(knitr::kable(category_summary, digits = 2))
+} else {
+  cat("Required columns not found in env_epi_ento dataset.\n")
+}
+```
+
+### Positivity by Manzana Over Time (Spatio-Temporal)
+
+```{r ento_positivity_by_manzana_time, fig.cap="Mosquito positivity rates by manzana and month - heatmap of all manzanas", fig.width=16, fig.height=10}
+if (all(c("manzana", "year_month", "Houses_pos_IS", "Inspected_houses") %in% colnames(env_epi_ento))) {
+  # Calculate positivity for each manzana-month combination
+  manzana_month_positivity <- env_epi_ento %>%
+    select(manzana, year_month, Houses_pos_IS, Inspected_houses) %>%
+    drop_na() %>%
+    group_by(manzana, year_month) %>%
+    summarise(
+      Positivity_Rate = sum(Houses_pos_IS) / sum(Inspected_houses) * 100,
+      N_Houses_Inspected = sum(Inspected_houses),
+      .groups = "drop"
+    )
+  
+  # Get all manzanas ordered by mean positivity (for ordering in plot)
+  manzana_order <- manzana_month_positivity %>%
+    group_by(manzana) %>%
+    summarise(Mean_Pos = mean(Positivity_Rate, na.rm = TRUE), .groups = "drop") %>%
+    arrange(manzana) %>%
+    pull(manzana)
+  
+  # Prepare data with ordered manzanas
+  heatmap_data <- manzana_month_positivity %>%
+    mutate(
+      manzana = factor(manzana, levels = manzana_order),
+      year_month = factor(year_month)
+    )
+  
+  # Create heatmap
+  p <- ggplot(heatmap_data, aes(x = manzana, y = year_month, fill = Positivity_Rate)) +
+    geom_tile(color = "gray30", linewidth = 0.1) +
+    scale_fill_viridis_c(option = "YlOrRd", direction = 1, na.value = "white", 
+                         limits = c(0, 110), trans = "log1p") +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_blank(),
+      axis.text.y = element_text(vjust = 0.5, hjust = 1, size = 8),
+      plot.title = element_text(face = "bold", size = 12),
+      legend.title = element_text(size = 10),
+      panel.grid = element_blank()
+    ) +
+    labs(
+      title = "Mosquito Positivity Rates Over Time - All Manzanas (Ordered by Mean Positivity)",
+      x = "Manzana",
+      y = "Year-Month",
+      fill = "Positivity\nRate (%)"
+    )
+  
+  print(p)
+  ggsave(file.path(output_dir, "15_ento_positivity_heatmap_manzana_time.png"), p,width = 16, height = 10, dpi = 300)
+}
+```
+
+### Positivity by CMF over time (spatio-temporal)
+
+First create a unique Area_CMF indicator 
+```{r create CMF indicator Area_CMF}
+env_epi_ento_CMF <- env_epi_ento %>% 
+  mutate(Area_CMF = paste(AREA, CMF, sep = "_"))
+```
+
+```{r ento_positivity_by_cmf_time, fig.cap="Mosquito positivity rates by CMF and month - heatmap of all CMFs", fig.width=16, fig.height=10}
+if (all(c("Area_CMF", "year_month", "Houses_pos_IS", "Inspected_houses") %in% colnames(env_epi_ento_CMF))) {
+  # Calculate positivity for each CMF-month combination (aggregate to CMF level)
+  cmf_month_positivity <- env_epi_ento_CMF %>%
+    select(Area_CMF, year_month, Houses_pos_IS, Inspected_houses) %>%
+    drop_na() %>%
+    group_by(Area_CMF, year_month) %>%
+    summarise(
+      Positivity_Rate = sum(Houses_pos_IS) / sum(Inspected_houses) * 100,
+      N_Houses_Inspected = sum(Inspected_houses),
+      .groups = "drop"
+    )
+  
+  # Get all Area_CMFs ordered first by Area_CMF, then by mean positivity
+  cmf_order <- cmf_month_positivity %>%
+    group_by(Area_CMF) %>%
+    summarise(Mean_Pos = mean(Positivity_Rate, na.rm = TRUE), .groups = "drop") %>%
+    arrange(Area_CMF, desc(Mean_Pos)) %>%
+    pull(Area_CMF)
+  
+  # Prepare data with ordered Area_CMFs
+  cmf_heatmap_data <- cmf_month_positivity %>%
+    mutate(
+      Area_CMF = factor(Area_CMF, levels = cmf_order),
+      year_month = factor(year_month)
+    )
+  
+  # Create heatmap
+  p <- ggplot(cmf_heatmap_data, aes(x = Area_CMF, y = year_month, fill = Positivity_Rate)) +
+    geom_tile(color = "gray30", linewidth = 0.1) +
+    scale_fill_viridis_c(option = "YlOrRd", direction = 1, na.value = "white", 
+                         limits = c(0, 110), trans = "log1p") +
+    theme_minimal() +
+    theme(
+      axis.text.y = element_text(vjust = 0.5, hjust = 1, size = 8),
+      axis.text.x = element_text(angle = 90, size = 9),
+      plot.title = element_text(face = "bold", size = 12),
+      legend.title = element_text(size = 10),
+      panel.grid = element_blank()
+    ) +
+    labs(
+      title = "Mosquito Positivity Rates Over Time - All Area_CMFs (Ordered by Area then Mean Positivity)",
+      x = "Area_CMF",
+      y = "Year-Month",
+      fill = "Positivity\nRate (%)"
+    )
+  
+  print(p)
+  ggsave(file.path(output_dir, "16_ento_positivity_heatmap_cmf_time.png"), p, width = 16, height = 10, dpi = 300)
+} else {
+  cat("Note: CMF or required variables not found in dataset.\n")
+}
+```
