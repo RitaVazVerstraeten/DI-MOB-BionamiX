@@ -563,11 +563,14 @@ ggsave(file.path(output_dir, "07_spatiotemporal_by_landcover.png"), p, width = 1
 
 ---
 
-## Correlation Summary
+## Correlations Environmental data
 
 Quick overview of correlations between all environmental numeric variables.
 
-```{r all_vars_correlation}
+### Correlations in numerical data - raw
+NDVI, NDMI, NDWI, Temp, Precip, RH, Windspeed, nr of aljibes
+
+```{r numeric_vars_correlation}
 all_numeric <- c(temporal_vars, continuous_spatial, spatiotemporal_vars)
 
 correlation_data <- env_all %>%
@@ -576,49 +579,133 @@ correlation_data <- env_all %>%
 
 corr_matrix <- cor(correlation_data, method = "spearman")
 
+# Save to file
+png(file.path(output_dir, "11a_numeric_vars_correlation.png"), width = 800, height = 800, res = 150)
 corrplot(corr_matrix, 
          method = "color",
          type = "upper",
          addCoef.col = "black",
          diag = FALSE,
          tl.col = "black",
+         title = "Spearman Correlation raw",
          tl.cex = 0.8)
-```
+dev.off()
 
-### Correlation Among Categorical/Binary Spatial Variables
-
-```{r spatial_categorical_correlation}
-# Select binary and categorical spatial variables
-categorical_binary_vars <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "landcover")
-
-# Prepare data: convert all to numeric/factor format for correlation
-spatial_categ_data <- env_all %>%
-  select(all_of(categorical_binary_vars)) %>%
-  drop_na() %>%
-  mutate(
-    across(all_of(c("is_WI", "is_WUI", "is_urban", "has_aljibes")), ~as.numeric(.)),
-    landcover = as.factor(landcover)
-  )
-
-# Calculate Spearman correlation matrix (works for ordinal and numeric data)
-# For landcover (categorical), we'll convert to numeric codes for correlation purposes
-spatial_categ_numeric <- spatial_categ_data %>%
-  mutate(
-    landcover_numeric = as.numeric(landcover)
-  ) %>%
-  select(-landcover)
-
-corr_matrix_categ <- cor(spatial_categ_numeric, method = "spearman")
-
-# Create correlation plot
-corrplot(corr_matrix_categ,
+# Display in notebook
+corrplot(corr_matrix, 
          method = "color",
          type = "upper",
          addCoef.col = "black",
          diag = FALSE,
          tl.col = "black",
+         title = "Spearman Correlation raw",
+         tl.cex = 0.8)
+```
+
+
+### Correlations in numerical data - seasonality removed 
+In order to remove seasonality, I will subtract the monthly average from every value of the numeric variables 
+```{r deseasonalized_correlation, fig.width=14, fig.height=6}
+all_numeric_w_seasonality <- all_numeric[all_numeric != "nr_aljibes"]
+
+# Extract month from year_month for seasonal adjustment
+env_deseason <- env_all %>%
+  mutate(month = substr(year_month, 6, 7)) %>%
+  select(all_of(c("month", all_numeric_w_seasonality)))
+
+# Calculate monthly means for each variable (averaged across years)
+monthly_means <- env_deseason %>%
+  group_by(month) %>%
+  summarise(across(all_of(all_numeric_w_seasonality), ~mean(., na.rm = TRUE)), .groups = "drop")
+
+# Subtract monthly means to deseasonalize
+env_deseason <- env_deseason %>%
+  left_join(monthly_means, by = "month", suffix = c("", "_monthly_mean")) %>%
+  mutate(
+    across(
+      all_of(all_numeric_w_seasonality),
+      ~. - get(paste0(cur_column(), "_monthly_mean")),
+      .names = "{.col}_deseason"
+    )
+  )
+
+# Select only deseasonalized variables
+deseason_vars <- paste0(all_numeric_w_seasonality, "_deseason")
+correlation_deseason_data <- env_deseason %>%
+  select(all_of(deseason_vars)) %>%
+  drop_na()
+
+# Calculate correlation on deseasonalized data
+corr_matrix_deseason <- cor(correlation_deseason_data, method = "spearman")
+
+# Clean up column names for plotting
+colnames(corr_matrix_deseason) <- gsub("_deseason", "", colnames(corr_matrix_deseason))
+rownames(corr_matrix_deseason) <- gsub("_deseason", "", rownames(corr_matrix_deseason))
+
+# Save to file
+png(file.path(output_dir, "11c_deseasonalized_correlation.png"), width = 800, height = 800, res = 150)
+corrplot(corr_matrix_deseason, 
+         method = "color",
+         type = "upper",
+         addCoef.col = "black",
+         diag = FALSE,
+         tl.col = "black",
+         tl.cex = 0.8,
+         title = "Spearman Correlation After Removing Seasonality (monthly average)",
+         mar = c(0, 0, 2, 0))
+dev.off()
+
+# Display in notebook
+corrplot(corr_matrix_deseason, 
+         method = "color",
+         type = "upper",
+         addCoef.col = "black",
+         diag = FALSE,
+         tl.col = "black",
+         tl.cex = 0.8,
+         title = "Correlation After Removing Seasonality (monthly average)",
+         mar = c(0, 0, 2, 0))
+```
+
+### Correlation Among Binary Spatial Variables
+
+```{r spatial_categorical_correlation}
+# Select binary spatial variables (excluding landcover as it's multi-category categorical)
+binary_vars <- c("is_WI", "is_WUI", "is_urban", "has_aljibes")
+
+# Prepare data: convert all to numeric format for correlation
+spatial_binary_data <- env_all %>%
+  select(all_of(binary_vars)) %>%
+  drop_na() %>%
+  mutate(
+    across(all_of(binary_vars), ~as.numeric(.))
+  )
+
+# Calculate Spearman correlation matrix
+corr_matrix_categ <- cor(spatial_binary_data, method = "spearman")
+
+# Create correlation plot
+png(file.path(output_dir, "11b_spatial_categorical_correlation.png"), width = 800, height = 800, res = 150)
+corrplot(corr_matrix_categ,
+         method = "color",
+         type = "lower",
+         addCoef.col = "black",
+         diag = FALSE,
+         tl.col = "black",
          tl.cex = 0.9,
-         title = "Spearman Correlation - Categorical/Binary Spatial Variables",
+         title = "Spearman Correlation - Binary Spatial Variables",
+         mar = c(0, 0, 2, 0))
+dev.off()
+
+# Display in notebook
+corrplot(corr_matrix_categ,
+         method = "color",
+         type = "lower",
+         addCoef.col = "black",
+         diag = FALSE,
+         tl.col = "black",
+         tl.cex = 0.9,
+         title = "Spearman Correlation - Binary Spatial Variables",
          mar = c(0, 0, 2, 0))
 ```
 
@@ -1001,5 +1088,86 @@ if (all(c("Area_CMF", "year_month", "Houses_pos_IS", "Inspected_houses") %in% co
   ggsave(file.path(output_dir, "16_ento_positivity_heatmap_cmf_time.png"), p, width = 16, height = 10, dpi = 300)
 } else {
   cat("Note: CMF or required variables not found in dataset.\n")
+}
+```
+
+# Descriptive statistics - Cases
+
+## Part 1: purely temporal 
+
+```{r cases per year_month, fig.cap="Nr of dengue cases per month", fig.width=16, fig.height=10}
+cases_temporal <- env_epi_ento %>%
+  group_by(year_month) %>%
+  summarise(Total_cases = sum(cases))
+
+p <- ggplot(cases_temporal, aes(x = year_month, y = Total_cases, group=1)) +
+  geom_point(size = 3, color = "darkred", alpha = 0.7) +
+  geom_line(color = "darkred", alpha = 0.5, linewidth = 1) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, size = 8),
+    plot.title = element_text(face = "bold", size = 12)
+  ) +
+  labs(title = "Dengue cases over time",
+        x = "Year-Month",
+        y = "Total dengue case count")
+
+print(p)
+ggsave(file.path(output_dir, "17_dengue_cases_temp.png"), p, width = 16, height = 10, dpi = 300)
+
+```
+
+### Dengue Cases by Manzana Over Time (Spatio-Temporal Heatmap)
+
+```{r dengue_cases_by_manzana_time, fig.cap="Dengue cases by manzana and month - heatmap of all manzanas", fig.width=16, fig.height=10}
+if (all(c("manzana", "year_month", "cases") %in% colnames(env_epi_ento))) {
+  # Calculate total cases for each manzana-month combination
+  manzana_month_cases <- env_epi_ento %>%
+    select(manzana, year_month, cases) %>%
+    drop_na() %>%
+    group_by(manzana, year_month) %>%
+    summarise(
+      Total_Cases = sum(cases),
+      .groups = "drop"
+    )
+  
+  # Get all manzanas ordered by mean case count
+  manzana_order <- manzana_month_cases %>%
+    group_by(manzana) %>%
+    summarise(Mean_Cases = mean(Total_Cases, na.rm = TRUE), .groups = "drop") %>%
+    arrange(desc(Mean_Cases)) %>%
+    pull(manzana)
+  
+  # Prepare data with ordered manzanas
+  heatmap_cases_data <- manzana_month_cases %>%
+    mutate(
+      manzana = factor(manzana, levels = manzana_order),
+      year_month = factor(year_month)
+    )
+  
+  # Create heatmap
+  p <- ggplot(heatmap_cases_data, aes(x = manzana, y = year_month, fill = Total_Cases)) +
+    geom_tile(color = "gray30", linewidth = 0.1) +
+    scale_fill_viridis_c(option = "YlOrRd", direction = 1, na.value = "white", 
+                         trans = "log1p") +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_blank(),
+      axis.text.y = element_text(vjust = 0.5, hjust = 1, size = 8),
+      plot.title = element_text(face = "bold", size = 12),
+      legend.title = element_text(size = 10),
+      panel.grid = element_blank()
+    ) +
+    labs(
+      title = "Dengue Cases Over Time - All Manzanas (Ordered by Mean Case Count)",
+      x = "Manzana",
+      y = "Year-Month",
+      fill = "Total Cases"
+    )
+  
+  print(p)
+  ggsave(file.path(output_dir, "18_dengue_cases_heatmap_manzana_time.png"), p, width = 16, height = 10, dpi = 300)
+} else {
+  cat("Note: Required columns not found in dataset.\n")
 }
 ```

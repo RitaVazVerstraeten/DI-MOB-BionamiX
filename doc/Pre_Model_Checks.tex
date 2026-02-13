@@ -115,7 +115,7 @@ Estimate latent mosquito presence probability $p_{bt}$ at block-month resolution
 \hline
 & \textbf{Non-Temporal} & \textbf{Temporal} \\ \hline
 \textbf{Spatial} & 
-  \begin{itemize}[itemsep=0.3pt, topsep = 0pt, label=$\bullet$]
+  \begin{itemize}[itemsep=0.1pt, topsep = 0pt, label=$\bullet$]
     \item WUI
     \item WI
     \item urbanization
@@ -124,7 +124,7 @@ Estimate latent mosquito presence probability $p_{bt}$ at block-month resolution
     \item aljibes
     \item human density?
   \end{itemize} 
-  & \begin{itemize}[itemsep=0.3pt, topsep = 0pt, label=$\bullet$]
+  & \begin{itemize}[itemsep=0.1pt, topsep = 0pt, label=$\bullet$]
     \item NDVI
     \item NDWI
     \item NDMI
@@ -132,16 +132,34 @@ Estimate latent mosquito presence probability $p_{bt}$ at block-month resolution
     \item average nr. of water deposits per household ?
   \end{itemize}  \\ \hline
 \textbf{Non-Spatial} & & 
-  \begin{itemize}[itemsep=0.3pt, topsep = 0pt, label=$\bullet$]
+  \begin{itemize}[itemsep=0.1pt, topsep = 0pt, label=$\bullet$]
     \item temperature (\textdegree C)
     \item precipitation (mm)
     \item relative humidity (\%)
+    \item windspeed (m/s)
   \end{itemize} \\ \hline
 \end{tabularx}
 \end{frame}
 
-% Section 2: Data Quality Checks
-\section{Data Quality Checks}
+\begin{frame}
+  \frametitle{Nr of house visits per month}
+
+Total number of houses according to the shapefiles = 62998. 
+So if we were to believe that \textbf{all} houses were visited each month, then
+$$\frac{63932 \, \text{houses}}{20 \, \text{working days}} = 3197\, \text{houses per day},$$
+
+In one day: $$\frac{ 3197\, \text{houses per day}}{8 \frac{\text{working hours per day}}{\text{day}}} =  400\,\text{houses per hour},$$
+
+If we assume that one house visit takes about 15 minutes, then
+
+$$\frac{ 403\, \text{houses per hour}} {4 \, \text{houses per hour per employee}} = 100 \text{ employees}$$
+
+This reasoning would imply that at the height of entomological surveillance (2015-2019), 65 employees were working daily, doing household visits. 
+
+\end{frame}
+
+% Section 2: Descriptive statistics 
+\section{Descriptive statistics Env data}
 \begin{frame}
 \frametitle{Missing Values Environmental data}
 \centering
@@ -149,11 +167,118 @@ Estimate latent mosquito presence probability $p_{bt}$ at block-month resolution
 \includegraphics[width=1.0\textwidth]{missing_env_data_heatmap.png}
 \end{frame}
 
+\begin{frame}
+  \frametitle{Temporal Variables}
+  These variables are the same for the entire municipality. 
+  \centering
+  \vspace{0.1cm}
+  \includegraphics[width=0.7\textwidth]{01_temporal_distributions.png}
+\end{frame} 
+
+\begin{frame}
+  \frametitle{Temporal Variables}
+  \centering
+  \vspace{0.2cm}
+  \includegraphics[width=0.7\textwidth]{02_temporal_by_month.png}
+\end{frame} 
+
+\begin{frame}
+  \frametitle{Spatial Variables}
+  These variables are the same for the entire time window. 
+  \centering
+  \vspace{0.2cm}
+  \includegraphics[width=0.8\textwidth]{03_spatial_binary_barplot.png}
+\end{frame} 
+
+
+\begin{frame}
+  \frametitle{Spatial Variables}
+  \centering
+  % \vspace{0.2cm}
+  \includegraphics[width=0.65\textwidth]{08_spatial_maps_binary.png}
+\end{frame} 
+
+\begin{frame}
+  \frametitle{Spatial Variables}
+  \centering
+  \vspace{0.3cm}
+  \includegraphics[width=0.75\textwidth]{04_spatial_categorical_barplot.png}
+\end{frame} 
+
+\begin{frame}
+  \frametitle{Spatial Variables}
+  \centering
+  \vspace{0.1cm}
+  \includegraphics[width=0.65\textwidth]{10_spatial_map_landcover.png}
+\end{frame} 
+
+\begin{frame}
+  \frametitle{Spatio-Temporal Variables}
+    \centering
+  \includegraphics[width=0.95\textwidth]{06_spatiotemporal_by_month.png}
+\end{frame} 
+
+\section{Description Entomo Data}
+\begin{frame}
+  \frametitle{Mosquito positivity rate over time}
+  \includegraphics[width=0.95\textwidth]{11_ento_temporal_positivity.png} 
+\end{frame}
+
+\begin{frame}
+  \frametitle{Mosquito positivity rate over time at houseblock level}
+  \centering
+  \includegraphics[width=0.8\textwidth]{15_ento_positivity_heatmap_manzana_time.png} 
+\end{frame}
+
+
+\begin{frame}
+  \frametitle{Mosquito positivity rate over time at CMF level}
+  \centering
+  \includegraphics[width=0.8\textwidth]{16_ento_positivity_heatmap_cmf_time.png} 
+\end{frame}
+
+\section{Description Epi Data}
+\begin{frame}
+  \frametitle{Dengue cases over time}
+  \centering
+  \includegraphics[width=0.8\textwidth]{17_dengue_cases_temp.png} 
+\end{frame}
+
+\begin{frame}
+  \frametitle{Dengue cases over space and time}
+  \centering
+  \includegraphics[width=0.8\textwidth]{18_dengue_cases_heatmap_manzana_time.png} 
+\end{frame}
+
 \section{Correlations}
 \begin{frame}
-\frametitle{Correlations between env covariates}
-\centering
-\includegraphics[width=0.5\textwidth]{correlation_matrix_numeric_vars.png}
+  \frametitle{Correlations environmental covariates}
+  \begin{columns}[T]
+    \begin{column}{0.45\textwidth}
+      \centering
+      \vspace{1cm}
+      \includegraphics[height=0.75\textheight]{11b_spatial_categorical_correlation.png}
+    \end{column}
+    \begin{column}{0.65\textwidth}
+      \centering
+      \includegraphics[height=0.9\textheight]{11a_numeric_vars_correlation.png}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Correlations environmental covariates}
+  \begin{columns}[T]
+    \begin{column}{0.45\textwidth}
+      \centering
+      \vspace{1cm}
+      \includegraphics[height=0.75\textheight]{11b_spatial_categorical_correlation.png}
+    \end{column}
+    \begin{column}{0.65\textwidth}
+      \centering
+      \includegraphics[height=0.9\textheight]{11c_deseasonalized_correlation.png}
+    \end{column}
+  \end{columns}
 \end{frame}
 
 \begin{frame}
@@ -165,35 +290,35 @@ Estimate latent mosquito presence probability $p_{bt}$ at block-month resolution
 \end{itemize}
 \end{frame}
 
-% Section 3: Preprocessing
-\section{Preprocessing Steps}
-\begin{frame}
-\frametitle{Lag Structures}
-\begin{itemize}
-    \item Create lagged covariates ($L$ lags)
-    \item Formula: $X_{k,b,t-l}$ for $l = 0, 1, \ldots, L$
-    \item Handling of initial observations
-\end{itemize}
-\end{frame}
+% % Section 3: Preprocessing
+% \section{Preprocessing Steps}
+% \begin{frame}
+% \frametitle{Lag Structures}
+% \begin{itemize}
+%     \item Create lagged covariates ($L$ lags)
+%     \item Formula: $X_{k,b,t-l}$ for $l = 0, 1, \ldots, L$
+%     \item Handling of initial observations
+% \end{itemize}
+% \end{frame}
 
-\begin{frame}
-\frametitle{Feature Scaling}
-\begin{itemize}
-    \item Standardization of covariates (if needed)
-    \item Justification: improve model convergence
-\end{itemize}
-\end{frame}
+% \begin{frame}
+% \frametitle{Feature Scaling}
+% \begin{itemize}
+%     \item Standardization of covariates (if needed)
+%     \item Justification: improve model convergence
+% \end{itemize}
+% \end{frame}
 
-% Section 4: Summary
-\section{Summary}
-\begin{frame}
-\frametitle{Next Steps}
-\begin{itemize}
-    \item Data quality checks completed
-    \item Preprocessing pipeline established
-    \item Ready for hierarchical state-space modeling
-\end{itemize}
-\end{frame}
+% % Section 4: Summary
+% \section{Summary}
+% \begin{frame}
+% \frametitle{Next Steps}
+% \begin{itemize}
+%     \item Data quality checks completed
+%     \item Preprocessing pipeline established
+%     \item Ready for hierarchical state-space modeling
+% \end{itemize}
+% \end{frame}
 
 \finalframe
 
