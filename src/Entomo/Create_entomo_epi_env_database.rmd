@@ -15,32 +15,27 @@ The core table for the analysis should look like:
 
 Observations table (one row per block-time combination):
 
-|Column |	Type |	Description |
------------------------------------------------------------
-|manzana |	String	| manzana identifier (1 to B) |
-|time |	Integer	| time period identifier (1 to T) |
-|N_HH |	Integer	| Number of households inspected (universo) |
-|Cases |	Integer	| Number of dengue cases observed in that block-time |
-|Houses_pos_IS |	Integer	| Number of positive mosquito samples detected |
-|n_bt |	Integer	| Total inspection events (N_HH + reactive adjustments) |
-
-|ndvi |	Numeric	| Normalized Difference Vegetation Index for manzana-month |
-|ndmi |	Numeric	| Normalized Difference Moisture Index for manzana-month |
-|ndwi |	Numeric	| Normalized Difference Water Index for manzana-month |
-
-|wS2M |	Numeric	| average windspeed at 2 meter height in m/s |
-|wS10M  |	Numeric	| average windspeed at 10 meter height in m/s |
-|wS50M |	Numeric	| average windspeed at 50 meter height in m/s |
-
-|landcover |	categorical	| dominant landcover value for that mz |
-|wui |	Integer	| 0/1 value for wild-land urban interface for that manzana |
-|wi |	Integer	| 0/1 value for water interface for that manzana |
-|urban |	Integer	| 0/1 value for whether/not urban for that manzana |
-
-
-|avg_temp |	Numeric	| average temperature (°C) for that manzana-month |
-|total_precip |	Numeric	| cummulative precipitation (mm) for that manzana-month |
-|rel_hum |	Numeric	| average relative humidity (%) for that manzana-month |
+|Column | Type | Description |
+|---|---|---|
+|manzana | String | manzana identifier (1 to B) |
+|time | Integer | time period identifier (1 to T) |
+|N_HH | Integer | Number of households inspected (universo) |
+|Cases | Integer | Number of dengue cases observed in that block-time |
+|Houses_pos_IS | Integer | Number of positive mosquito samples detected |
+|n_bt | Integer | Total inspection events (N_HH + reactive adjustments) |
+|ndvi | Numeric | Normalized Difference Vegetation Index for manzana-month |
+|ndmi | Numeric | Normalized Difference Moisture Index for manzana-month |
+|ndwi | Numeric | Normalized Difference Water Index for manzana-month |
+|wS2M | Numeric | average windspeed at 2 meter height in m/s |
+|landcover | categorical | dominant landcover value for that mz |
+|wui | Integer | 0/1 value for wild-land urban interface for that manzana |
+|wi | Integer | 0/1 value for water interface for that manzana (or within 100m of manzana) |
+|urban | Integer | 0/1 value for whether/not urban for that manzana |
+|has_aljibes | Binary | 0/1 value for whether/not there are underground cisternas within a 20m radius of the manzana |
+|nr_aljibes | Numeric | Number of underground water cisternas within 20m of the manzana |
+|avg_temp | Numeric | average temperature (°C) for that manzana-month |
+|total_precip | Numeric | cummulative precipitation (mm) for that manzana-month |
+|rel_hum | Numeric | average relative humidity (%) for that manzana-month |
 
 <!-- |omega |	Numeric	| Reactive bias weight (calculated from C_bt) | -->
 
