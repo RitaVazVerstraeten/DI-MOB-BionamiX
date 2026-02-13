@@ -530,11 +530,11 @@ ndwi <- read_csv(file.path(env_data_path, "NDWI", "NDWI_per_manzana_2015_2019_al
 ndmi <- read_csv(file.path(env_data_path, "NDMI", "NDMI_per_manzana_2015_2019_all_months.csv"), show_col_types = FALSE)
 windspeed <- read_csv(file.path(env_data_path, "WindSpeed", "wind_speed_2015_2019_monthly.csv"), show_col_types = FALSE)
 landcover <- read_csv(file.path(env_data_path, "LandCover", "LandCover_per_manzana_2021.csv"), show_col_types = FALSE)
-wi <- read_csv(file.path(env_data_path, "WI", "WI_per_manzana_NoBuffer_classification.csv"), show_col_types = FALSE)
+wi <- read_csv(file.path(env_data_path, "WI", "WI_per_manzana_100mBuffer_classification.csv"), show_col_types = FALSE)
 wui <- read_csv(file.path(env_data_path, "WUI", "WUI_per_manzana_NoBuffer_classification.csv"), show_col_types = FALSE)
 urban <- read_csv(file.path(env_data_path, "WUI", "WSF_per_manzana_noBuffer_classification.csv"), show_col_types = FALSE)
 meteo_daily <- read_xlsx("/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx")
-aljibes <- read_csv(file.path(env_data_path, "aljibes", "10m_buffer_manzanas_aljibes.csv"), show_col_types=FALSE)
+aljibes <- read_csv(file.path(env_data_path, "aljibes", "20m_buffer_manzanas_aljibes.csv"), show_col_types=FALSE)
 ```
 
 
