@@ -136,7 +136,7 @@ Keep you only the relevant columns:
 - manzana code
 <!-- - CP
 - Area
-- CMF --> we will be getting this from the shapefiles direclty. 
+- CMF --> ~~we will be getting this from the shapefiles direclty.~~ We will be getting this from the Mz distribution xlsx
 
 ```{r keep selected epi columns}
 epi_data <- epi_data %>%
@@ -279,21 +279,91 @@ ento_epi_data <- ento_epi_data %>%
 cat("Number of rows after filtering: ", nrow(ento_epi_data), "\n") # 50688 -> 72 removed
 ```
 
-## Add the CP, Area, and CMF to each manzana based on the shapefiles
-```{r add CP CMF and Area to ento_epi_data}
-# After loading dimob_manzanas, extract the non-geometry columns
-manzana_info <- st_drop_geometry(dimob_manzanas) %>%
-  select(CODIGO_, AS, CP, CMF) %>%
-  rename(CODIGO_DIMOB = CODIGO_) %>%
-  distinct()  # keep one row per manzana in case of duplicates
 
-# Then join to ento_epi_data
+### Manzana allocation to CMF file 
+```{r load the manzana allocation file}
+mz_allocation_path <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_ Demographic_Data/Mzlist_overview CMF allocation_Shared between Areas_Original Mzlist_PerArea.xlsx"
+mz_allocation <- suppressWarnings(read_excel(mz_allocation_path, sheet = "unique CMF allocation")) %>%
+  select(1:10) %>% # selects first 10 columns (A-J)
+  select(CODIGO_DIMOB, Area...2, MAP_PC, CMF_unico, MAP_Universo, Poblacion_3) %>%
+  rename(CP = MAP_PC, 
+  AREA = Area...2,
+  CMF = CMF_unico,
+  UNIVERSE = MAP_Universo)
+
+head(mz_allocation)
+# print(colnames(mz_allocation))
+```
+
+## Add the CP, Area, and CMF to each manzana based on mz_allocation
+
+
+```{r add CP CMF and Area to ento_epi_data}
+# Use mz_allocation (Excel) for CP/AREA/CMF instead of shapefiles
+allocation_info <- mz_allocation %>%
+  select(CODIGO_DIMOB, CP, AREA, CMF, UNIVERSE) %>%
+  distinct()
+
+# Join allocation info to ento_epi_data
 ento_epi_data <- ento_epi_data %>%
-  left_join(manzana_info, by = "CODIGO_DIMOB")
+  left_join(allocation_info, by = "CODIGO_DIMOB")
 
 head(ento_epi_data)
 ```
 
+
+### Check whether Inspected_houses is the same as UNIVERSE
+
+```{r}
+if (all(c("Inspected_houses", "UNIVERSE") %in% colnames(ento_epi_data))) {
+  # Compare Inspected_houses with UNIVERSE
+  ento_epi_check <- ento_epi_data %>%
+    mutate(
+      diff = Inspected_houses - UNIVERSE,
+      match = Inspected_houses == UNIVERSE
+    )
+
+  # Summary of matches/mismatches
+  check_summary <- ento_epi_check %>%
+    summarise(
+      total_rows = n(),
+      n_match = sum(match, na.rm = TRUE),
+      n_mismatch = sum(!match, na.rm = TRUE),
+      pct_mismatch = round(100 * n_mismatch / total_rows, 2)
+    )
+  print(check_summary)
+
+  # Show mismatching rows
+  mismatches <- ento_epi_check %>%
+    filter(!match) %>%
+    select(CODIGO_DIMOB, Inspected_houses, UNIVERSE, diff)
+  if (nrow(mismatches) > 0) {
+    print(head(mismatches, 50))
+  } else {
+    message("All rows match: Inspected_houses == UNIVERSE")
+  }
+
+} else {
+  cat("Note: Inspected_houses or UNIVERSE not found in ento_epi_data.\n")
+}
+
+message("Mismatches alway occurring for same manzana, ",print(unique(mismatches$CODIGO_DIMOB)))
+```
+
+## I will keep the household counts from the mz_allocation file instead of those in the shapefile. 
+
+```{r substitute Inspected_houses by UNIVERSE}
+ento_epi_data <- ento_epi_data %>%
+  mutate(Inspected_houses = UNIVERSE) %>%
+  select(-UNIVERSE)
+```
+
+## Take out all manzana where the number of inspected houses (and universo) is zero
+
+```{r remove manzanas without households}
+ento_epi_data <- ento_epi_data %>%
+  filter(Inspected_houses != 0)
+```
 
 Let's try out a plot for all the Mzs with entomo data for the entire year of 2015. 
 
@@ -591,7 +661,7 @@ landcover <- landcover %>%
 head(windspeed)
 windspeed$date <- gsub(windspeed$date, pattern = "-", replacement = "_")
 windspeed <- windspeed %>%
-  select(!c(year, month, WS2M_min, WS2M_max, WS10M_min, WS10M_max, WS50M_min, WS50M_max)) %>%
+  select(!c(year, month, WS2M_min, WS2M_max, WS10M_min, WS10M_mean, WS10M_max, WS50M_min,WS50M_mean, WS50M_max)) %>%
   rename(year_month = date)
 ```
 
@@ -641,7 +711,7 @@ meteo_monthly <- meteo_daily %>%
 ```{r aggregate the temporal variables based on year_month}
 environmental_temp <- meteo_monthly %>%
   left_join(windspeed, by = "year_month") %>%
-  rename(WS2M = WS2M_mean, WS10M = WS10M_mean, WS50M = WS50M_mean)
+  rename(WS2M = WS2M_mean)
 
 # select only the temporal var's as of 2016-04, since the spatio-temporal variables are only available from 2016-04 onwards
 environmental_temp <- environmental_temp %>%
@@ -1024,13 +1094,13 @@ cat("ento_epi_data structure:\n")
 str(ento_epi_data[1:5, ])
 
 # Convert ento_epi_data year_month to character format matching env_all (YYYY_MM)
-ento_epi_join <- ento_epi_data %>%
+ento_epi_join <- ento_epi_data %>% 
   mutate(
     year_month = format(year_month, "%Y_%m"),  # convert Date to "YYYY_MM" format
     manzana = CODIGO_DIMOB  # rename to match env_all
   ) %>%
-  select(manzana, year_month, Inspected_houses, Houses_pos_IS, cases)
-
+  filter(year_month >= "2016_04" & year_month <= "2019_12") %>%
+  select(manzana, year_month, Inspected_houses, Houses_pos_IS, cases, CMF, CP, AREA) 
 head(ento_epi_join)
 ```
 
@@ -1039,8 +1109,8 @@ head(ento_epi_join)
 ```{r join ento_epi with environmental data}
 
 # Filter env_all to only include months that have ento_epi data (2016-04 onwards)
-final_dataset <- env_all %>%
-  left_join(ento_epi_join, by = c("manzana", "year_month"))
+final_dataset <- ento_epi_join %>%
+  left_join(env_all, by = c("manzana", "year_month"))
 
 cat("\n=== FINAL DATASET ===\n")
 cat("Dimensions:", nrow(final_dataset), "x", ncol(final_dataset), "\n")
