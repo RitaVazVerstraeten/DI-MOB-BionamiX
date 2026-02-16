@@ -90,6 +90,15 @@ This is a mixture of unbiased and biased observation processes.
 y_{bt} \sim \text{Binomial}(n_{bt}, \pi_{bt}).
 \end{equation}
 
+\subsubsection{Computational Consideration: Poisson Approximation}
+
+In the Stan implementation, $n_{bt}$ is not fixed but estimated as a function of the uncertain parameter $\kappa$, which creates a hierarchical dependency that complicates likelihood evaluation. To simplify inference, we approximate the Binomial likelihood with a Poisson distribution:
+\begin{equation}
+y_{bt} \sim \text{Poisson}(\lambda_{bt}), \quad \text{where} \quad \lambda_{bt} = N_b^{HH} p_{bt} + \kappa C_{bt} p_{bt}^R,
+\end{equation}
+
+where the first term represents expected positive inspections from systematic surveillance and the second term represents expected positive inspections from reactive surveillance. This approximation is valid when $n_{bt}$ is large and $\pi_{bt}$ is moderate, conditions that hold for our surveillance data (mean $y_{bt}$ 0.004). However, a potential concern is that empirical overdispersion in $y_{bt}$ (variance exceeding the mean) may not be fully captured by the Poisson model, which assumes equidispersion. If unexplained heterogeneity exists beyond the spatio-temporal random effects, future work should use a negative binomial.
+
 \section{Extensions}
 
 \subsection{Distributed Lag Model}
@@ -100,9 +109,9 @@ To consider lag effects of predictors, we model the effect of covariate $X_{bt}$
 \end{equation}
 where $w_\ell$ is the lag weight (estimated) and $L$ is the maximum ecological memory. The original equation becomes:
 \begin{equation}
-\text{logit}(p_{bt}) = \alpha + \sum_{k=1}^{K} \sum_{\ell=0}^{L} w_{k\ell} X_{k,b,t-\ell} + s_b + u_t,
+\text{logit}(p_{bt}) = \alpha + \underbrace{\sum_{k=1}^{K_L} \sum_{\ell=0}^{L} w_{k\ell} X_{k,b,t-\ell}}_{\text{lagged covariates}} +  \underbrace{\sum_{k=1}^{K_U} w_{k} X_{k,b}}_{\text{static spatial covariates}} + s_b + u_t,
 \end{equation}
-where $k$ indexes the predictor, $w_{k\ell}$ are lag weights, $s_b$ are spatial random effects, and $u_t$ are temporal random effects (AR).
+where $k$ indexes the predictor, and $K_L$ represents the predictors that require lagging, $K_U$ represent the static spatial predictors without lagging, $w_{k\ell}$ are lag weights, $s_b$ are spatial random effects, and $u_t$ are temporal random effects (AR).
 
 \subsection{Temporal Autocorrelation}
 
@@ -116,11 +125,49 @@ where $\rho$ is the autoregressive parameter and $\epsilon_t$ is white noise.
 
 Several factors drive autocorrelation in $p_{bt}$. Slowly varying environments (NDVI, urban form), seasonal climate, block-level structural risk, and imperfect control effectiveness all tend to increase temporal correlation. Conversely, larvae removal upon detection, targeted interventions during outbreaks, and reactive surveillance activities tend to reset states and reduce autocorrelation. Despite these opposing forces, we expect environmental suitability to dominate: Aedes recolonization is rapid, so monthly aggregation smoothens the effects of removal, and blocks remain ecologically suitable even after larvae are removed (high-risk remains high-risk).
 
+
+
 \section{Implementation}
 
 \subsection{Dataset Preparation}
 
 The analysis requires a dataset structured with one row per time--block combination. Each row must contain columns for $C_{bt}$ (dengue cases), all environmental covariates $X_{bt}$, the number of houses and larvae in block $b$ at time $t$, and $N_{HH}$ (the number of houses in that block, held constant across time).
+
+\subsection{Priors}
+The information on priors selection is available in Table 1. 
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{1.5cm}p{3.0cm}p{3.0cm}p{3.0cm}p{5cm}}
+\toprule
+Parameter & Role in Model & Suggested Prior & Interpretation & Reasoning \\
+\midrule
+\textbf{$\alpha$} & Baseline log-odds of mosquito positivity & Normal(-2, 1.5) & Baseline mosquito presence when covariates = 0 & On logit scale, -2 $\approx$ 0.12 probability. Allows realistic 5--30\% baseline positivity without being extreme. \\
+\addlinespace
+\textbf{$\delta_0$} & Baseline reactive targeting boost & Normal(0.5, 0.5) & Log-odds increase under reactive inspection & OR ($e^{0.5}$) $\approx$ 1.65 typical. Reflects moderate targeting but allows near-zero or stronger effects. \\
+\addlinespace
+\textbf{$\delta_1$} & Sensitivity to outbreak intensity & Normal(0, 0.3) & Log-linear response to log($C_{bt}$ + 1) & Encourages small positive effect but allows no effect; avoids explosive targeting. \\
+\addlinespace
+\textbf{$\kappa$} & \textbf{Reactive inspection scaling} & LogNormal(log(2), 0.4) & Additional inspections per case & Domain knowledge: up to 1--4 extra households wihout same block per case. LogNormal ensures positivity and realistic range. Median $\approx$ 2 and 95\% CI $\approx$ 1-4.5. \\
+\addlinespace
+\textbf{$\rho$} & AR(1) temporal persistence & Normal(0.3, 0.3) truncated to (-1, 1) & Temporal autocorrelation & Allows oscillation $\rightarrow$ both positive (mosquitoes remain) and negative (mosquito removal after detection) temporal autocorrelation. \\
+\addlinespace
+\textbf{$u_{block\_raw}$} & Standardized spatial effects & Normal(0, 1) & Non-centered parameter & Computational device only; ensures stable sampling. \\
+\addlinespace
+\textbf{$v_{time\_raw}$} & AR(1) \textit{innovation} terms & Normal(0, 1) & Standardized shocks & Computational innovation term in AR(1). The random shock entering the system at time $t$. \\
+\addlinespace
+\textbf{$\sigma_v$} & SD of temporal innovations & Half-Normal(0, 0.3) & Size of month-to-month ecological shocks & Temporal autocorrelation is weak; this keeps fluctuations moderate and prevents volatility. \\
+\addlinespace
+\textbf{$\sigma_u$} & SD of spatial random effects & Half-Normal(0, 0.5) & Between-block heterogeneity & Keeps block effects within roughly $\pm$1 log-odds ($\approx$ OR 2.7). Prevents spatial effects from absorbing ecological signal. \\
+\addlinespace
+w[k,l] & Distributed lag weights & Normal(0, 0.7) & Effect of covariate \textit{k} at lag \textit{l} & Regularizes lag effects; avoids explosive cumulative lag effects; reflects uncertainty but discourages extreme swings. \\
+\bottomrule
+\end{tabular}
+\caption{Prior distributions for model parameters.}
+\label{tab:priors}
+\end{table}
+
 
 \subsection{Exploratory Analysis}
 
