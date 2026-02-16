@@ -81,8 +81,8 @@ model {
   w_unlagged ~ normal(0, 0.5);    // unlagged covariate weights
   u_block_raw ~ normal(0, 1);     // non-centered parameterization
   v_time_raw ~ normal(0, 1);      // non-centered parameterization
-  sigma_u ~ normal(0, 0.5);       // half-normal: spatial variation
-  sigma_v ~ normal(0, 0.3);       // half-normal: temporal variation
+  sigma_u ~ exponential(1);        // spatial scale: prevents extreme variance
+  sigma_v ~ exponential(2);        // temporal scale: stricter (AR(1) structure)
   rho ~ normal(0.3, 0.3);         // truncated to [-1, 1]: AR(1) parameter
   kappa ~ lognormal(log(2), 0.4); // scaling factor for reactive inspections (centered at 2)
   delta0 ~ normal(0.5, 0.5);      // baseline targeting bias

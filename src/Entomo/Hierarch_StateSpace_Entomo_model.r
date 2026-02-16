@@ -16,7 +16,7 @@ library(ggplot2)
 library(readr)
 
 rstan_options(auto_write = TRUE)
-# options(mc.cores = parallel::detectCores())
+options(mc.cores = 6)
 
 # --- Create output directory ---
 output_dir <- file.path("/home/rita/PyProjects/DI-MOB-BionamiX", "results", "Entomo", "fitting")
@@ -214,11 +214,16 @@ stan_data <- list(
 # --- 3. Fit Stan model from external file ---
 stan_file <- "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space.stan"
 
-fit <- stan(file = stan_file, 
-            data = stan_data, 
-            chains = 4, 
-            iter = 2000, 
-            warmup = 1000)
+# # Quick test: 1 chain with adapt_delta = 0.95 to reduce divergences
+fit_test <- stan(file = stan_file, data = stan_data,
+            chains = 2, iter = 500, warmup = 250,
+            control = list(adapt_delta = 0.95, max_treedepth = 10))
+
+
+
+# fit <- stan(file = stan_file, data = stan_data, 
+#             chains = 4, iter = 2000, warmup = 1000,
+#             control = list(adapt_delta = 0.99, max_treedepth = 10))
 
 # --- 4. Summarize results ---
 summary_output <- capture.output(print(fit, pars = c("alpha","sigma_u","sigma_v","rho","kappa","delta0","delta1","w")))
