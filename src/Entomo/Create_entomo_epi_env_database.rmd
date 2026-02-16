@@ -1,5 +1,5 @@
 ---
-title: "Entomological Database Creation – Cienfuegos"
+title: "Entomological–Epidemiological–Environmental Database – Cienfuegos"
 author: "Rita Verstraeten"
 date: "`r Sys.Date()`"
 output: 
@@ -10,7 +10,8 @@ output:
 editor_options:
   chunk_output_type: console
 ---
-# Database creation for entomological modelling ~ climate & dengue cases in Cienfuegos
+# Entomological–Epidemiological–Environmental Database (Cienfuegos)
+## Target table structure
 The core table for the analysis should look like: 
 
 Observations table (one row per block-time combination):
@@ -39,7 +40,7 @@ Observations table (one row per block-time combination):
 
 <!-- |omega |	Numeric	| Reactive bias weight (calculated from C_bt) | -->
 
-## Install R packages
+## Setup: packages
 ```{r setup, include = FALSE}
 # renv::init()  # creates renv/ folder and lockfile
 # Install necessary packages
@@ -159,7 +160,7 @@ head(epi_data)
 # DT::datatable(epi_data)
 ```
 
-# Combine entomological & epidemiological data 
+# Combine entomological and epidemiological data
 
 ```{r combine entomo and epi based on time and block}
 # ensure both are Date
@@ -188,7 +189,7 @@ ento_epi_data <- full_join(entomo_data, epi_data, by = c("CODIGO_DIMOB", "year_m
 
 ```
 
-# Filter for 2015-2019
+## Filter to 2015–2019
 ```{r filter for 2015-2019}
 ento_epi_data <- ento_epi_data %>%
   filter(year_month >= as.Date("2015-01-01") & year_month <= as.Date("2019-12-31"))
@@ -196,9 +197,9 @@ ento_epi_data <- ento_epi_data %>%
 
 ```
 
-# Create some plots 
+# Spatial reference data and ID checks
 
-## Load the maps 
+## Load spatial layers (shapefiles)
 the shapefile corresponding to the Manzanas in Cienfuegos is in Projected CRS: NAD27 / Cuba Norte. 
 This is very important to keep in mind when joining the environmental data later on. 
 
@@ -215,7 +216,7 @@ dimob_cps <- st_read(file.path(shapefile_path, "Consejo Popular/CONSEJOS Popular
 # head(dimob_cps)
 ```
 
-# WARNING, THE MANZANA A8APSMMzFcSAMA IS OUTSIDE THE CIENFUEGOS MUNICIPALITY SHAPE AND WILL BE REMOVED IN THE ANALYSIS
+## Remove out-of-bound manzana (A8APSMMzFcSAMA)
 
 ```{r remove A8APSMMzFcSAMA from the list of manzanas and all the data}
 dimob_manzanas <- dimob_manzanas %>%
@@ -225,7 +226,7 @@ ento_epi_data <- ento_epi_data %>%
   filter(CODIGO_DIMOB != "A8APSMMzFcSAMA")
 ```
 
-### Remove all accents and set to uppercase for consistency
+### Normalize names for joins
 ```{r clean names in shapefiles}
 library(stringi)
 
@@ -275,7 +276,7 @@ cat("Number of rows after filtering: ", nrow(ento_epi_data), "\n") # 50688 -> 72
 ```
 
 
-### Manzana allocation to CMF file 
+## Manzana allocation to CP/AREA/CMF
 ```{r load the manzana allocation file}
 mz_allocation_path <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_ Demographic_Data/Mzlist_overview CMF allocation_Shared between Areas_Original Mzlist_PerArea.xlsx"
 mz_allocation <- suppressWarnings(read_excel(mz_allocation_path, sheet = "unique CMF allocation")) %>%
@@ -290,7 +291,7 @@ head(mz_allocation)
 # print(colnames(mz_allocation))
 ```
 
-## Add the CP, Area, and CMF to each manzana based on mz_allocation
+### Add CP/AREA/CMF to ento-epi data
 
 
 ```{r add CP CMF and Area to ento_epi_data}
@@ -307,7 +308,7 @@ head(ento_epi_data)
 ```
 
 
-### Check whether Inspected_houses is the same as UNIVERSE
+### Validate Inspected_houses vs UNIVERSE
 
 ```{r}
 if (all(c("Inspected_houses", "UNIVERSE") %in% colnames(ento_epi_data))) {
@@ -345,7 +346,7 @@ if (all(c("Inspected_houses", "UNIVERSE") %in% colnames(ento_epi_data))) {
 message("Mismatches alway occurring for same manzana, ",print(unique(mismatches$CODIGO_DIMOB)))
 ```
 
-## I will keep the household counts from the mz_allocation file instead of those in the shapefile. 
+### Use UNIVERSE as household count
 
 ```{r substitute Inspected_houses by UNIVERSE}
 ento_epi_data <- ento_epi_data %>%
@@ -353,12 +354,32 @@ ento_epi_data <- ento_epi_data %>%
   select(-UNIVERSE)
 ```
 
-## Take out all manzana where the number of inspected houses (and universo) is zero
+```{r check manzanas with zero universe}
+manzanas_without_houses <- subset(ento_epi_data, ento_epi_data$Inspected_houses == 0)
+manzanas_without_houses_pos <- subset(manzanas_without_houses, manzanas_without_houses$Houses_pos_IS != 0)
+library(writexl)
+write_xlsx(manzanas_without_houses, 
+           "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Entomological_Data/manzanas_without_houses.xlsx")
+
+# check this against dimob_manzanas
+dimob_manzanas_nohouses <- subset(dimob_manzanas, dimob_manzanas$Vivinds == 0)
+dimob_manzanas_nohouses <- dimob_manzanas_nohouses %>% 
+  filter(MZ != 'TB') %>%
+  filter(!CODIGO_ %in% c("A7CNAMzPPESC", "DD", "A8APSMMzFcSAMA", ""))
+
+cat("Number of unique manzanas in entomo data where Inspected_houses is zero: ",
+  length(unique(manzanas_without_houses$CODIGO_DIMOB)), "\n")
+cat("Number of rows that will be removed from entomological data due to zero household count: ", nrow(manzanas_without_houses), "\n")
+```
+
+### Remove zero-household manzanas
 
 ```{r remove manzanas without households}
 ento_epi_data <- ento_epi_data %>%
   filter(Inspected_houses != 0)
 ```
+
+## Exploratory maps
 
 Let's try out a plot for all the Mzs with entomo data for the entire year of 2015. 
 
@@ -423,7 +444,7 @@ plot_epi_cases <- ento_epi_year %>%
 plot_epi_cases
 ```
 
-## Now we make the plot per CP 
+### Cases by Consejo Popular (CP)
 ```{r plot the CP shapefile alone}
 # Quick plot of the CP shapefile
 ggplot(dimob_cps) +
@@ -464,7 +485,7 @@ plot_cases_cp <- ento_epi_year_cp %>%
 plot_cases_cp
 ```
 
-# average manzana surface area
+# Manzana area diagnostics
 ```{r average mz area}
 dimob_manzanas <- dimob_manzanas %>%
   st_transform(crs = 26917)  # NAD27 / UTM zone 17N
@@ -510,7 +531,7 @@ What would make most sense -> to use the houseblock location itself (centroid) +
 **Actually**, the manzanas that have classification "TB" in the "MZ" variable indicate that these are *terreno baldio*, which means emtpy terrain. 
 So, these manzanas are actually not of interest for our analysis given that there will not be any mosquito measures in absence of houses (and therefore population). 
 
-### Filter manzanas to exclude those with "TB" in the MZ field and empty mz names
+### Exclude TB and empty manzanas
 ```{r filter manzanas without TB}
 # Keep only manzanas that do NOT have "TB" in the MZ field and have non-empty MZ names
 dimob_manzanas_filtered <- dimob_manzanas %>%
@@ -521,7 +542,7 @@ cat("Number of manzanas after filtering out TB:", nrow(dimob_manzanas_filtered),
 cat("Number of TB manzanas removed:", nrow(dimob_manzanas) - nrow(dimob_manzanas_filtered), "\n") # 65 removed -> 71
 ```
 
-### Re-plot the manzanas + area with indication of the TB manzanas
+### Re-plot areas after TB filter
 ```{r plot the non-TB manzanas}
 dimob_manzanas_filtered <- dimob_manzanas_filtered %>%
   st_transform(crs = 26917)  # NAD27 / UTM zone 17N
@@ -568,9 +589,10 @@ Some manzanas are in fact huge.
 ~~Final choice: use centroid per manzana + 500m buffer to extract environmental data.~~
 ~~This gives us an area of $\pi$*400^2 = 502.400 m2, which is larger than the average manzana size (around 30,000 m2 after removing TB manzanas).~~
 
+## Add missing manzanas (if needed)
 
 
-# Add the environmental data together
+# Environmental data assembly
 
 1. Create one single environmental dataset with all variables + timestamps
   - NDVI -> mazana-month
@@ -660,7 +682,7 @@ windspeed <- windspeed %>%
   rename(year_month = date)
 ```
 
-### Clean the meteorological data
+### Aggregate meteorological data (daily → monthly)
 
 ```{r aggregate daily meteorological data to monthly}
 meteo_daily <- read_xlsx("/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx")
@@ -702,7 +724,7 @@ meteo_monthly <- meteo_daily %>%
   - NDMI -> mazana-month (2016-04 -> 2019-12)
   - NDWI -> mazana-month (2016-04 -> 2019-12)
 
-## Aggregate the temporal variables 
+## Build temporal variables (monthly)
 ```{r aggregate the temporal variables based on year_month}
 environmental_temp <- meteo_monthly %>%
   left_join(windspeed, by = "year_month") %>%
@@ -714,7 +736,7 @@ environmental_temp <- environmental_temp %>%
 ```
 
 
-## Aggregate the spatial variables 
+## Build spatial variables (per manzana)
 ```{r aggregate the spatial variables based on manzana_id}
 setdiff(unique(landcover$manzana_id), wi$manzana_id)  # check if all manzanas in landcover are in wi
 setdiff(unique(landcover$manzana_id), wui$manzana_id)
@@ -726,7 +748,7 @@ environmental_spatial <- landcover %>%
   left_join(aljibes, by = "manzana_id")
 ```
 
-## Aggregate the spatio-temporal variables
+## Build spatio-temporal variables (per manzana-month)
 ```{r aggregate the spatio-temporal variables based on manzana_id and year_month}
 
 environmental_spatio_temp <- ndmi %>%
@@ -735,7 +757,7 @@ environmental_spatio_temp <- ndmi %>%
 
 ```
 
-## Aggregate the temporal and the spatial to the spatio-temporal variables
+## Combine temporal, spatial, and spatio-temporal data
 For the temporal variables, we will repeat the same value for all manzanas within the same month, since these variables are only available at the monthly level.
 Same for the spatial variables, we will repeat the same value for all months within the same manzana, since these variables are only available at the manzana level.
 
@@ -783,7 +805,7 @@ env_all <- env_all %>%
 cat("\nFinal environmental dataset dimensions:", nrow(env_all), "x", ncol(env_all), "\n")
 ```
 
-## Save the resulting environmental dataset
+## Save environmental dataset
 ```{r save the final environmental dataset}
 final_env_data_path <-  "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality"
 final_env_data_path_1 <-  "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data"
@@ -793,7 +815,7 @@ write_csv(env_all, file.path(final_env_data_path_1, "all_environmental_data_per_
 
 ```
 
-# Missing data checks for environmental dataset
+# Environmental data missingness checks
 ```{r check final file}
 env_all <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_manzana_2016_04_to_2019_12.csv")
 # Check the final result
@@ -826,9 +848,9 @@ cat("All the manzanas in our final shapefile are in the environmental dataset: "
 ```
 
 
-# Check which values (months and/or manzana) are missing for the finale dataset 
+## Missingness by month and manzana
 
-### Check missing data for any variable in env_all
+### Helper: missingness by month
 ```{r function to check missing data for any variable}
 
 check_missing_by_month <- function(data, variable_name) {
@@ -889,7 +911,7 @@ check_missing_by_month(env_all, "mean_ndwi")
 ```
 
 
-## Visualize missing data patterns by manzana and month
+## Missingness maps
 
 ```{r visualize missing data heatmap function}
 
@@ -954,7 +976,7 @@ ggsave(
 ```
 
 
-## Comprehensive missing data overview for ALL variables
+## Missingness overview (all variables)
 
 ```{r missing data overview for all variables}
 
@@ -1016,6 +1038,8 @@ if(nrow(mostly_missing_vars) > 0) {
   cat("None\n")
 }
 ```
+
+## Missingness heatmap (variables × months)
 
 ```{r missing data heatmap: variables x months}
 
@@ -1079,9 +1103,9 @@ print(tail(complete_by_month, 10))
 ```
 
 
-# Add the epi entomo data to the environmental data
+# Merge ento-epi with environmental data
 
-## Prep entomo_epi data columns for joining
+## Prepare ento-epi data for join
 ```{r prepare ento_epi_data for joining}
 
 # First, check the date format and convert if needed
@@ -1099,7 +1123,7 @@ ento_epi_join <- ento_epi_data %>%
 head(ento_epi_join)
 ```
 
-## Join entomo_epi data + env data
+## Join ento-epi with environmental data
 
 ```{r join ento_epi with environmental data}
 
@@ -1128,7 +1152,7 @@ missing_ento_epi_join <- final_dataset %>%
   filter(is.na(Inspected_houses) & is.na(Houses_pos_IS) & is.na(cases))
 ```
 
-## Check which months/manzanas have ento_epi data and whether they are successfully joined to the env data
+## Coverage check: ento-epi vs environmental
 ```{r check which months/manzanas have ento_epi data}
 
 # Show coverage of ento_epi data
@@ -1156,7 +1180,7 @@ if(nrow(ento_epi_not_in_env) > 0) {
 }
 ```
 
-## Check that the Houses_inspected is in fact consistent across months for the same manzana. 
+## Consistency check: Inspected_houses by manzana
 ```{r check consistency of Inspected_houses per manzana}
 
 cat("\n=== CHECKING CONSISTENCY OF Inspected_houses ===\n\n")
@@ -1192,7 +1216,94 @@ if(nrow(inconsistent_manzanas) > 0) {
 }
 ```
 
-## Save the final entomo + epi + environmental dataset
+## Check whether Houses_Pos_IS > Inspected_houses + cases
+
+```{r check for overly large entomological indicators}
+
+# Create a potential maximum for inspection count
+final_dataset <- final_dataset %>%
+  mutate(potential_max = Inspected_houses + cases)
+
+# Check if Houses_pos_IS exceeds the potential maximum
+violations <- final_dataset %>%
+  filter(!is.na(Inspected_houses) & !is.na(cases) & !is.na(Houses_pos_IS)) %>%
+  filter(Houses_pos_IS > potential_max) %>%
+  select(manzana, year_month, Inspected_houses, cases, potential_max, Houses_pos_IS) %>%
+  mutate(excess = Houses_pos_IS - potential_max) %>%
+  arrange(desc(excess))
+
+cat("\n=== DATA QUALITY CHECK: Houses_pos_IS vs Inspected_houses + cases ===\n")
+cat("Total observations with complete data:", 
+    nrow(final_dataset %>% filter(!is.na(Inspected_houses) & !is.na(cases) & !is.na(Houses_pos_IS))), "\n")
+cat("Observations where Houses_pos_IS > Inspected_houses + cases:", nrow(violations), "\n\n")
+
+if(nrow(violations) > 0) {
+  cat("⚠️  DATA QUALITY ISSUE DETECTED!\n")
+  cat("The following rows have more positive samples than could plausibly be detected:\n\n")
+  print(violations)
+  
+  # Create visualization
+  violations_plot <- ggplot(violations, aes(x = reorder(paste(manzana, year_month), excess), y = excess)) +
+    geom_col(fill = "red", alpha = 0.7) +
+    coord_flip() +
+    labs(
+      x = "Manzana-Month",
+      y = "Excess (Houses_pos_IS - Inspected_houses - cases)",
+      title = "Data Quality Issues: Positive samples exceed plausible maximum",
+      subtitle = paste0("Found ", nrow(violations), " problematic observations")
+    ) +
+    theme_minimal() +
+    theme(axis.text.y = element_text(size = 8))
+  
+  print(violations_plot)
+  
+  ggsave(
+    filename = file.path(save_images_to, "data_quality_violations_Houses_pos_IS.png"),
+    plot = violations_plot,
+    width = 10,
+    height = 8,
+    dpi = 300
+  )
+  
+  cat("\n\nCORRECTING DATA:\n")
+  cat("Resetting Houses_pos_IS to maximum possible value (Inspected_houses + cases) for affected rows...\n")
+  
+  # Correct the violations: cap Houses_pos_IS at potential_max
+  final_dataset <- final_dataset %>%
+    mutate(
+      Houses_pos_IS_original = Houses_pos_IS,
+      Houses_pos_IS = ifelse(
+        Houses_pos_IS > potential_max & !is.na(potential_max),
+        potential_max,
+        Houses_pos_IS
+      )
+    )
+  
+  cat("✓ Correction complete.\n")
+  cat("\nCorrected rows:\n")
+  corrections <- final_dataset %>%
+    filter(!is.na(Houses_pos_IS_original) & Houses_pos_IS_original != Houses_pos_IS) %>%
+    select(manzana, year_month, Inspected_houses, cases, potential_max, 
+           Houses_pos_IS_original, Houses_pos_IS) %>%
+    mutate(reduction = Houses_pos_IS_original - Houses_pos_IS)
+  print(corrections)
+  
+  # Remove the temporary column since we've made the correction
+  final_dataset <- final_dataset %>%
+    select(-Houses_pos_IS_original)
+  
+} else {
+  cat("✓ No data quality issues detected.\n")
+  cat("✓ All Houses_pos_IS values are consistent with Inspected_houses + cases\n")
+}
+
+# Remove the temporary column
+final_dataset <- final_dataset %>%
+  select(-potential_max)
+```
+```
+
+## Save final merged dataset
 ```{r save final dataset with environmental entomological and epi data}
 final_epi_entomo_env_data_path <- "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data"
 final_epi_entomo_env_data_path_1 <- "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality"
