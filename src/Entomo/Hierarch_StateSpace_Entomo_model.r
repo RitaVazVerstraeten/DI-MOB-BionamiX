@@ -5,18 +5,19 @@
 
 # Initialize in your project folder
 # renv::init()  # creates renv/ folder and lockfile
-# install.packages("rstan")
+if (!require("cmdstanr", quietly = TRUE)) {
+  install.packages("cmdstanr", repos = c("https://mc-stan.org/r-packages/", getOption("repos")))
+}
 # install.packages("dplyr")
 # install.packages(c("rmarkdown", "knitr", "yaml", "jsonlite", "xfun"))
-renv::snapshot()
+renv::restore()  # Restore from renv cache (binary if available)
 # --- 0. Load libraries ---
-library(rstan)
+library(cmdstanr)
 library(dplyr)
 library(ggplot2)
 library(readr)
 
-rstan_options(auto_write = TRUE)
-options(mc.cores = 6)
+options(mc.cores = 2)  # Conservative: chains run sequentially (15GB RAM system)
 
 # --- Create output directory ---
 output_dir <- file.path("/home/rita/PyProjects/DI-MOB-BionamiX", "results", "Entomo", "fitting")
@@ -140,6 +141,13 @@ rows_to_keep <- df$time > L
 df <- df[rows_to_keep, ]
 X_lag <- X_lag[rows_to_keep, , ]
 
+# Flatten X_lag to 2D matrix for efficient Stan computation
+# X_lag[N, K, Lp1] becomes X_lag_flat[N, K*Lp1]
+X_lag_flat <- matrix(0, nrow = nrow(df), ncol = K * Lp1)
+for (i in seq_len(nrow(df))) {
+  X_lag_flat[i, ] <- as.vector(X_lag[i, , ])
+}
+
 # Unlagged covariates (block-level characteristics)
 unlagged_vars <- c("is_urban", "has_aljibes", "nr_aljibes", "is_WI", "is_WUI")
 X_unlagged <- as.matrix(df[, unlagged_vars])
@@ -152,7 +160,7 @@ stan_data <- list(
   N_HH = df$N_HH,        # universe
   K = K,                 # number of lagged env covariates
   Lp1 = Lp1,             # total number of lag terms including lag 0 (3 for max_lag=2)
-  X_lag = X_lag,         # lagged environmental variables array [N, K, Lp1]
+  X_lag_flat = X_lag_flat,  # flattened lagged covariates matrix [N, K*Lp1]
   Ku = Ku,               # number of unlagged block-level covariates
   X_unlagged = X_unlagged,  # unlagged covariates matrix [N, Ku]
   B = B,                 # number of manzanas
@@ -214,55 +222,91 @@ stan_data <- list(
 # --- 3. Fit Stan model from external file ---
 stan_file <- "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space.stan"
 
-# # Quick test: 1 chain with adapt_delta = 0.95 to reduce divergences
-fit_test <- stan(file = stan_file, data = stan_data,
-            chains = 2, iter = 500, warmup = 250,
-            control = list(adapt_delta = 0.95, max_treedepth = 10))
+# Provide reasonable initial values to help both chains start properly
+init_fun <- function() {
+  list(
+    alpha = rnorm(1, -4.5, 0.4),              # Tighter SD to avoid extreme p_bt
+    w = matrix(rnorm(stan_data$K * stan_data$Lp1, 0, 0.08), stan_data$K, stan_data$Lp1),  # Slightly reduced SD
+    sigma_w = runif(stan_data$K, 0.1, 0.3),   # Random walk SD for lag smoothing
+    w_unlagged = rnorm(stan_data$Ku, 0, 0.1),
+    u_block_raw = rnorm(stan_data$B, 0, 0.5),
+    v_time_raw = rnorm(stan_data$T, 0, 0.5),
+    sigma_u = runif(1, 0.1, 0.5),
+    sigma_v = runif(1, 0.1, 0.5),
+    rho = rnorm(1, 0, 0.25),  # Allow negative autocorrelation
+    kappa = rlnorm(1, log(2), 0.3),
+    delta0 = rnorm(1, 0.3, 0.2),
+    delta1 = rnorm(1, 0, 0.1)
+  )
+}
 
+# Compile and fit with cmdstanr
+mod <- cmdstan_model(stan_file)
 
+# fit <- mod$sample(
+#   data = stan_data,
+#   chains = 2,
+#   iter_warmup = 1000,
+#   iter_sampling = 1000,
+#   thin = 2,  # Keep every 2nd sample (reduces memory)
+#   init = init_fun,
+#   adapt_delta = 0.90,
+#   max_treedepth = 10,
+#   parallel_chains = 1  # Sequential execution for memory safety
+# )
 
-# fit <- stan(file = stan_file, data = stan_data, 
-#             chains = 4, iter = 2000, warmup = 1000,
-#             control = list(adapt_delta = 0.99, max_treedepth = 10))
+fit <- mod$sample(
+  data = stan_data,
+  chains = 2,
+  iter_warmup = 500,
+  iter_sampling = 500,
+#   thin = 2,  # Keep every 2nd sample (reduces memory)
+  init = init_fun,
+  adapt_delta = 0.95,
+  max_treedepth = 12,
+  parallel_chains = 2  # 1 would be Sequential execution for memory safety
+)
+
 
 # --- 4. Summarize results ---
-summary_output <- capture.output(print(fit, pars = c("alpha","sigma_u","sigma_v","rho","kappa","delta0","delta1","w")))
+summary_output <- capture.output(print(fit$summary(variables = c("alpha","sigma_u","sigma_v","rho","kappa","delta0","delta1","w"))))
 cat(summary_output, sep = "\n")
 writeLines(summary_output, file.path(output_dir, paste0("model_summary_", date_suffix, ".txt")))
 
 # --- 5. Extract fitted latent mosquito probabilities ---
-post <- extract(fit)
-fitted_p_bt <- apply(post$p_bt, 2, mean)  # posterior mean for each observation
-fitted_pi_bt <- apply(post$pi_bt, 2, mean)  # effective observation probability
+post_array <- fit$draws()  # Extract as array
+fitted_p_bt <- apply(post_array[, , "p_bt_out"], 2, mean)  # posterior mean for each observation
+fitted_p_R <- apply(post_array[, , "p_R_out"], 2, mean)  # reactive surveillance probability
 df$fitted_p_bt <- fitted_p_bt
-df$fitted_pi_bt <- fitted_pi_bt
+df$fitted_p_R <- fitted_p_R
 
 # --- 6. Plot fitted vs observed proportions ---
-# Plot latent ecological probability
-p1 <- ggplot(df, aes(x = p_bt, y = fitted_p_bt)) +
-  geom_point(alpha=0.5, color="blue") +
-  geom_abline(slope=1, intercept=0, color='red') +
-  labs(x="True p_bt (latent)", y="Fitted p_bt (posterior mean)",
-       title="True vs Fitted Latent Mosquito Probability") +
-  theme_minimal()
-ggsave(file.path(output_dir, paste0("fitted_vs_true_p_bt_", date_suffix, ".png")), 
-       p1, width = 8, height = 6)
+# Use observed proportion (y_bt / N_HH) since true latent p_bt is not in the data
+df$observed_prop <- df$y_bt / df$N_HH
+p1 <- ggplot(df, aes(x = observed_prop, y = fitted_p_bt)) +
+     geom_point(alpha=0.5, color="blue") +
+     geom_abline(slope=1, intercept=0, color='red') +
+     labs(x="Observed proportion (y_bt / N_HH)", y="Fitted p_bt (posterior mean)",
+                title="Observed vs Fitted Mosquito Probability") +
+     theme_minimal()
+ggsave(file.path(output_dir, paste0("observed_vs_fitted_p_bt_", date_suffix, ".png")), 
+                p1, width = 8, height = 6)
 print(p1)
 
-# Plot observation model fit
-p2 <- ggplot(df, aes(x = y_bt / n_bt, y = fitted_pi_bt)) +
+# Plot reactive surveillance probability
+p2 <- ggplot(df, aes(x = fitted_p_bt, y = fitted_p_R)) +
   geom_point(alpha=0.5, color="darkgreen") +
   geom_abline(slope=1, intercept=0, color='red') +
-  labs(x="Observed mosquito proportion (y_bt/n_bt)", y="Fitted pi_bt",
-       title="Observed vs Fitted Observation Probability") +
+  labs(x="Fitted ecological probability (p_bt)", y="Fitted reactive probability (p_R)",
+       title="Ecological vs Reactive Surveillance Probability") +
   theme_minimal()
 ggsave(file.path(output_dir, paste0("observed_vs_fitted_pi_bt_", date_suffix, ".png")), 
        p2, width = 8, height = 6)
 print(p2)
 
 # --- 7. Plot block-level and temporal random effects ---
-u_post <- apply(post$u_block, 2, mean)
-v_post <- apply(post$v_time, 2, mean)
+u_post <- apply(post_array[, , "u_block_out"], 2, mean)
+v_post <- apply(post_array[, , "v_time_out"], 2, mean)
 
 png(file.path(output_dir, paste0("random_effects_", date_suffix, ".png")), 
     width = 1000, height = 800)
@@ -291,7 +335,7 @@ par(mfrow=c(1,1))
 dev.off()
 
 # --- 8. Posterior predictive check ---
-y_pred <- apply(post$y_pred, 2, mean)
+y_pred <- apply(post_array[, , "y_pred"], 2, mean)
 p3 <- ggplot(data.frame(observed = df$y_bt, predicted = y_pred), 
        aes(x = observed, y = predicted)) +
   geom_point(alpha=0.5) +
@@ -304,3 +348,4 @@ ggsave(file.path(output_dir, paste0("posterior_predictive_check_", date_suffix, 
 print(p3)
 
 cat("\nAll outputs saved to:", output_dir, "\n")
+saveRDS(fit, "fit_object.rds")
