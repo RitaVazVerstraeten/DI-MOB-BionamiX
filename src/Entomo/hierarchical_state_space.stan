@@ -1,17 +1,17 @@
 data {
   int<lower=1> N;          // number of observations (block-time combinations)
-  int<lower=0> y[N];       // observed mosquito-positive inspection events (y_bt)
-  int<lower=1> N_HH[N];    // baseline household inspections (systematic surveillance)
+  array[N] int<lower=0> y;       // observed mosquito-positive inspection events (y_bt)
+  array[N] int<lower=1> N_HH;    // baseline household inspections (systematic surveillance)
   int<lower=1> K;          // number of lagged environmental covariates
   int<lower=1> Lp1;        // number of lags (L + 1, including lag 0)
-  array[N, K, Lp1] real X_lag;  // lagged covariates X_{k,b,t-l}
+  matrix[N, K*Lp1] X_lag_flat;  // flattened lagged covariates [N, K*Lp1]
   int<lower=1> Ku;         // number of unlagged block-level covariates
   matrix[N, Ku] X_unlagged;  // unlagged covariates (is_urban, has_aljibes, etc.)
   int<lower=1> B;          // number of blocks
   int<lower=1> T;          // number of time periods
-  int<lower=1,upper=B> block[N];  // block index for each observation
-  int<lower=1,upper=T> time[N];   // time index for each observation
-  int<lower=0> C_bt[N];    // number of dengue cases per block-time
+  array[N] int<lower=1,upper=B> block;  // block index for each observation
+  array[N] int<lower=1,upper=T> time;   // time index for each observation
+  array[N] int<lower=0> C_bt;    // number of dengue cases per block-time
 }
 
 transformed data {
@@ -20,6 +20,7 @@ transformed data {
 parameters {
   real alpha;              // baseline intercept
   matrix[K, Lp1] w;        // distributed lag weights for environmental covariates
+  vector<lower=0>[K] sigma_w;  // random walk SD for each covariate's lag structure
   vector[Ku] w_unlagged;   // weights for unlagged block-level covariates
   vector[B] u_block_raw;   // spatial random effects (non-centered)
   vector[T] v_time_raw;    // temporal random effects (non-centered)
@@ -37,6 +38,7 @@ transformed parameters {
   vector[N] lambda;        // Poisson rate: expected mosquito findings
   vector[B] u_block;       // spatial random effects (centered)
   vector[T] v_time;        // temporal random effects with AR(1)
+  vector[N] x_effect;      // linear predictor for environmental effects
   
   // 1. Center spatial random effects
   u_block = sigma_u * u_block_raw;
@@ -47,46 +49,50 @@ transformed parameters {
     v_time[t] = rho * v_time[t-1] + sigma_v * v_time_raw[t];
   }
   
+  // 3. Calculate environmental effects (matrix multiplication)
+  // Flatten w to [K*Lp1] and multiply with X_lag_flat[N, K*Lp1]
+  x_effect = X_lag_flat * to_vector(w) + X_unlagged * w_unlagged;
+  
+  // 4. Calculate linear predictor and latent ecological probability
+  vector[N] eta = alpha + x_effect + u_block[block] + v_time[time];
+  p_bt = inv_logit(eta);
+  
+  // 5. Reactive surveillance probability (loop-based conditional)
+  // Work on linear predictor scale to avoid numerical issues
   for (i in 1:N) {
-    // 3. Latent ecological process: logit(p_bt) = alpha + X*beta + u_b + v_t
-    real x_effect = 0.0;
-    // Lagged environmental covariates
-    for (k in 1:K) {
-      for (l in 1:Lp1) {
-        x_effect += w[k, l] * X_lag[i, k, l];
-      }
-    }
-    // Unlagged block-level covariates
-    for (j in 1:Ku) {
-      x_effect += w_unlagged[j] * X_unlagged[i, j];
-    }
-    p_bt[i] = inv_logit(alpha + x_effect + u_block[block[i]] + v_time[time[i]]);
-    
-    // 4. Reactive surveillance targeting bias (only when C_bt > 0)
     if (C_bt[i] > 0) {
-      p_R[i] = inv_logit(logit(p_bt[i]) + delta0 + delta1 * log(C_bt[i]));
+      p_R[i] = inv_logit(eta[i] + delta0 + delta1 * log(C_bt[i]));
     } else {
       p_R[i] = p_bt[i];  // no reactive bias when no cases
     }
-    
-    // 5. Poisson rate: baseline inspections with ecological probability + reactive inspections with reactive probability
-    lambda[i] = N_HH[i] * p_bt[i] + kappa * C_bt[i] * p_R[i];
   }
+  
+  // 6. Vectorized Poisson rate calculation
+  lambda = to_vector(N_HH) .* p_bt + kappa * to_vector(C_bt) .* p_R;
 }
 
 model {
   // Priors
-  alpha ~ normal(-2, 1.5);        // baseline mosquito presence (logit scale)
-  to_vector(w) ~ normal(0, 0.7);  // lag weights
+  alpha ~ normal(-4.5, 1.2);                    // Shifted way down for rare events
+  
+  // Random walk prior on lag weights: enforces smoothness across lags
+  for (k in 1:K) {
+    w[k, 1] ~ normal(0, 0.5);  // initial lag-0 weight
+    for (l in 2:Lp1) {
+      w[k, l] ~ normal(w[k, l-1], sigma_w[k]);  // random walk
+    }
+  }
+  sigma_w ~ exponential(2);  // shrink toward smooth lag structure
+  
   w_unlagged ~ normal(0, 0.5);    // unlagged covariate weights
   u_block_raw ~ normal(0, 1);     // non-centered parameterization
   v_time_raw ~ normal(0, 1);      // non-centered parameterization
-  sigma_u ~ exponential(1);        // spatial scale: prevents extreme variance
-  sigma_v ~ exponential(2);        // temporal scale: stricter (AR(1) structure)
-  rho ~ normal(0.3, 0.3);         // truncated to [-1, 1]: AR(1) parameter
-  kappa ~ lognormal(log(2), 0.4); // scaling factor for reactive inspections (centered at 2)
-  delta0 ~ normal(0.5, 0.5);      // baseline targeting bias
-  delta1 ~ normal(0, 0.3);        // log-linear increase with outbreak intensity
+  sigma_u ~ exponential(2);        // spatial scale: tighter (prevents extreme variance during init)
+  sigma_v ~ exponential(3);        // temporal scale: stricter (AR(1) structure)
+  rho ~ normal(0, 0.2);         // tighter prior on AR(1) parameter
+  kappa ~ lognormal(log(2), 0.35); // scaling factor for reactive inspections (centered at 2)
+  delta0 ~ normal(0.3, 0.4);      // slightly reduced baseline targeting bias
+  delta1 ~ normal(0, 0.2);        // reduced log-linear increase to stabilize init
 
   // Observation model: y_bt ~ Poisson(lambda)
   // Expected value: lambda = N_HH * p_bt + kappa * C_bt * p_R
@@ -95,8 +101,14 @@ model {
 }
 
 generated quantities {
+  // Save probabilities and random effects for posterior analysis
+  vector[N] p_bt_out = p_bt;
+  vector[N] p_R_out = p_R;
+  vector[B] u_block_out = u_block;
+  vector[T] v_time_out = v_time;
+  
   // Posterior predictive checks
-  int<lower=0> y_pred[N];
+  array[N] int<lower=0> y_pred;
   vector[N] log_lik;
   
   for (i in 1:N) {

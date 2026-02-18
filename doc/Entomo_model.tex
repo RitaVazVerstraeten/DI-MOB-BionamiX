@@ -105,13 +105,19 @@ where the first term represents expected positive inspections from systematic su
 
 To consider lag effects of predictors, we model the effect of covariate $X_{bt}$ as:
 \begin{equation}
-\text{Effect of } X_{bt} = \sum_{\ell=0}^{L} w_\ell X_{bt-\ell},
+\text{Effect of } X_{bt} = \sum_{\ell=0}^{L} w_{k,\ell} X_{bt-\ell},
 \end{equation}
-where $w_\ell$ is the lag weight (estimated) and $L$ is the maximum ecological memory. The original equation becomes:
+where $w_{k,\ell}$ is the lag weight (estimated) for covariate $k$ at lag $\ell$, and $L$ is the maximum ecological memory. To enforce smoothness in the lag structure and prevent overfitting, we impose a random walk prior on the lag weights:
+\begin{align}
+w_{k,1} &\sim \text{Normal}(0, 0.5), \\
+w_{k,\ell} &\sim \text{Normal}(w_{k,\ell-1}, \sigma_w[k]) \quad \text{for } \ell = 2, \ldots, L+1, \\
+\sigma_w[k] &\sim \text{Exponential}(2).
+\end{align}
+This prior encourages neighboring lag weights to be similar, resulting in smooth lag trajectories that are more interpretable and less prone to overfitting. The original equation becomes:
 \begin{equation}
-\text{logit}(p_{bt}) = \alpha + \underbrace{\sum_{k=1}^{K_L} \sum_{\ell=0}^{L} w_{k\ell} X_{k,b,t-\ell}}_{\text{lagged covariates}} +  \underbrace{\sum_{k=1}^{K_U} w_{k} X_{k,b}}_{\text{static spatial covariates}} + s_b + u_t,
+\text{logit}(p_{bt}) = \alpha + \underbrace{\sum_{k=1}^{K_L} \sum_{\ell=0}^{L} w_{k,\ell} X_{k,b,t-\ell}}_{\text{lagged covariates}} +  \underbrace{\sum_{k=1}^{K_U} w_{k} X_{k,b}}_{\text{static spatial covariates}} + s_b + u_t,
 \end{equation}
-where $k$ indexes the predictor, and $K_L$ represents the predictors that require lagging, $K_U$ represent the static spatial predictors without lagging, $w_{k\ell}$ are lag weights, $s_b$ are spatial random effects, and $u_t$ are temporal random effects (AR).
+where $k$ indexes the predictor, and $K_L$ represents the predictors that require lagging, $K_U$ represent the static spatial predictors without lagging, $w_{k,\ell}$ are lag weights following the random walk prior, $s_b$ are spatial random effects, and $u_t$ are temporal random effects (AR).
 
 \subsection{Temporal Autocorrelation}
 
@@ -143,25 +149,31 @@ The information on priors selection is available in Table 1.
 \toprule
 Parameter & Role in Model & Suggested Prior & Interpretation & Reasoning \\
 \midrule
-\textbf{$\alpha$} & Baseline log-odds of mosquito positivity & Normal(-2, 1.5) & Baseline mosquito presence when covariates = 0 & On logit scale, -2 $\approx$ 0.12 probability. Allows realistic 5--30\% baseline positivity without being extreme. \\
+\textbf{$\alpha$} & Baseline log-odds of mosquito positivity & Normal(-4.5, 1.2) & Baseline mosquito presence when covariates = 0 & Shifted way down for rare events. On logit scale, -4.5 $\approx$ 0.011 probability, reflecting low baseline positivity in absence of favorable conditions. \\
 \addlinespace
-\textbf{$\delta_0$} & Baseline reactive targeting boost & Normal(0.5, 0.5) & Log-odds increase under reactive inspection & OR ($e^{0.5}$) $\approx$ 1.65 typical. Reflects moderate targeting but allows near-zero or stronger effects. \\
+\textbf{$\delta_0$} & Baseline reactive targeting boost & Normal(0.3, 0.4) & Log-odds increase under reactive inspection & OR ($e^{0.3}$) $\approx$ 1.35 typical. Slightly reduced baseline targeting bias to stabilize initialization. \\
 \addlinespace
-\textbf{$\delta_1$} & Sensitivity to outbreak intensity & Normal(0, 0.3) & Log-linear response to log($C_{bt}$ + 1) & Encourages small positive effect but allows no effect; avoids explosive targeting. \\
+\textbf{$\delta_1$} & Sensitivity to outbreak intensity & Normal(0, 0.2) & Log-linear response to log($C_{bt}$) & Reduced to stabilize initialization; encourages small positive effect but allows no effect; avoids explosive targeting. \\
 \addlinespace
-\textbf{$\kappa$} & \textbf{Reactive inspection scaling} & LogNormal(log(2), 0.4) & Additional inspections per case & Domain knowledge: up to 1--4 extra households wihout same block per case. LogNormal ensures positivity and realistic range. Median $\approx$ 2 and 95\% CI $\approx$ 1-4.5. \\
+\textbf{$\kappa$} & \textbf{Reactive inspection scaling} & LogNormal(log(2), 0.35) & Additional inspections per case & Domain knowledge: up to 1--4 extra households within same block per case. LogNormal ensures positivity and realistic range. Centered at 2. \\
 \addlinespace
-\textbf{$\rho$} & AR(1) temporal persistence & Normal(0.3, 0.3) truncated to (-1, 1) & Temporal autocorrelation & Allows oscillation $\rightarrow$ both positive (mosquitoes remain) and negative (mosquito removal after detection) temporal autocorrelation. \\
+\textbf{$\rho$} & AR(1) temporal persistence & Normal(0, 0.2) truncated to (-1, 1) & Temporal autocorrelation & Tighter prior on AR(1) parameter. Allows both positive (mosquitoes remain) and negative (mosquito removal after detection) temporal autocorrelation but regularizes toward independence. \\
 \addlinespace
 \textbf{$u_{block\_raw}$} & Standardized spatial effects & Normal(0, 1) & Non-centered parameter & Computational device only; ensures stable sampling. \\
 \addlinespace
 \textbf{$v_{time\_raw}$} & AR(1) \textit{innovation} terms & Normal(0, 1) & Standardized shocks & Computational innovation term in AR(1). The random shock entering the system at time $t$. \\
 \addlinespace
-\textbf{$\sigma_v$} & SD of temporal innovations & Half-Normal(0, 0.3) & Size of month-to-month ecological shocks & Temporal autocorrelation is weak; this keeps fluctuations moderate and prevents volatility. \\
+\textbf{$\sigma_v$} & SD of temporal innovations & Exponential(3) & Size of month-to-month ecological shocks & Stricter prior due to AR(1) structure; prevents volatility while allowing moderate temporal variation. \\
 \addlinespace
-\textbf{$\sigma_u$} & SD of spatial random effects & Half-Normal(0, 0.5) & Between-block heterogeneity & Keeps block effects within roughly $\pm$1 log-odds ($\approx$ OR 2.7). Prevents spatial effects from absorbing ecological signal. \\
+\textbf{$\sigma_u$} & SD of spatial random effects & Exponential(2) & Between-block heterogeneity & Tighter prior (prevents extreme variance during initialization). Shrinks block effects to prevent them from absorbing ecological signal. \\
 \addlinespace
-w[k,l] & Distributed lag weights & Normal(0, 0.7) & Effect of covariate \textit{k} at lag \textit{l} & Regularizes lag effects; avoids explosive cumulative lag effects; reflects uncertainty but discourages extreme swings. \\
+\textbf{$w_{k,1}$} & Initial lag-0 weight & Normal(0, 0.5) & Immediate effect of covariate \textit{k} & Starting point for random walk; regularizes initial lag effect. \\
+\addlinespace
+\textbf{$w_{k,l}$} & Subsequent lag weights & Random Walk: Normal($w_{k,l-1}$, $\sigma_w[k]$) & Effect of covariate \textit{k} at lag \textit{l} & Enforces smoothness across lags via random walk prior; prevents extreme swings in lag structure. \\
+\addlinespace
+\textbf{$\sigma_w[k]$} & Random walk SD for lag structure & Exponential(2) & Smoothness of lag trajectory & Shrinks toward smooth lag structure; prevents overfitting across lags. \\
+\addlinespace
+\textbf{$w_{unlagged}$} & Unlagged covariate weights & Normal(0, 0.5) & Effect of static spatial covariates & Regularizes effects of non-temporal covariates (e.g., urban form, land cover). \\
 \bottomrule
 \end{tabular}
 \caption{Prior distributions for model parameters.}
