@@ -1301,7 +1301,7 @@ if(nrow(violations) > 0) {
 final_dataset <- final_dataset %>%
   select(-potential_max)
 ```
-```
+
 
 ## Save final merged dataset
 ```{r save final dataset with environmental entomological and epi data}
