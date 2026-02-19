@@ -97,8 +97,15 @@ cat(summary_output, sep = "\n")
 writeLines(summary_output, file.path(output_dir, paste0("household_block_model_summary_", date_suffix, ".txt")))
 
 # --- 6. Posterior mean of r_bt (optional quick check) ---
-post <- rstan::extract(fit)
-r_bt_mean <- apply(post$r_bt, c(2, 3), mean)
+
+# If using cmdstanr, extract draws as array:
+# draws_array <- as_draws_array(fit)
+# r_bt_mean <- apply(draws_array[, , "r_bt"], c(2, 3), mean)
+# (You may need to adapt this depending on your Stan interface)
+
+# Placeholder: remove rstan dependency. If you need posterior means, use cmdstanr's fit$draws() or as_draws_array().
+
+# ...existing code...
 
 avg_r_bt <- rowMeans(r_bt_mean)
 df_r <- data.frame(block = block_levels, r_mean = avg_r_bt)
