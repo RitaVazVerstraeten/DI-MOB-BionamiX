@@ -4,13 +4,13 @@
 # =====================================================
 
 # --- 0. Load libraries ---
-library(rstan)
+# library(rstan)  # Using cmdstanr instead in main model
 library(dplyr)
 library(readr)
 library(tidyr)
 library(ggplot2)
 
-rstan_options(auto_write = TRUE)
+# rstan_options(auto_write = TRUE)  # Not needed for cmdstanr
 options(mc.cores = 1)
 
 # --- 1. Paths and output ---
