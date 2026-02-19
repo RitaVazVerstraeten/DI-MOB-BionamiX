@@ -184,6 +184,7 @@ src/DENV_model/pySODM
 # ignore the R folder in results
 results/DENV_model/R/
 src/R
+.rds
 
 # LaTeX build output directory
 out.nosync/
