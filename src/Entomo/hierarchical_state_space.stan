@@ -15,6 +15,7 @@ data {
 }
 
 transformed data {
+  real kappa = 2.0;  // fixed scaling factor for reactive inspections
 }
 
 parameters {
@@ -27,15 +28,16 @@ parameters {
   real<lower=0> sigma_u;   // SD of spatial random effects
   real<lower=0> sigma_v;   // SD of temporal random effects
   real<lower=-1,upper=1> rho;  // temporal autoregression parameter
-  real<lower=0> kappa;     // scaling factor for reactive inspections
   real delta0;             // baseline targeting bias (reactive surveillance)
   real delta1;             // log-linear increase with outbreak intensity
 }
 
 transformed parameters {
-  vector[N] p_bt;          // latent ecological probability
-  vector[N] p_R;           // reactive surveillance probability
-  vector[N] lambda;        // Poisson rate: expected mosquito findings
+  vector[N] p_bt;          // latent ecological probability (true mosquito presence)
+  vector[N] p_R;           // reactive surveillance probability (biased upward)
+  vector[N] n_bt;          // total number of inspection events (n_bt = N_HH + kappa * C_bt)
+  vector[N] omega;         // fraction of inspections that are reactive (omega_bt = kappa*C_bt / n_bt)
+  vector[N] pi;            // effective observation probability (mixture of p_bt and p_R)
   vector[B] u_block;       // spatial random effects (centered)
   vector[T] v_time;        // temporal random effects with AR(1)
   vector[N] x_effect;      // linear predictor for environmental effects
@@ -67,8 +69,21 @@ transformed parameters {
     }
   }
   
-  // 6. Vectorized Poisson rate calculation
-  lambda = to_vector(N_HH) .* p_bt + kappa * to_vector(C_bt) .* p_R;
+  // 6. Total inspection events: n_bt = N_HH + kappa * C_bt
+  n_bt = to_vector(N_HH) + kappa * to_vector(C_bt);
+  
+  // 7. Fraction of reactive inspections: omega_bt = kappa * C_bt / n_bt
+  for (i in 1:N) {
+    if (C_bt[i] > 0) {
+      omega[i] = (kappa * C_bt[i]) / n_bt[i];
+    } else {
+      omega[i] = 0;
+    }
+  }
+  
+  // 8. Effective observation probability (mixture of systematic and reactive)
+  // pi_bt = (1 - omega_bt) * p_bt + omega_bt * p_R
+  pi = (1 - omega) .* p_bt + omega .* p_R;
 }
 
 model {
@@ -90,14 +105,16 @@ model {
   sigma_u ~ exponential(2);        // spatial scale: tighter (prevents extreme variance during init)
   sigma_v ~ exponential(3);        // temporal scale: stricter (AR(1) structure)
   rho ~ normal(0, 0.2);         // tighter prior on AR(1) parameter
-  kappa ~ lognormal(log(2), 0.35); // scaling factor for reactive inspections (centered at 2)
   delta0 ~ normal(0.3, 0.4);      // slightly reduced baseline targeting bias
   delta1 ~ normal(0, 0.2);        // reduced log-linear increase to stabilize init
 
-  // Observation model: y_bt ~ Poisson(lambda)
-  // Expected value: lambda = N_HH * p_bt + kappa * C_bt * p_R
-  // This combines baseline inspections with ecological probability and reactive inspections with reactive probability
-  y ~ poisson(lambda);
+  // Observation model: y_bt ~ Binomial(n_bt, pi_bt)
+  // where pi_bt = (1 - omega_bt) * p_bt + omega_bt * p_R
+  // This combines baseline inspections (systematic) with ecological probability
+  // and reactive inspections with reactive probability
+  for (i in 1:N) {
+    y[i] ~ binomial(int(n_bt[i]), pi[i]);
+  }
 }
 
 generated quantities {
@@ -112,7 +129,7 @@ generated quantities {
   vector[N] log_lik;
   
   for (i in 1:N) {
-    y_pred[i] = poisson_rng(lambda[i]);
-    log_lik[i] = poisson_lpmf(y[i] | lambda[i]);
+    y_pred[i] = binomial_rng(int(n_bt[i]), pi[i]);
+    log_lik[i] = binomial_lpmf(y[i] | int(n_bt[i]), pi[i]);
   }
 }

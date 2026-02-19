@@ -247,7 +247,6 @@ init_fun <- function() {
     sigma_u = runif(1, 0.1, 0.5),
     sigma_v = runif(1, 0.1, 0.5),
     rho = rnorm(1, 0, 0.25),  # Allow negative autocorrelation
-    kappa = rlnorm(1, log(2), 0.3),
     delta0 = rnorm(1, 0.3, 0.2),
     delta1 = rnorm(1, 0, 0.1)
   )
@@ -271,8 +270,8 @@ mod <- cmdstan_model(stan_file)
 fit <- mod$sample(
   data = stan_data,
   chains = 2,
-  iter_warmup = 500,
-  iter_sampling = 500,
+  iter_warmup = 100,
+  iter_sampling = 100,
 #   thin = 2,  # Keep every 2nd sample (reduces memory)
   init = init_fun,
   adapt_delta = 0.95,
@@ -282,7 +281,7 @@ fit <- mod$sample(
 
 
 # --- 4. Summarize results ---
-summary_output <- capture.output(print(fit$summary(variables = c("alpha","sigma_u","sigma_v","rho","kappa","delta0","delta1","w"))))
+summary_output <- capture.output(print(fit$summary(variables = c("alpha","sigma_u","sigma_v","rho","delta0","delta1","w"))))
 cat(summary_output, sep = "\n")
 writeLines(summary_output, file.path(output_dir, paste0("model_summary_", date_suffix, ".txt")))
 
