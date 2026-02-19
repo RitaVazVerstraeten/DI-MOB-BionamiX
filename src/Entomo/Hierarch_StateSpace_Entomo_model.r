@@ -269,7 +269,7 @@ mod <- cmdstan_model(stan_file)
 
 fit <- mod$sample(
   data = stan_data,
-  chains = 2,4
+  chains = 2,
   iter_warmup = 100,
   iter_sampling = 100,
 #   thin = 2,  # Keep every 2nd sample (reduces memory)
@@ -358,5 +358,20 @@ p3 <- ggplot(data.frame(observed = df$y_bt, predicted = y_pred),
 ggsave(file.path(output_dir, paste0("posterior_predictive_check_", date_suffix, ".png")), 
        p3, width = 8, height = 6)
 print(p3)
+
+
+# --- 9. Trace plots for MCMC chains ---
+if (requireNamespace("bayesplot", quietly = TRUE)) {
+     library(bayesplot)
+     # Extract draws as array for bayesplot
+     draws_array <- as_draws_array(fit$draws())
+     trace_params <- c("alpha", "sigma_u", "sigma_v", "rho", "delta0", "delta1")
+     trace_plot <- mcmc_trace(draws_array, pars = trace_params)
+     trace_file <- file.path(output_dir, paste0("traceplot_params_", date_suffix, ".png"))
+     ggsave(trace_file, trace_plot, width = 10, height = 8)
+     cat("Trace plot saved to:", trace_file, "\n")
+} else {
+     cat("bayesplot package not installed; skipping trace plot.\n")
+}
 
 cat("\nAll outputs saved to:", output_dir, "\n")
