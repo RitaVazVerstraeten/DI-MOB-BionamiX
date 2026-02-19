@@ -17,14 +17,27 @@ library(dplyr)
 library(ggplot2)
 library(readr)
 
-options(mc.cores = 2)  # Conservative: chains run sequentially (15GB RAM system)
+# --- Detect hostname and set cores and data path accordingly ---
+hostname <- Sys.info()["nodename"]
+if (hostname == "frietjes") {
+  options(mc.cores = 6)  # Use 6 cores in parallel on frietjes
+  data_dir <- "data/Entomo/"
+} else {
+  options(mc.cores = 2)  # Conservative: 2 chains sequentially on local machine (15GB RAM system)
+  # Default to local path
+  data_dir <- "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/"
+}
+
+data_file <- file.path(data_dir, "env_epi_entomo_data_per_manzana_2016_04_to_2019_12.csv")
+cat("Using hostname:", hostname, "\n")
+cat("Data directory:", data_dir, "\n")
 
 # --- Create output directory ---
 output_dir <- file.path("/home/rita/PyProjects/DI-MOB-BionamiX", "results", "Entomo", "fitting")
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 date_suffix <- format(Sys.Date(), "%Y%m%d")  # e.g., "20260216"
 
-input_data <- read_csv("/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/env_epi_entomo_data_per_manzana_2016_04_to_2019_12.csv")
+input_data <- read_csv(data_file)
 
 # # --- 1. Example dataset (simulate for demonstration) ---
 # set.seed(123)
@@ -264,7 +277,7 @@ fit <- mod$sample(
   init = init_fun,
   adapt_delta = 0.95,
   max_treedepth = 12,
-  parallel_chains = 2  # 1 would be Sequential execution for memory safety
+  parallel_chains = if (hostname == "frietjes") 2 else 1  # Parallel on frietjes, sequential on local for memory safety
 )
 
 
@@ -348,4 +361,3 @@ ggsave(file.path(output_dir, paste0("posterior_predictive_check_", date_suffix, 
 print(p3)
 
 cat("\nAll outputs saved to:", output_dir, "\n")
-saveRDS(fit, "fit_object.rds")
