@@ -39,56 +39,6 @@ date_suffix <- format(Sys.Date(), "%Y%m%d")  # e.g., "20260216"
 
 input_data <- read_csv(data_file)
 
-# # --- 1. Example dataset (simulate for demonstration) ---
-# set.seed(123)
-# B <- 10  # number of blocks
-# T <- 20  # number of time periods
-# df <- expand.grid(block = 1:B, time = 1:T)
-# df <- df[order(df$block, df$time), ]
-# df$N_HH <- sample(50:70, nrow(df), replace = TRUE)
-# df$C_bt <- rpois(nrow(df), lambda = 2)   # dengue cases
-# df$X1 <- rnorm(nrow(df))
-# df$X2 <- rnorm(nrow(df))
-
-# # True latent mosquito probability
-# alpha <- -1
-# w_true <- matrix(c(0.6, 0.3, 0.1, 0.5, 0.3, 0.2),
-#                                          nrow = K, byrow = TRUE)
-# u_block <- rnorm(B, 0, 0.3)
-# # Temporal random effects with AR(1) structure: v_t = ρ_v * v_{t-1} + ε_t
-# rho_v <- 0.5
-# v_time <- numeric(T)
-# v_time[1] <- rnorm(1, 0, 0.2 / sqrt(1 - rho_v^2))
-# for (t in 2:T) {
-#   v_time[t] <- rho_v * v_time[t-1] + rnorm(1, 0, 0.2)
-# }
-
-# X_effect <- numeric(nrow(df))
-# for (i in seq_len(nrow(df))) {
-#      X_effect[i] <- sum(X_lag[i, , ] * w_true)
-# }
-# logit_p_bt <- alpha + X_effect + u_block[df$block] + v_time[df$time]
-# df$p_bt <- plogis(logit_p_bt)
-
-# # Reactive bias parameters (used for synthetic data generation; will be estimated in Stan)
-# delta0 <- 0.5  # Aligned with prior N(0.5, 0.5)
-# delta1 <- 0.2  # Aligned with prior N(0, 0.3)
-kappa <- 2  # Fixed value, consistent with Stan
-
-# # Mixture weights
-# df$omega <- ifelse(df$C_bt > 0,
-#                    kappa * df$C_bt / (df$N_HH + kappa*df$C_bt),
-#                    0)
-
-# # Reactive probability
-# df$p_R <- plogis(qlogis(df$p_bt) + delta0 + delta1*log(df$C_bt + 1))
-
-# # Total inspection events
-# df$n_bt <- df$N_HH + kappa*df$C_bt
-
-# # Observed positives
-# df$y_bt <- rbinom(nrow(df), size = df$n_bt, prob = (1-df$omega)*df$p_bt + df$omega*df$p_R)
-
 
 # --- 1. Set-up input data variables ---
 # Ensure year_month is ordered and create block/time indices
@@ -122,6 +72,12 @@ selected_blocks <- sort(unique(df$block))[1:100]
 df <- df %>% filter(block %in% selected_blocks)
 B <- length(selected_blocks)
 
+# Recalculate time_levels and time indices for the subset
+time_levels <- sort(unique(df$year_month_date))
+T <- length(time_levels)
+df <- df %>%
+    mutate(time = match(year_month_date, time_levels))
+
 # Covariates for distributed lags
 lag_vars <- c("avg_temp", "rel_hum", "total_precip", "WS2M", "mean_ndmi", "mean_ndwi", "mean_ndvi")
 df <- df %>%
@@ -132,6 +88,7 @@ K <- length(lag_vars)
 L <- 2  # maximum lag
 Lp1 <- L + 1
 X_lag <- array(0, dim = c(nrow(df), K, Lp1))
+kappa <- 2
 
 for (b in 1:B) {
      idx <- which(df$block == b)        # for each block
