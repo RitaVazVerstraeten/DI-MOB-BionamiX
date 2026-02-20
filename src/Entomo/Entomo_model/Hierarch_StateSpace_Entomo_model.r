@@ -234,7 +234,7 @@ stan_data <- list(
 # print(var_y / mean_y)
 
 # --- 3. Fit Stan model from external file ---
-stan_file <- "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space.stan"
+stan_file <- "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/Entomo_model/hierarchical_state_space.stan"
 
 # Provide reasonable initial values to help both chains start properly
 init_fun <- function() {
