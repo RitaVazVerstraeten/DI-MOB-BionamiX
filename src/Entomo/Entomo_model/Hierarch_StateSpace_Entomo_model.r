@@ -21,7 +21,7 @@ library(readr)
 hostname <- Sys.info()["nodename"]
 if (hostname == "frietjes") {
   options(mc.cores = 6)  # Use 6 cores in parallel on frietjes
-  data_dir <- "data/Entomo/"
+  data_dir <- "~/data/Entomo"
 } else {
   options(mc.cores = 2)  # Conservative: 2 chains sequentially on local machine (15GB RAM system)
   # Default to local path
