@@ -100,28 +100,27 @@ input_data <- input_data %>%
 block_levels <- sort(unique(input_data$manzana)) # 1337
 time_levels <- sort(unique(input_data$year_month_date)) # 45
 
-# creates integer IDs for each manzana and month, then sorts the data by those IDs.
 df <- input_data %>%
      mutate(
           block = match(manzana, block_levels),
           time = match(year_month_date, time_levels)
      ) %>%
-     arrange(block, time)
-
-B <- length(block_levels)
-T <- length(time_levels)
-
-df <- df %>%
+     arrange(block, time) %>%
      rename(
           N_HH = Inspected_houses,
           C_bt = cases, 
-          y_bt = Houses_pos_IS, 
+          y_bt = Houses_pos_IS
      ) %>%
      mutate(
           N_HH = as.integer(N_HH),
           C_bt = as.integer(C_bt),
           y_bt = as.integer(y_bt)
      )
+
+# --- Subset to first 100 unique blocks ---
+selected_blocks <- sort(unique(df$block))[1:100]
+df <- df %>% filter(block %in% selected_blocks)
+B <- length(selected_blocks)
 
 # Covariates for distributed lags
 lag_vars <- c("avg_temp", "rel_hum", "total_precip", "WS2M", "mean_ndmi", "mean_ndwi", "mean_ndvi")
@@ -176,7 +175,7 @@ stan_data <- list(
      X_lag_flat = X_lag_flat,  # flattened lagged covariates matrix [N, K*Lp1]
      Ku = Ku,               # number of unlagged block-level covariates
      X_unlagged = X_unlagged,  # unlagged covariates matrix [N, Ku]
-     B = B,                 # number of manzanas
+     B = B,                 # number of manzanas (now 100)
      T = T,                 # number of time steps
      block = df$block,      # numeric block indices
      time = df$time,        # numeric time indices
@@ -280,6 +279,8 @@ fit <- mod$sample(
   parallel_chains = if (hostname == "frietjes") 2 else 1  # Parallel on frietjes, sequential on local for memory safety
 )
 
+# Save fit object with today's date
+saveRDS(fit, file.path(output_dir, paste0("fit_", date_suffix, ".rds")))
 
 # --- 4. Summarize results ---
 summary_output <- capture.output(print(fit$summary(variables = c("alpha","sigma_u","sigma_v","rho","delta0","delta1","w"))))
@@ -376,3 +377,4 @@ if (requireNamespace("bayesplot", quietly = TRUE)) {
 }
 
 cat("\nAll outputs saved to:", output_dir, "\n")
+
