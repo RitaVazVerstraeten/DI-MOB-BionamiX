@@ -58,7 +58,7 @@ library(tidyr)  # for pivot_longer
 # if (interactive() && isTRUE(capabilities("httpgd"))) {
 #   httpgd::hgd(silent = TRUE)  # use httpgd only in interactive sessions
 # }
-library(httpgd)
+# library(httpgd)
 
 knitr::opts_chunk$set(echo = TRUE, fig.width = 10, fig.height = 6)
 save_images_to <- "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/images"

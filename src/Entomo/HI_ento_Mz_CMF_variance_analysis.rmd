@@ -26,10 +26,7 @@ library(lubridate)
 library(readr)
 library(DT)
 library(ggplot2)
-# if (interactive() && isTRUE(capabilities("httpgd"))) {
-#   httpgd::hgd(silent = TRUE)  # use httpgd only in interactive sessions
-# }
-library(httpgd)
+# library(httpgd)
 library(sf)
 knitr::opts_chunk$set(echo = TRUE, fig.width = 10, fig.height = 6)
 
