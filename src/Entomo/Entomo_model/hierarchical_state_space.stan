@@ -2,6 +2,7 @@ data {
   int<lower=1> N;          // number of observations (block-time combinations)
   array[N] int<lower=0> y;       // observed mosquito-positive inspection events (y_bt)
   array[N] int<lower=1> N_HH;    // baseline household inspections (systematic surveillance)
+  array[N] int<lower=0> n_bt;    // total number of inspection events (from R)
   int<lower=1> K;          // number of lagged environmental covariates
   int<lower=1> Lp1;        // number of lags (L + 1, including lag 0)
   matrix[N, K*Lp1] X_lag_flat;  // flattened lagged covariates [N, K*Lp1]
@@ -35,30 +36,29 @@ parameters {
 transformed parameters {
   vector[N] p_bt;          // latent ecological probability (true mosquito presence)
   vector[N] p_R;           // reactive surveillance probability (biased upward)
-  vector[N] n_bt;          // total number of inspection events (n_bt = N_HH + kappa * C_bt)
   vector[N] omega;         // fraction of inspections that are reactive (omega_bt = kappa*C_bt / n_bt)
   vector[N] pi;            // effective observation probability (mixture of p_bt and p_R)
   vector[B] u_block;       // spatial random effects (centered)
   vector[T] v_time;        // temporal random effects with AR(1)
   vector[N] x_effect;      // linear predictor for environmental effects
-  
+
   // 1. Center spatial random effects
   u_block = sigma_u * u_block_raw;
-  
+
   // 2. AR(1) temporal structure: v_t = rho * v_{t-1} + epsilon_t
   v_time[1] = sigma_v * v_time_raw[1] / sqrt(1 - rho^2);  // stationary initialization
   for (t in 2:T) {
     v_time[t] = rho * v_time[t-1] + sigma_v * v_time_raw[t];
   }
-  
+
   // 3. Calculate environmental effects (matrix multiplication)
   // Flatten w to [K*Lp1] and multiply with X_lag_flat[N, K*Lp1]
   x_effect = X_lag_flat * to_vector(w) + X_unlagged * w_unlagged;
-  
+
   // 4. Calculate linear predictor and latent ecological probability
   vector[N] eta = alpha + x_effect + u_block[block] + v_time[time];
   p_bt = inv_logit(eta);
-  
+
   // 5. Reactive surveillance probability (loop-based conditional)
   // Work on linear predictor scale to avoid numerical issues
   for (i in 1:N) {
@@ -68,11 +68,8 @@ transformed parameters {
       p_R[i] = p_bt[i];  // no reactive bias when no cases
     }
   }
-  
-  // 6. Total inspection events: n_bt = N_HH + kappa * C_bt
-  n_bt = to_vector(N_HH) + kappa * to_vector(C_bt);
-  
-  // 7. Fraction of reactive inspections: omega_bt = kappa * C_bt / n_bt
+
+  // 6. Fraction of reactive inspections: omega_bt = kappa * C_bt / n_bt
   for (i in 1:N) {
     if (C_bt[i] > 0) {
       omega[i] = (kappa * C_bt[i]) / n_bt[i];
@@ -80,8 +77,8 @@ transformed parameters {
       omega[i] = 0;
     }
   }
-  
-  // 8. Effective observation probability (mixture of systematic and reactive)
+
+  // 7. Effective observation probability (mixture of systematic and reactive)
   // pi_bt = (1 - omega_bt) * p_bt + omega_bt * p_R
   pi = (1 - omega) .* p_bt + omega .* p_R;
 }
@@ -113,7 +110,7 @@ model {
   // This combines baseline inspections (systematic) with ecological probability
   // and reactive inspections with reactive probability
   for (i in 1:N) {
-    y[i] ~ binomial(int(n_bt[i]), pi[i]);
+    y[i] ~ binomial(n_bt[i], pi[i]);
   }
 }
 
@@ -129,7 +126,7 @@ generated quantities {
   vector[N] log_lik;
   
   for (i in 1:N) {
-    y_pred[i] = binomial_rng(int(n_bt[i]), pi[i]);
-    log_lik[i] = binomial_lpmf(y[i] | int(n_bt[i]), pi[i]);
+    y_pred[i] = binomial_rng(n_bt[i], pi[i]);
+    log_lik[i] = binomial_lpmf(y[i] | n_bt[i], pi[i]);
   }
 }

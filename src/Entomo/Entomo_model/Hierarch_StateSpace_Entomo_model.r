@@ -168,20 +168,21 @@ Ku <- ncol(X_unlagged)
 
 # --- 2. Prepare data for Stan ---
 stan_data <- list(
-  N = nrow(df),
-  y = df$y_bt,           # mosquito findings
-  N_HH = df$N_HH,        # universe
-  K = K,                 # number of lagged env covariates
-  Lp1 = Lp1,             # total number of lag terms including lag 0 (3 for max_lag=2)
-  X_lag_flat = X_lag_flat,  # flattened lagged covariates matrix [N, K*Lp1]
-  Ku = Ku,               # number of unlagged block-level covariates
-  X_unlagged = X_unlagged,  # unlagged covariates matrix [N, Ku]
-  B = B,                 # number of manzanas
-  T = T,                 # number of time steps
-  block = df$block,      # numeric block indices
-  time = df$time,        # numeric time indices
-  C_bt = df$C_bt         # dengue cases
-  # kappa will be estimated as a parameter in Stan
+     N = nrow(df),
+     y = df$y_bt,           # mosquito findings
+     N_HH = df$N_HH,        # universe
+     K = K,                 # number of lagged env covariates
+     Lp1 = Lp1,             # total number of lag terms including lag 0 (3 for max_lag=2)
+     X_lag_flat = X_lag_flat,  # flattened lagged covariates matrix [N, K*Lp1]
+     Ku = Ku,               # number of unlagged block-level covariates
+     X_unlagged = X_unlagged,  # unlagged covariates matrix [N, Ku]
+     B = B,                 # number of manzanas
+     T = T,                 # number of time steps
+     block = df$block,      # numeric block indices
+     time = df$time,        # numeric time indices
+     C_bt = df$C_bt,        # dengue cases
+     n_bt = as.integer(df$N_HH)  # total inspections (replace with your n_bt formula if needed)
+     # kappa will be estimated as a parameter in Stan
 )
 
 # # --- DATA VALIDATION ---
