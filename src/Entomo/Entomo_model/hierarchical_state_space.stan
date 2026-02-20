@@ -70,17 +70,19 @@ transformed parameters {
   }
 
   // 6. Fraction of reactive inspections: omega_bt = kappa * C_bt / n_bt
+  // 7. Calculation of p_i depending on C_bt[i]
   for (i in 1:N) {
-    if (C_bt[i] > 0) {
+    if (n_bt[i] == 0) {
+      omega[i] = 0;
+      pi[i] = 0; // or set to p_bt[i], depending on your model logic
+    } else if (C_bt[i] > 0) {
       omega[i] = (kappa * C_bt[i]) / n_bt[i];
+      pi[i] = (1 - omega[i]) * p_bt[i] + omega[i] * p_R[i];
     } else {
       omega[i] = 0;
+      pi[i] = p_bt[i];
     }
   }
-
-  // 7. Effective observation probability (mixture of systematic and reactive)
-  // pi_bt = (1 - omega_bt) * p_bt + omega_bt * p_R
-  pi = (1 - omega) .* p_bt + omega .* p_R;
 }
 
 model {
