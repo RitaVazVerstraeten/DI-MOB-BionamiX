@@ -73,7 +73,7 @@ input_data <- read_csv(data_file)
 # # Reactive bias parameters (used for synthetic data generation; will be estimated in Stan)
 # delta0 <- 0.5  # Aligned with prior N(0.5, 0.5)
 # delta1 <- 0.2  # Aligned with prior N(0, 0.3)
-# kappa <- 2  # Aligned with LogNormal(log(2), 0.4) centered at 2
+kappa <- 2  # Fixed value, consistent with Stan
 
 # # Mixture weights
 # df$omega <- ifelse(df$C_bt > 0,
@@ -181,7 +181,7 @@ stan_data <- list(
      block = df$block,      # numeric block indices
      time = df$time,        # numeric time indices
      C_bt = df$C_bt,        # dengue cases
-     n_bt = as.integer(df$N_HH)  # total inspections (replace with your n_bt formula if needed)
+     n_bt = as.integer(df$N_HH + kappa * df$C_bt)  # total inspections, kappa fixed
      # kappa will be estimated as a parameter in Stan
 )
 
