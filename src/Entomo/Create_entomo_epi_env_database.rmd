@@ -29,11 +29,12 @@ Observations table (one row per block-time combination):
 |ndwi | Numeric | Normalized Difference Water Index for manzana-month |
 |wS2M | Numeric | average windspeed at 2 meter height in m/s |
 |landcover | categorical | dominant landcover value for that mz |
-|wui | Integer | 0/1 value for wild-land urban interface for that manzana |
-|wi | Integer | 0/1 value for water interface for that manzana (or within 100m of manzana) |
-|urban | Integer | 0/1 value for whether/not urban for that manzana |
-|has_aljibes | Binary | 0/1 value for whether/not there are underground cisternas within a 20m radius of the manzana |
+|wui | Integer | TRUE/FALSE value for wild-land urban interface for that manzana |
+|wi | Integer | TRUE/FALSE value for water interface for that manzana (or within 100m of manzana) |
+|urban | Integer | TRUE/FALSE value for whether/not urban for that manzana |
+|has_aljibes | Binary | TRUE/FALSE value for whether/not there are underground cisternas within a 20m radius of the manzana |
 |nr_aljibes | Numeric | Number of underground water cisternas within 20m of the manzana |
+|water_shortage | Binary | TRUE/FALSE value for whether/not manzanas have reduced water provision (more days between water provision cycles) |
 |avg_temp | Numeric | average temperature (°C) for that manzana-month |
 |total_precip | Numeric | cummulative precipitation (mm) for that manzana-month |
 |rel_hum | Numeric | average relative humidity (%) for that manzana-month |
@@ -42,19 +43,32 @@ Observations table (one row per block-time combination):
 
 ## Setup: packages
 ```{r setup, include = FALSE}
-# renv::init()  # creates renv/ folder and lockfile
-# Install necessary packages
-# if (!requireNamespace("readxl", quietly = TRUE)) install.packages("readxl")
-# if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr")
+# Activate project renv (if present) without forcing full restore
+if (file.exists("renv/activate.R")) {
+  source("renv/activate.R")
+}
+
+# Install only packages needed by this notebook
+required_pkgs <- c("readxl", "dplyr", "lubridate", "readr", "DT", "ggplot2", "tidyr", "sf", "stringi", "writexl", "scales")
+missing_pkgs <- required_pkgs[!vapply(required_pkgs, requireNamespace, logical(1), quietly = TRUE)]
+
+if (length(missing_pkgs) > 0) {
+  message("Installing missing packages: ", paste(missing_pkgs, collapse = ", "))
+  if (requireNamespace("renv", quietly = TRUE)) {
+    renv::install(missing_pkgs)
+  } else {
+    install.packages(missing_pkgs)
+  }
+}
+
 library(readxl)
 library(dplyr)
-# install.packages(c("lubridate", "readr"))
 library(lubridate)
 library(readr)
 library(DT)
 library(ggplot2)
-library(readxl)
 library(tidyr)  # for pivot_longer
+library(sf)
 # if (interactive() && isTRUE(capabilities("httpgd"))) {
 #   httpgd::hgd(silent = TRUE)  # use httpgd only in interactive sessions
 # }
@@ -437,9 +451,10 @@ plot_epi_cases <- ento_epi_year %>%
   labs(title = "Nr. of dengue cases by Manzana",
        fill = "Cases") +
   facet_wrap(~year, ncol = 3) +
-  theme_minimal()+  
-  theme(axis.text = element_blank(),    # removes axis text (numbers)
-        axis.title = element_blank())   # removes axis titles (lon/lat)
+  theme_minimal() + theme(
+    axis.text = element_blank(),    # removes axis text (numbers)
+    axis.title = element_blank()    # removes axis titles (lon/lat)
+  )
 
 plot_epi_cases
 ```
@@ -447,11 +462,13 @@ plot_epi_cases
 ### Cases by Consejo Popular (CP)
 ```{r plot the CP shapefile alone}
 # Quick plot of the CP shapefile
-ggplot(dimob_cps) +
+p_cp <- ggplot(dimob_cps) +
   geom_sf(fill = "lightblue", color = "black") +
   geom_sf_text(aes(label = CP), size = 2, check_overlap = TRUE) +
   labs(title = "Consejo Popular Boundaries") +
   theme_minimal()
+
+p_cp
 ```
 
 ```{r plot case data for 2015 to 2019 per CP}
@@ -478,9 +495,10 @@ plot_cases_cp <- ento_epi_year_cp %>%
   scale_fill_viridis_c(option = "plasma", na.value = "grey90") +
   labs(title = "Cases by Consejo Popular", fill = "Cases") +
   facet_wrap(~year_label, ncol = 3) +
-  theme_minimal()+ 
-  theme(axis.text = element_blank(),    # removes axis text (numbers)
-        axis.title = element_blank())   # removes axis titles (lon/lat)
+  theme_minimal() + theme(
+    axis.text = element_blank(),    # removes axis text (numbers)
+    axis.title = element_blank()    # removes axis titles (lon/lat)
+  )
 
 plot_cases_cp
 ```
@@ -606,6 +624,9 @@ Some manzanas are in fact huge.
   - WUI -> manzana
   - LandCover -> manzana
   - urbanization -> manzana
+  - aljibes -> manzana 
+  - water_shortage -> manzana 
+
 
 2. Join this environmental dataset to the ento_epi_data based on year_month and manzana
 
@@ -622,6 +643,7 @@ wui <- read_csv(file.path(env_data_path, "WUI", "WUI_per_manzana_NoBuffer_classi
 urban <- read_csv(file.path(env_data_path, "WUI", "WSF_per_manzana_noBuffer_classification.csv"), show_col_types = FALSE)
 meteo_daily <- read_xlsx("/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx")
 aljibes <- read_csv(file.path(env_data_path, "aljibes", "20m_buffer_manzanas_aljibes.csv"), show_col_types=FALSE)
+water_shortage <- read_csv(file.path(env_data_path, "abasto", "no_buffer_manzanas_water_shortage.csv"), show_col_types=FALSE)
 ```
 
 
@@ -665,6 +687,12 @@ urban <- urban %>%
 aljibes <- aljibes %>% 
   rename(manzana_id = CODIGO_) %>%
   select(manzana_id, has_aljibes, nr_aljibes)
+
+water_shortage <- water_shortage %>%
+  rename(
+    manzana_id = CODIGO_,
+    water_shortage = has_shortage) %>%
+  select(manzana_id, water_shortage)
 ```
 
 ```{r keep relevant columns for landcover}
@@ -718,6 +746,7 @@ meteo_monthly <- meteo_daily %>%
   - WI -> manzana
   - WUI -> manzana
   - LandCover -> manzana
+  - water shortage classification -> manzana
 
 **Spatio-temporal variables**
   - NDVI -> mazana-month (2016-04 -> 2019-12)
@@ -745,7 +774,8 @@ environmental_spatial <- landcover %>%
   left_join(wi, by = "manzana_id") %>%
   left_join(wui, by = "manzana_id") %>%
   left_join(urban, by = "manzana_id") %>%
-  left_join(aljibes, by = "manzana_id")
+  left_join(aljibes, by = "manzana_id") %>%
+  left_join(water_shortage, by = "manzana_id")
 ```
 
 ## Build spatio-temporal variables (per manzana-month)
