@@ -183,8 +183,15 @@ src/DENV_model/pySODM
 
 # ignore the R folder in results
 results/DENV_model/R/
+results/Entomo/fitting/
 src/R
-.rds
+
+# R data files
+*.rds
+*.RDS
+
+# Model output text files
+*.txt
 
 # LaTeX build output directory
 out.nosync/

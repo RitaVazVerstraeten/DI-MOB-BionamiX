@@ -79,13 +79,15 @@ df <- df %>%
     mutate(time = match(year_month_date, time_levels))
 
 # Covariates for distributed lags
-lag_vars <- c("avg_temp", "rel_hum", "total_precip", "WS2M", "mean_ndmi", "mean_ndwi", "mean_ndvi")
+# lag_vars <- c("avg_temp", "rel_hum", "total_precip", "WS2M", "mean_ndmi", "mean_ndwi", "mean_ndvi")
+lag_vars <- c("avg_temp", "rel_hum", "total_precip", "mean_ndvi") # removed NDMI, NDWI and WS
+
 df <- df %>%
      mutate(across(all_of(lag_vars), ~coalesce(., 0)))
 
 # Distributed lag setup
 K <- length(lag_vars)
-L <- 2  # maximum lag
+L <- 1  # maximum lag
 Lp1 <- L + 1
 X_lag <- array(0, dim = c(nrow(df), K, Lp1))
 kappa <- 2
@@ -118,7 +120,7 @@ for (i in seq_len(nrow(df))) {
 }
 
 # Unlagged covariates (block-level characteristics)
-unlagged_vars <- c("is_urban", "has_aljibes", "nr_aljibes", "is_WI", "is_WUI")
+unlagged_vars <- c("is_urban", "has_aljibes", "nr_aljibes", "is_WI", "is_WUI", "water_shortage", "WS2M")
 X_unlagged <- as.matrix(df[, unlagged_vars])
 Ku <- ncol(X_unlagged)
 
@@ -245,92 +247,132 @@ cat(summary_output, sep = "\n")
 writeLines(summary_output, file.path(output_dir, paste0("model_summary_", date_suffix, ".txt")))
 
 # --- 5. Extract fitted latent mosquito probabilities ---
-post_array <- fit$draws()  # Extract as array
-fitted_p_bt <- apply(post_array[, , "p_bt_out"], 2, mean)  # posterior mean for each observation
-fitted_p_R <- apply(post_array[, , "p_R_out"], 2, mean)  # reactive surveillance probability
-df$fitted_p_bt <- fitted_p_bt
-df$fitted_p_R <- fitted_p_R
+# Note: Generated quantities are stored as indexed variables (e.g., "p_bt_out[1]", "p_bt_out[2]", ...)
+# Extract as matrix to access indexed variables directly
+post_matrix <- fit$draws(format = "matrix")  # [total_draws, variables]
 
-# --- 6. Plot fitted vs observed proportions ---
-# Use observed proportion (y_bt / N_HH) since true latent p_bt is not in the data
-df$observed_prop <- df$y_bt / df$N_HH
-p1 <- ggplot(df, aes(x = observed_prop, y = fitted_p_bt)) +
-     geom_point(alpha=0.5, color="blue") +
-     geom_abline(slope=1, intercept=0, color='red') +
-     labs(x="Observed proportion (y_bt / N_HH)", y="Fitted p_bt (posterior mean)",
-                title="Observed vs Fitted Mosquito Probability") +
-     theme_minimal()
-ggsave(file.path(output_dir, paste0("observed_vs_fitted_p_bt_", date_suffix, ".png")), 
-                p1, width = 8, height = 6)
-print(p1)
+cat("\nDimensions of posterior matrix (total_draws, variables):", dim(post_matrix), "\n")
+var_names <- colnames(post_matrix)
 
-# Plot reactive surveillance probability
-p2 <- ggplot(df, aes(x = fitted_p_bt, y = fitted_p_R)) +
-  geom_point(alpha=0.5, color="darkgreen") +
-  geom_abline(slope=1, intercept=0, color='red') +
-  labs(x="Fitted ecological probability (p_bt)", y="Fitted reactive probability (p_R)",
-       title="Ecological vs Reactive Surveillance Probability") +
-  theme_minimal()
-ggsave(file.path(output_dir, paste0("observed_vs_fitted_pi_bt_", date_suffix, ".png")), 
-       p2, width = 8, height = 6)
-print(p2)
+# Extract fitted probabilities using regex matching for indexed variables
+p_bt_cols <- grep("^p_bt_out\\[", var_names)
+p_R_cols <- grep("^p_R_out\\[", var_names)
+u_block_cols <- grep("^u_block_out\\[", var_names)
+v_time_cols <- grep("^v_time_out\\[", var_names)
+y_pred_cols <- grep("^y_pred\\[", var_names)
 
-# --- 7. Plot block-level and temporal random effects ---
-u_post <- apply(post_array[, , "u_block_out"], 2, mean)
-v_post <- apply(post_array[, , "v_time_out"], 2, mean)
-
-png(file.path(output_dir, paste0("random_effects_", date_suffix, ".png")), 
-    width = 1000, height = 800)
-par(mfrow=c(2,2))
-
-# Spatial effects: histogram instead of line plot (too many blocks)
-hist(u_post, breaks = 50, main = "Distribution of Spatial Random Effects (u_b)", 
-     xlab = "Effect", col = "lightblue", border = "white")
-abline(v = 0, lty = 2, col = "red", lwd = 2)
-text(x = min(u_post), y = par("usr")[4] * 0.9, 
-     labels = sprintf("n = %d blocks", length(u_post)), pos = 4, cex = 0.9)
-
-# Spatial effects: quantile plot
-qqnorm(u_post, main = "Q-Q Plot: Spatial Effects", pch = 19, cex = 0.5, col = "blue")
-qqline(u_post, col = "red", lwd = 2)
-
-# Temporal effects: line plot
-plot(v_post, type = 'b', main = "Temporal Random Effects (v_t) with AR(1)", 
-     xlab = "Time", ylab = "Effect", col = "red", pch = 19)
-abline(h = 0, lty = 2, col = "gray")
-
-# Temporal effects: ACF plot
-acf(v_post, main = "ACF of Temporal Effects", col = "darkred")
-
-par(mfrow=c(1,1))
-dev.off()
-
-# --- 8. Posterior predictive check ---
-y_pred <- apply(post_array[, , "y_pred"], 2, mean)
-p3 <- ggplot(data.frame(observed = df$y_bt, predicted = y_pred), 
-       aes(x = observed, y = predicted)) +
-  geom_point(alpha=0.5) +
-  geom_abline(slope=1, intercept=0, color='red') +
-  labs(x="Observed y_bt", y="Predicted y_bt (posterior mean)",
-       title="Posterior Predictive Check") +
-  theme_minimal()
-ggsave(file.path(output_dir, paste0("posterior_predictive_check_", date_suffix, ".png")), 
-       p3, width = 8, height = 6)
-print(p3)
-
-
-# --- 9. Trace plots for MCMC chains ---
-if (requireNamespace("bayesplot", quietly = TRUE)) {
-     library(bayesplot)
-     # Extract draws as array for bayesplot
-     draws_array <- as_draws_array(fit$draws())
-     trace_params <- c("alpha", "sigma_u", "sigma_v", "rho", "delta0", "delta1")
-     trace_plot <- mcmc_trace(draws_array, pars = trace_params)
-     trace_file <- file.path(output_dir, paste0("traceplot_params_", date_suffix, ".png"))
-     ggsave(trace_file, trace_plot, width = 10, height = 8)
-     cat("Trace plot saved to:", trace_file, "\n")
+if (length(p_bt_cols) > 0) {
+  fitted_p_bt <- colMeans(post_matrix[, p_bt_cols])
+  cat("\n✓ Successfully extracted p_bt_out (N =", length(fitted_p_bt), ")\n")
 } else {
-     cat("bayesplot package not installed; skipping trace plot.\n")
+  cat("\n✗ Warning: p_bt_out not found in posterior\n")
+  fitted_p_bt <- rep(NA, nrow(df))
+}
+
+if (length(p_R_cols) > 0) {
+  fitted_p_R <- colMeans(post_matrix[, p_R_cols])
+  cat("✓ Successfully extracted p_R_out (N =", length(fitted_p_R), ")\n")
+} else {
+  cat("✗ Warning: p_R_out not found in posterior\n")
+  fitted_p_R <- rep(NA, nrow(df))
+}
+
+if (length(u_block_cols) > 0) {
+  u_post <- colMeans(post_matrix[, u_block_cols])
+  cat("✓ Successfully extracted u_block_out (n =", length(u_post), " blocks)\n")
+} else {
+  cat("✗ Warning: u_block_out not found in posterior\n")
+  u_post <- NA
+}
+
+if (length(v_time_cols) > 0) {
+  v_post <- colMeans(post_matrix[, v_time_cols])
+  cat("✓ Successfully extracted v_time_out (T =", length(v_post), " time periods)\n")
+} else {
+  cat("✗ Warning: v_time_out not found in posterior\n")
+  v_post <- NA
+}
+
+if (length(y_pred_cols) > 0) {
+  y_pred <- colMeans(post_matrix[, y_pred_cols])
+  cat("✓ Successfully extracted y_pred (N =", length(y_pred), ")\n")
+} else {
+  cat("✗ Warning: y_pred not found in posterior\n")
+  y_pred <- NA
+}
+# df$fitted_p_bt <- fitted_p_bt
+# df$fitted_p_R <- fitted_p_R
+
+# --- 6-8. Plots (temporarily disabled until variable names are verified) ---
+# Uncomment after verifying Stan output variable names
+# 
+# # --- 6. Plot fitted vs observed proportions ---
+# df$observed_prop <- df$y_bt / df$N_HH
+# p1 <- ggplot(df, aes(x = observed_prop, y = fitted_p_bt)) + ...
+
+# --- 7-9. Plots and diagnostics ---
+# These will only execute if posterior extraction was successful
+
+if (!all(is.na(fitted_p_bt))) {
+  
+  png(file.path(output_dir, paste0("random_effects_", date_suffix, ".png")), 
+      width = 1000, height = 800)
+  par(mfrow=c(2,2))
+  
+  # Spatial effects: histogram instead of line plot (too many blocks)
+  hist(u_post, breaks = 50, main = "Distribution of Spatial Random Effects (u_b)", 
+       xlab = "Effect", col = "lightblue", border = "white")
+  abline(v = 0, lty = 2, col = "red", lwd = 2)
+  text(x = min(u_post), y = par("usr")[4] * 0.9, 
+       labels = sprintf("n = %d blocks", length(u_post)), pos = 4, cex = 0.9)
+  
+  # Spatial effects: quantile plot
+  qqnorm(u_post, main = "Q-Q Plot: Spatial Effects", pch = 19, cex = 0.5, col = "blue")
+  qqline(u_post, col = "red", lwd = 2)
+  
+  # Temporal effects: line plot
+  plot(v_post, type = 'b', main = "Temporal Random Effects (v_t) with AR(1)", 
+       xlab = "Time", ylab = "Effect", col = "red", pch = 19)
+  abline(h = 0, lty = 2, col = "gray")
+  
+  # Temporal effects: ACF plot
+  acf(v_post, main = "ACF of Temporal Effects", col = "darkred")
+  
+  par(mfrow=c(1,1))
+  dev.off()
+  cat("Random effects plot saved.\n")
+  
+  # --- Posterior predictive check ---
+  if (!all(is.na(y_pred))) {
+    p3 <- ggplot(data.frame(observed = df$y_bt, predicted = y_pred), 
+           aes(x = observed, y = predicted)) +
+      geom_point(alpha=0.5) +
+      geom_abline(slope=1, intercept=0, color='red') +
+      labs(x="Observed y_bt", y="Predicted y_bt (posterior mean)",
+           title="Posterior Predictive Check") +
+      theme_minimal()
+    ggsave(file.path(output_dir, paste0("posterior_predictive_check_", date_suffix, ".png")), 
+           p3, width = 8, height = 6)
+    print(p3)
+    cat("Posterior predictive check plot saved.\n")
+  }
+  
+  # --- Trace plots for MCMC chains ---
+  if (requireNamespace("bayesplot", quietly = TRUE)) {
+       library(bayesplot)
+       # Extract draws as array for bayesplot
+       draws_array <- fit$draws(format = "array")
+       trace_params <- c("alpha", "sigma_u", "sigma_v", "rho", "delta0", "delta1")
+       trace_plot <- mcmc_trace(draws_array, pars = trace_params)
+       trace_file <- file.path(output_dir, paste0("traceplot_params_", date_suffix, ".png"))
+       ggsave(trace_file, trace_plot, width = 10, height = 8)
+       cat("Trace plot saved to:", trace_file, "\n")
+  } else {
+       cat("bayesplot package not installed; skipping trace plot.\n")
+  }
+  
+} else {
+  cat("\nNote: Posterior extraction did not complete; skipping plots.\n")
 }
 
 cat("\nAll outputs saved to:", output_dir, "\n")

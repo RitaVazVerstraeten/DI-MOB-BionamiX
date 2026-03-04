@@ -9,6 +9,7 @@
 \usepackage{hyperref}
 \usepackage{geometry}
 \usepackage{booktabs}
+\usepackage[normalem]{ulem} % adds \sout without changing \emph behavior
 
 % Page layout
 \geometry{margin=1in}
@@ -381,5 +382,124 @@ Both modeling approaches have important considerations. The block-level model is
 Several limitations apply to the block-level approach. First, we assume that all households are visited monthly through systematic surveillance, but this may not hold in practice. Second, we do not correct for the possibility that multiple dengue cases $C_{bt}$ might originate from the same household, which would violate our assumption that each case triggers inspection of a distinct household. These limitations suggest that the model's correction for reactive surveillance bias may be imperfect, particularly in settings with irregular coverage or spatial clustering of cases.
 
 A key question remains: are we overdoing it by modeling household persistence, visit timing, and explicit colonization/extinction with the mechanistic model? The answer depends on the inferential goals. If the primary objective is robust estimation of $p_{bt}$ for prediction and surveillance evaluation, the simpler block-level model may suffice. If the goal is to understand the mechanistic drivers of mosquito dynamics and evaluate control effectiveness, the added complexity of the household-level model may be justified despite its computational cost.
+
+
+
+\section{Penalized GLMM with Block Random Effects}
+
+This section describes the maximum-likelihood penalized GLMM implemented in \texttt{Penalized\_GLMM\_with\_Block\_RE.r}. The model is estimated at block--month level and uses ridge-type penalties for regularization.
+
+\subsection{Data Structure and Covariates}
+
+For each observation (block $b$, month $t$), the model uses:
+\begin{itemize}
+\item $y_{bt}$: positive houses (\texttt{Houses\_pos\_IS}),
+\item $N_b^{HH}$: inspected houses (\texttt{Inspected\_houses}),
+\item $C_{bt}$: dengue cases (\texttt{cases}),
+\item lagged environmental covariates (temperature, humidity, precipitation, wind, NDMI, NDWI, NDVI),
+\item unlagged block covariates (\texttt{is\_urban}, \texttt{has\_aljibes}, \texttt{nr\_aljibes}, \texttt{is\_WI}, \texttt{is\_WUI}, \texttt{water\_shortage}).
+\end{itemize}
+
+Lagged covariates are included up to $L=2$ months, and all lagged predictors are standardized (z-score).  \\
+
+\sout{Seasonality is captured with harmonic terms:
+\begin{equation}
+\sin\left(2\pi m_t/12\right), \qquad \cos\left(2\pi m_t/12\right),
+\end{equation}
+where $m_t$ is calendar month.}
+
+We didn't add the harmonic for seasonality out of fear that the environmental weights get shrunk if harmonics "explain away" seasonality first. Then the temperature/precip coefficients might appear weaker than they truly are.
+
+
+
+\subsection{Linear Predictor and Ecological Probability}
+
+For each row $i$ (corresponding to block--month pair), the ecological linear predictor is:
+\begin{equation}
+\eta_i = \alpha + \mathbf{x}^{(season)}_i \boldsymbol{\beta}_{season}
++ \mathbf{x}^{(lag)}_i \mathbf{w}
++ \mathbf{x}^{(unlag)}_i \mathbf{w}_u
++ u_{b(i)},
+\end{equation}
+with block random effect $u_b$. The baseline mosquito positivity is:
+\begin{equation}
+p_i = \text{logit}^{-1}(\eta_i).
+\end{equation}
+
+\subsection{Reactive Shift and Mixture Observation Process}
+
+Reactive positivity is defined for case months:
+\begin{equation}
+p_i^R =
+\begin{cases}
+p_i, & C_i=0,\\
+\text{logit}^{-1}\left(\eta_i + \delta_0 + \delta_1 \log C_i\right), & C_i>0.
+\end{cases}
+\end{equation}
+
+With fixed $\kappa=2$, total effort is:
+\begin{equation}
+n_i = N_i^{HH} + \kappa C_i, 
+\qquad
+\omega_i = \frac{\kappa C_i}{n_i} \;\; (C_i>0),
+\end{equation}
+and effective observed positivity is:
+\begin{equation}
+\pi_i =
+\begin{cases}
+p_i, & C_i=0,\\
+(1-\omega_i)p_i + \omega_i p_i^R, & C_i>0.
+\end{cases}
+\end{equation}
+
+The likelihood is:
+\begin{equation}
+y_i \sim \text{Binomial}(n_i,\pi_i).
+\end{equation}
+
+\subsection{Penalized Objective Function}
+
+Parameters are estimated by minimizing penalized negative log-likelihood:
+\begin{equation}
+\mathcal{J}(\theta) = -\sum_i \log \Pr(y_i \mid n_i,\pi_i)
++ \frac{\|\mathbf{w}\|^2}{2\lambda_w}
++ \frac{\|\mathbf{w}_u\|^2}{2\lambda_u^{(unlag)}}
++ \frac{\|\boldsymbol{\beta}_{season}\|^2}{2\lambda_{season}}
++ \frac{\|\mathbf{u}\|^2}{2\lambda_{u}\sigma_u^2},
+\end{equation}
+with $\sigma_u=\exp(\log \sigma_u)$ and tuning constants set in code (default: 10).
+
+\subsection{Estimation and Outputs}
+
+Optimization is performed with \texttt{nlminb}. The script returns:
+\begin{itemize}
+\item fitted ecological probabilities $\hat p_{bt}$,
+\item fitted reactive probabilities $\hat p^R_{bt}$,
+\item estimated block effects $\hat u_b$ and $\hat\sigma_u$,
+\item diagnostic plots: observed vs fitted, $\hat p_{bt}$ vs $\hat p^R_{bt}$, and distribution of block effects.
+\end{itemize}
+
+This model is a penalized frequentist approximation of the hierarchical surveillance-correction framework, retaining reactive-bias correction while remaining computationally efficient.
+
+\subsection{Model Development Steps and Main Findings}
+
+To assess robustness and structural sensitivity, we evaluated several nested model variants during development.
+
+\subsubsection*{Step 0: Baseline penalized GLMM without block random effects}
+
+\subsubsection*{Step 1: Baseline penalized GLMM with block random effects}
+We began with the full penalized model including block random intercepts $u_b$. This served as the reference specification and captured persistent block-level heterogeneity not explained by observed covariates. The random effect variance $\hat\sigma_u$ was moderate, suggesting that unobserved block structure (e.g., microhabitat, unmeasured infrastructure) contributes meaningfully to mosquito risk.
+
+\subsubsection*{Step 2: Removal of block random effects}
+We then fitted a model without $u_b$ to test whether fixed effects alone were sufficient. Fit quality decreased noticeably, and residual spatial patterning became more evident in diagnostic plots. This indicated that block-level structure is not fully absorbed by the available spatial covariates, supporting the use of random effects.
+
+\subsubsection*{Step 3: Removal of temporal random effects (where applicable)}
+
+
+\subsubsection*{Step 4: Addition of spatial autocorrelation structure}
+
+
+\subsubsection*{Summary interpretation}
+
 
 \end{document}
