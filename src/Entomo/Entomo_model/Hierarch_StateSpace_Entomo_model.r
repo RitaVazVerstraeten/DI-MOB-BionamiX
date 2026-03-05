@@ -417,11 +417,31 @@ if (!all(is.na(fitted_p_bt))) {
        library(bayesplot)
        # Extract draws as array for bayesplot
        draws_array <- fit$draws(format = "array")
+       
+       # Trace plot 1: Main hyperparameters
        trace_params <- c("alpha", "sigma_u", "sigma_v", "rho", "delta0", "delta1")
        trace_plot <- mcmc_trace(draws_array, pars = trace_params)
-      trace_file <- file.path(output_dir, paste0("traceplot_params_", run_suffix, ".png"))
+       trace_file <- file.path(output_dir, paste0("traceplot_params_", run_suffix, ".png"))
        ggsave(trace_file, trace_plot, width = 10, height = 8)
        cat("Trace plot saved to:", trace_file, "\n")
+       
+       # Trace plot 2: Lagged covariate weights (w)
+       w_params <- grep("^w\\[", dimnames(draws_array)[[3]], value = TRUE)
+       if (length(w_params) > 0) {
+         trace_plot_w <- mcmc_trace(draws_array, pars = w_params)
+         trace_file_w <- file.path(output_dir, paste0("traceplot_weights_w_", run_suffix, ".png"))
+         ggsave(trace_file_w, trace_plot_w, width = 12, height = 10)
+         cat("Weight trace plot saved to:", trace_file_w, "\n")
+       }
+       
+       # Trace plot 3: Unlagged covariate weights (w_unlagged)
+       w_unlagged_params <- grep("^w_unlagged\\[", dimnames(draws_array)[[3]], value = TRUE)
+       if (length(w_unlagged_params) > 0) {
+         trace_plot_wu <- mcmc_trace(draws_array, pars = w_unlagged_params)
+         trace_file_wu <- file.path(output_dir, paste0("traceplot_weights_unlagged_", run_suffix, ".png"))
+         ggsave(trace_file_wu, trace_plot_wu, width = 12, height = 8)
+         cat("Unlagged weight trace plot saved to:", trace_file_wu, "\n")
+       }
   } else {
        cat("bayesplot package not installed; skipping trace plot.\n")
   }
