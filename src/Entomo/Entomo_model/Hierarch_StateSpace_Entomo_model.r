@@ -39,7 +39,7 @@ hostname <- Sys.info()["nodename"]
 cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/",
   data_file_name = "env_epi_entomo_data_per_manzana_2016_04_to_2019_12.csv",
-  output_dir = "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting",
+  output_dir = "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
   use_temporal_re = FALSE,
@@ -56,7 +56,7 @@ cfg <- list(
   chains = 2,
   iter_warmup = 1000,
   iter_sampling = 1000,
-  thin = 2,
+  # thin = 2,
   adapt_delta = 0.95,
   max_treedepth = 12,
   parallel_chains = if (hostname == "frietjes") 2 else 1,
