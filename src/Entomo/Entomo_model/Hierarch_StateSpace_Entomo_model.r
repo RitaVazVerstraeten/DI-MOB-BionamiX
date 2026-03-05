@@ -284,8 +284,8 @@ mod <- cmdstan_model(stan_file)
 fit <- mod$sample(
   data = stan_data,
   chains = 2,
-  iter_warmup = 100,
-  iter_sampling = 100,
+  iter_warmup = 1000,
+  iter_sampling = 1000,
   thin = 2,  # Keep every 2nd sample (reduces memory)
   init = init_fun,
   adapt_delta = 0.95,
