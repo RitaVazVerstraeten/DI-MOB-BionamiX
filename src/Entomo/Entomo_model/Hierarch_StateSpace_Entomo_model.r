@@ -36,7 +36,11 @@ cat("Data directory:", data_dir, "\n")
 output_dir <- file.path("/home/rita/PyProjects/DI-MOB-BionamiX", "results", "Entomo", "fitting")
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 date_suffix <- format(Sys.Date(), "%Y%m%d")  # e.g., "20260216"
-run_suffix <- paste0(date_suffix, "_stand")
+
+# --- Run settings (quick toggles) ---
+use_temporal_re <- FALSE  # TRUE: AR(1) temporal RE model, FALSE: no temporal RE model
+model_tag <- ifelse(use_temporal_re, "withTimeRE", "noTimeRE")
+run_suffix <- paste0(date_suffix, "_stand_", model_tag)
 
 input_data <- read_csv(data_file)
 
@@ -247,23 +251,33 @@ cat("Covariate means and SDs saved for back-transformation\n")
 # print(var_y / mean_y)
 
 # --- 3. Fit Stan model from external file ---
-stan_file <- "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/Entomo_model/hierarchical_state_space.stan"
+stan_file <- if (use_temporal_re) {
+  "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/Entomo_model/hierarchical_state_space.stan"
+} else {
+  "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/Entomo_model/hierarchical_state_space_no_time_re.stan"
+}
+cat("Model variant:", ifelse(use_temporal_re, "with temporal RE", "without temporal RE"), "\n")
 
 # Provide reasonable initial values to help both chains start properly
 init_fun <- function() {
-  list(
+  init_vals <- list(
     alpha = rnorm(1, -4.5, 0.4),              # Tighter SD to avoid extreme p_bt
     w = matrix(rnorm(stan_data$K * stan_data$Lp1, 0, 0.08), stan_data$K, stan_data$Lp1),  # Slightly reduced SD
     sigma_w = runif(stan_data$K, 0.1, 0.3),   # Random walk SD for lag smoothing
     w_unlagged = rnorm(stan_data$Ku, 0, 0.1),
     u_block_raw = rnorm(stan_data$B, 0, 0.5),
-    v_time_raw = rnorm(stan_data$T, 0, 0.5),
     sigma_u = runif(1, 0.1, 0.5),
-    sigma_v = runif(1, 0.1, 0.5),
-    rho = rnorm(1, 0, 0.25),  # Allow negative autocorrelation
     delta0 = rnorm(1, 0.3, 0.2),
     delta1 = rnorm(1, 0, 0.1)
   )
+
+  if (use_temporal_re) {
+    init_vals$v_time_raw <- rnorm(stan_data$T, 0, 0.5)
+    init_vals$sigma_v <- runif(1, 0.1, 0.5)
+    init_vals$rho <- rnorm(1, 0, 0.25)
+  }
+
+  init_vals
 }
 
 # Compile and fit with cmdstanr
@@ -293,11 +307,15 @@ fit <- mod$sample(
   parallel_chains = if (hostname == "frietjes") 2 else 1  # Parallel on frietjes, sequential on local for memory safety
 )
 
-# Save fit object with today's date and run suffix
-saveRDS(fit, file.path(output_dir, paste0("fit_", run_suffix, ".rds")))
+# Save fit object with today's date and run suffix (use save_object for cmdstanr)
+fit$save_object(file.path(output_dir, paste0("fit_", run_suffix, ".rds")))
 
 # --- 4. Summarize results ---
-summary_output <- capture.output(print(fit$summary(variables = c("alpha","sigma_u","sigma_v","rho","delta0","delta1","w"))))
+summary_vars <- c("alpha", "sigma_u", "delta0", "delta1", "w")
+if (use_temporal_re) {
+  summary_vars <- c(summary_vars, "sigma_v", "rho")
+}
+summary_output <- capture.output(print(fit$summary(variables = summary_vars)))
 cat(summary_output, sep = "\n")
 writeLines(summary_output, file.path(output_dir, paste0("model_summary_", run_suffix, ".txt")))
 
@@ -386,12 +404,19 @@ if (!all(is.na(fitted_p_bt))) {
   qqline(u_post, col = "red", lwd = 2)
   
   # Temporal effects: line plot
-  plot(v_post, type = 'b', main = "Temporal Random Effects (v_t) with AR(1)", 
-       xlab = "Time", ylab = "Effect", col = "red", pch = 19)
-  abline(h = 0, lty = 2, col = "gray")
-  
-  # Temporal effects: ACF plot
-  acf(v_post, main = "ACF of Temporal Effects", col = "darkred")
+  if (!all(is.na(v_post))) {
+    plot(v_post, type = 'b', main = "Temporal Random Effects (v_t) with AR(1)", 
+         xlab = "Time", ylab = "Effect", col = "red", pch = 19)
+    abline(h = 0, lty = 2, col = "gray")
+    
+    # Temporal effects: ACF plot
+    acf(v_post, main = "ACF of Temporal Effects", col = "darkred")
+  } else {
+    plot.new()
+    text(0.5, 0.5, "Temporal RE disabled\n(no v_time_out in model)", cex = 1.0)
+    plot.new()
+    text(0.5, 0.5, "ACF unavailable\n(temporal RE disabled)", cex = 1.0)
+  }
   
   par(mfrow=c(1,1))
   dev.off()
@@ -419,7 +444,10 @@ if (!all(is.na(fitted_p_bt))) {
        draws_array <- fit$draws(format = "array")
        
        # Trace plot 1: Main hyperparameters
-       trace_params <- c("alpha", "sigma_u", "sigma_v", "rho", "delta0", "delta1")
+       trace_params <- c("alpha", "sigma_u", "delta0", "delta1")
+       if (use_temporal_re) {
+         trace_params <- c(trace_params, "sigma_v", "rho")
+       }
        trace_plot <- mcmc_trace(draws_array, pars = trace_params)
        trace_file <- file.path(output_dir, paste0("traceplot_params_", run_suffix, ".png"))
        ggsave(trace_file, trace_plot, width = 10, height = 8)
