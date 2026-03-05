@@ -7,6 +7,13 @@
 # DATA PREPARATION
 # =========================
 
+#' Load Base Entomological Data
+#'
+#' Reads CSV data file and creates a proper date column from year_month.
+#' Removes unnecessary columns (CMF, CP, AREA) and reorders columns.
+#'
+#' @param data_file Character string path to the CSV data file
+#' @return A data frame with cleaned entomological data including year_month_date
 load_base_data <- function(data_file) {
   read_csv(data_file, show_col_types = FALSE) %>%
     mutate(year_month_date = as.Date(paste0(year_month, "_01"), "%Y_%m_%d")) %>%
@@ -14,6 +21,15 @@ load_base_data <- function(data_file) {
     select(!c(CMF, CP, AREA))
 }
 
+#' Index and Subset Data by Blocks
+#'
+#' Creates numeric block and time indices, renames key variables to Stan conventions,
+#' and optionally subsets to a specified number of blocks. Ensures data is sorted
+#' by block and time.
+#'
+#' @param input_data Data frame with manzana (block) and year_month_date columns
+#' @param n_blocks Integer number of blocks to keep (NULL = keep all blocks)
+#' @return List with elements: df (processed data frame), B (number of blocks), T (number of time points)
 index_and_subset <- function(input_data, n_blocks) {
   block_levels <- sort(unique(input_data$manzana))
   time_levels <- sort(unique(input_data$year_month_date))
@@ -41,6 +57,17 @@ index_and_subset <- function(input_data, n_blocks) {
   list(df = df, B = length(selected_blocks), T = length(time_levels))
 }
 
+#' Build Distributed Lag Design Matrix
+#'
+#' Creates a 3D array of lagged variables (X_lag) for each observation, variable, and lag.
+#' Flattens into a 2D matrix for Stan. Removes observations where lags cannot be computed
+#' (first max_lag time points for each block). Handles block structure properly.
+#'
+#' @param df Data frame with block, time, and lagged variables
+#' @param lag_vars Character vector of variable names to create lags for
+#' @param B Integer number of blocks
+#' @param max_lag Integer maximum lag order (L)
+#' @return List with df (filtered data frame), X_lag_flat (N x K*(L+1) matrix), K (number of variables), Lp1 (L+1)
 build_lag_design <- function(df, lag_vars, B, max_lag) {
   df <- df %>% mutate(across(all_of(lag_vars), ~coalesce(., 0)))
   K <- length(lag_vars)
@@ -69,6 +96,15 @@ build_lag_design <- function(df, lag_vars, B, max_lag) {
   list(df = df, X_lag_flat = X_lag_flat, K = K, Lp1 = Lp1)
 }
 
+#' Prepare Unlagged Covariates
+#'
+#' Extracts unlagged variables and standardizes continuous variables (z-score).
+#' Binary variables are left unstandardized (0/1). Missing values are replaced with 0.
+#'
+#' @param df Data frame containing unlagged variables
+#' @param unlagged_vars Character vector of all unlagged variable names
+#' @param binary_unlagged_vars Character vector of binary variable names (subset of unlagged_vars)
+#' @return List with df (data frame), X_unlagged_std (N x Ku standardized matrix), Ku (number of unlagged variables)
 prepare_unlagged <- function(df, unlagged_vars, binary_unlagged_vars) {
   continuous_unlagged_vars <- setdiff(unlagged_vars, binary_unlagged_vars)
   df <- df %>% mutate(across(all_of(unlagged_vars), ~coalesce(., 0)))
@@ -87,6 +123,13 @@ prepare_unlagged <- function(df, unlagged_vars, binary_unlagged_vars) {
   list(df = df, X_unlagged_std = X_unlagged_std, Ku = ncol(X_unlagged))
 }
 
+#' Standardize Matrix (Z-score)
+#'
+#' Centers and scales each column to mean 0 and standard deviation 1.
+#' Handles zero-variance columns by setting their scale to 1 (no scaling).
+#'
+#' @param x Numeric matrix to standardize
+#' @return Standardized matrix with same dimensions as input
 standardize_matrix <- function(x) {
   m <- colMeans(x)
   s <- apply(x, 2, sd)
@@ -94,6 +137,15 @@ standardize_matrix <- function(x) {
   scale(x, center = m, scale = s)
 }
 
+#' Build Complete Stan Data List
+#'
+#' Orchestrates the full data preparation pipeline: loads data, creates indices,
+#' builds lag matrix, prepares unlagged covariates, and standardizes. Returns
+#' both the Stan data list and the processed data frame.
+#'
+#' @param cfg List containing all configuration parameters (data_file, n_blocks, lag_vars,
+#'            max_lag, unlagged_vars, binary_unlagged_vars, kappa)
+#' @return List with stan_data (list ready for Stan) and df (processed data frame)
 build_stan_data <- function(cfg) {
   input_data <- load_base_data(cfg$data_file)
   idx <- index_and_subset(input_data, cfg$n_blocks)
@@ -125,6 +177,15 @@ build_stan_data <- function(cfg) {
 # MODEL FIT + EXTRACTION
 # =========================
 
+#' Create Initialization Function for Stan
+#'
+#' Returns a function that generates random initial values for MCMC chains.
+#' Conditionally includes temporal random effect parameters (v_time_raw, sigma_v, rho)
+#' only when temporal RE is enabled.
+#'
+#' @param stan_data List containing Stan data (used to determine dimensions)
+#' @param use_temporal_re Logical flag indicating whether temporal RE is enabled in the model
+#' @return Function that returns a list of initial values for one MCMC chain
 make_init_fun <- function(stan_data, use_temporal_re) {
   function() {
     init_vals <- list(
@@ -148,6 +209,15 @@ make_init_fun <- function(stan_data, use_temporal_re) {
   }
 }
 
+#' Extract Posterior Means from Stan Fit
+#'
+#' Computes posterior means for key parameters and generated quantities using
+#' flexible regex pattern matching. Returns NA vectors if a parameter is not found
+#' (e.g., v_time_out when temporal RE is disabled).
+#'
+#' @param fit Stan fit object (cmdstanr)
+#' @param n_rows Integer number of observations (for sizing output vectors)
+#' @return List with elements: p_bt, p_R, u (spatial RE), v (temporal RE), y_pred
 extract_means <- function(fit, n_rows) {
   post <- fit$draws(format = "matrix")
   vnames <- colnames(post)
@@ -171,6 +241,17 @@ extract_means <- function(fit, n_rows) {
 # PLOTTING
 # =========================
 
+#' Save Random Effects Diagnostic Plot
+#'
+#' Creates a 2x2 grid plot showing spatial and temporal random effects diagnostics:
+#' - Spatial: histogram and Q-Q plot
+#' - Temporal: time series line plot and ACF (or placeholders if RE disabled)
+#'
+#' @param u_post Numeric vector of spatial random effects (u_block_out)
+#' @param v_post Numeric vector of temporal random effects (v_time_out, or NA if disabled)
+#' @param output_dir Character string path to output directory
+#' @param run_suffix Character string suffix for filename
+#' @return NULL (saves plot to PNG file)
 save_random_effects <- function(u_post, v_post, output_dir, run_suffix) {
   png(file.path(output_dir, paste0("random_effects_", run_suffix, ".png")), width = 1000, height = 800)
   par(mfrow = c(2, 2))
@@ -196,6 +277,16 @@ save_random_effects <- function(u_post, v_post, output_dir, run_suffix) {
   dev.off()
 }
 
+#' Save Posterior Predictive Check Plot
+#'
+#' Creates a scatter plot of observed vs predicted y_bt values with a 1:1 reference line.
+#' Skips plotting if predictions are all NA.
+#'
+#' @param df Data frame containing observed y_bt values
+#' @param y_pred Numeric vector of predicted y_bt values (posterior means)
+#' @param output_dir Character string path to output directory
+#' @param run_suffix Character string suffix for filename
+#' @return NULL (saves plot to PNG file or returns invisibly if predictions are NA)
 save_ppc <- function(df, y_pred, output_dir, run_suffix) {
   if (all(is.na(y_pred))) return(invisible(NULL))
 
@@ -208,6 +299,18 @@ save_ppc <- function(df, y_pred, output_dir, run_suffix) {
   ggsave(file.path(output_dir, paste0("posterior_predictive_check_", run_suffix, ".png")), p, width = 8, height = 6)
 }
 
+#' Save MCMC Trace Plots
+#'
+#' Creates trace plots for MCMC diagnostics using bayesplot package.
+#' Generates three separate plots: main parameters, lagged weights (w), and
+#' unlagged weights (w_unlagged). Conditionally includes temporal RE parameters
+#' (sigma_v, rho) if enabled.
+#'
+#' @param fit Stan fit object (cmdstanr)
+#' @param output_dir Character string path to output directory
+#' @param run_suffix Character string suffix for filenames
+#' @param use_temporal_re Logical flag indicating whether temporal RE is enabled
+#' @return NULL (saves plots to PNG files or returns invisibly if bayesplot not installed)
 save_trace_plots <- function(fit, output_dir, run_suffix, use_temporal_re) {
   if (!requireNamespace("bayesplot", quietly = TRUE)) {
     cat("bayesplot package not installed; skipping trace plots.\n")
