@@ -36,6 +36,7 @@ cat("Data directory:", data_dir, "\n")
 output_dir <- file.path("/home/rita/PyProjects/DI-MOB-BionamiX", "results", "Entomo", "fitting")
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 date_suffix <- format(Sys.Date(), "%Y%m%d")  # e.g., "20260216"
+run_suffix <- paste0(date_suffix, "_stand")
 
 input_data <- read_csv(data_file)
 
@@ -120,28 +121,82 @@ for (i in seq_len(nrow(df))) {
 }
 
 # Unlagged covariates (block-level characteristics)
-unlagged_vars <- c("is_urban", "has_aljibes", "nr_aljibes", "is_WI", "is_WUI", "water_shortage", "WS2M")
+unlagged_vars <- c("is_urban", "has_aljibes", "is_WI", "is_WUI", "water_shortage", "WS2M")
+binary_unlagged_vars <- c("is_urban", "has_aljibes", "is_WI", "is_WUI", "water_shortage")
+continuous_unlagged_vars <- setdiff(unlagged_vars, binary_unlagged_vars)
+df <- df %>%
+  mutate(across(all_of(unlagged_vars), ~coalesce(., 0)))
 X_unlagged <- as.matrix(df[, unlagged_vars])
 Ku <- ncol(X_unlagged)
 
-# --- 2. Prepare data for Stan ---
+
+# --- Standardize numeric covariates ---
+# Store means and SDs for later back-transformation
+X_lag_flat_means <- colMeans(X_lag_flat)
+X_lag_flat_sds <- apply(X_lag_flat, 2, sd)
+# X_lag_flat_sds[X_lag_flat_sds == 0 | is.na(X_lag_flat_sds)] <- 1
+X_lag_flat_std <- scale(X_lag_flat, center = X_lag_flat_means, scale = X_lag_flat_sds)
+
+X_unlagged_means <- colMeans(X_unlagged)
+X_unlagged_sds <- apply(X_unlagged, 2, sd)
+# X_unlagged_sds[X_unlagged_sds == 0 | is.na(X_unlagged_sds)] <- 1
+X_unlagged_std <- X_unlagged
+
+# Keep binary indicators on their original 0/1 scale; standardize only continuous columns
+if (length(continuous_unlagged_vars) > 0) {
+  cont_idx <- match(continuous_unlagged_vars, colnames(X_unlagged))
+  X_unlagged_std[, cont_idx] <- scale(
+    X_unlagged[, cont_idx, drop = FALSE],
+    center = X_unlagged_means[cont_idx],
+    scale = X_unlagged_sds[cont_idx]
+  )
+}
+
+# # Safety check: replace any remaining non-finite values after scaling
+# X_lag_flat_std[!is.finite(X_lag_flat_std)] <- 0
+# X_unlagged_std[!is.finite(X_unlagged_std)] <- 0
+
+# Pass standardized versions to Stan
 stan_data <- list(
      N = nrow(df),
-     y = df$y_bt,           # mosquito findings
-     N_HH = df$N_HH,        # universe
-     K = K,                 # number of lagged env covariates
-     Lp1 = Lp1,             # total number of lag terms including lag 0 (3 for max_lag=2)
-     X_lag_flat = X_lag_flat,  # flattened lagged covariates matrix [N, K*Lp1]
-     Ku = Ku,               # number of unlagged block-level covariates
-     X_unlagged = X_unlagged,  # unlagged covariates matrix [N, Ku]
-     B = B,                 # number of manzanas (now 100)
-     T = T,                 # number of time steps
-     block = df$block,      # numeric block indices
-     time = df$time,        # numeric time indices
-     C_bt = df$C_bt,        # dengue cases
-     n_bt = as.integer(df$N_HH + kappa * df$C_bt)  # total inspections, kappa fixed
-     # kappa will be estimated as a parameter in Stan
+     y = df$y_bt,
+     N_HH = df$N_HH,
+     K = K,
+     Lp1 = Lp1,
+     X_lag_flat = X_lag_flat_std,        # ← Use standardized
+     Ku = Ku,
+     X_unlagged = X_unlagged_std,        # ← Use standardized
+     B = B,
+     T = T,
+     block = df$block,
+     time = df$time,
+     C_bt = df$C_bt,
+     n_bt = as.integer(df$N_HH + kappa * df$C_bt)
 )
+
+# Save means/SDs for interpretation later
+cat("Covariate means and SDs saved for back-transformation\n")
+
+
+
+# # --- 2. Prepare data for Stan ---
+# stan_data <- list(
+#      N = nrow(df),
+#      y = df$y_bt,           # mosquito findings
+#      N_HH = df$N_HH,        # universe
+#      K = K,                 # number of lagged env covariates
+#      Lp1 = Lp1,             # total number of lag terms including lag 0 (3 for max_lag=2)
+#      X_lag_flat = X_lag_flat,  # flattened lagged covariates matrix [N, K*Lp1]
+#      Ku = Ku,               # number of unlagged block-level covariates
+#      X_unlagged = X_unlagged,  # unlagged covariates matrix [N, Ku]
+#      B = B,                 # number of manzanas (now 100)
+#      T = T,                 # number of time steps
+#      block = df$block,      # numeric block indices
+#      time = df$time,        # numeric time indices
+#      C_bt = df$C_bt,        # dengue cases
+#      n_bt = as.integer(df$N_HH + kappa * df$C_bt)  # total inspections, kappa fixed
+#      # kappa will be estimated as a parameter in Stan
+# )
 
 # # --- DATA VALIDATION ---
 # cat("\n=== DATA STRUCTURE VALIDATION ===\n")
@@ -229,22 +284,22 @@ mod <- cmdstan_model(stan_file)
 fit <- mod$sample(
   data = stan_data,
   chains = 2,
-  iter_warmup = 500,
-  iter_sampling = 500,
-#   thin = 2,  # Keep every 2nd sample (reduces memory)
+  iter_warmup = 100,
+  iter_sampling = 100,
+  thin = 2,  # Keep every 2nd sample (reduces memory)
   init = init_fun,
   adapt_delta = 0.95,
   max_treedepth = 12,
   parallel_chains = if (hostname == "frietjes") 2 else 1  # Parallel on frietjes, sequential on local for memory safety
 )
 
-# Save fit object with today's date
-saveRDS(fit, file.path(output_dir, paste0("fit_", date_suffix, ".rds")))
+# Save fit object with today's date and run suffix
+saveRDS(fit, file.path(output_dir, paste0("fit_", run_suffix, ".rds")))
 
 # --- 4. Summarize results ---
 summary_output <- capture.output(print(fit$summary(variables = c("alpha","sigma_u","sigma_v","rho","delta0","delta1","w"))))
 cat(summary_output, sep = "\n")
-writeLines(summary_output, file.path(output_dir, paste0("model_summary_", date_suffix, ".txt")))
+writeLines(summary_output, file.path(output_dir, paste0("model_summary_", run_suffix, ".txt")))
 
 # --- 5. Extract fitted latent mosquito probabilities ---
 # Note: Generated quantities are stored as indexed variables (e.g., "p_bt_out[1]", "p_bt_out[2]", ...)
@@ -315,7 +370,7 @@ if (length(y_pred_cols) > 0) {
 
 if (!all(is.na(fitted_p_bt))) {
   
-  png(file.path(output_dir, paste0("random_effects_", date_suffix, ".png")), 
+  png(file.path(output_dir, paste0("random_effects_", run_suffix, ".png")), 
       width = 1000, height = 800)
   par(mfrow=c(2,2))
   
@@ -351,7 +406,7 @@ if (!all(is.na(fitted_p_bt))) {
       labs(x="Observed y_bt", y="Predicted y_bt (posterior mean)",
            title="Posterior Predictive Check") +
       theme_minimal()
-    ggsave(file.path(output_dir, paste0("posterior_predictive_check_", date_suffix, ".png")), 
+    ggsave(file.path(output_dir, paste0("posterior_predictive_check_", run_suffix, ".png")), 
            p3, width = 8, height = 6)
     print(p3)
     cat("Posterior predictive check plot saved.\n")
@@ -364,7 +419,7 @@ if (!all(is.na(fitted_p_bt))) {
        draws_array <- fit$draws(format = "array")
        trace_params <- c("alpha", "sigma_u", "sigma_v", "rho", "delta0", "delta1")
        trace_plot <- mcmc_trace(draws_array, pars = trace_params)
-       trace_file <- file.path(output_dir, paste0("traceplot_params_", date_suffix, ".png"))
+      trace_file <- file.path(output_dir, paste0("traceplot_params_", run_suffix, ".png"))
        ggsave(trace_file, trace_plot, width = 10, height = 8)
        cat("Trace plot saved to:", trace_file, "\n")
   } else {
