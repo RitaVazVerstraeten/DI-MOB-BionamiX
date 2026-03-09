@@ -1,6 +1,7 @@
 library(tidyverse)
 library(glmmTMB)
 library(slider)
+library(sf)
 
 # Resolve namespace conflicts - prefer tidyverse/dplyr versions
 if (!require("conflicted", quietly = TRUE)) {
@@ -15,8 +16,17 @@ conflicted::conflict_prefer("lag", "dplyr")
 # =========================
 cfg <- list(
   # Random effects to include
-  include_block_re = TRUE,      # Random intercept for block (spatial)
+  include_block_re = FALSE,      # Random intercept for block (spatial)
   include_time_re = FALSE,      # Random intercept for time (temporal)
+  include_ar1_temporal = TRUE, # AR(1) temporal autocorrelation (within group)
+  ar1_group = "block",         # "block" (within-block AR1) or "global"
+  # include_spatial_ar = TRUE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
+  include_spatial_ar = TRUE,  # Exponential spatial autocorrelation: mat(xy + 0 | spatial)
+
+  # Spatial coordinates from shapefile (used when include_spatial_ar = TRUE)
+  shapefile_path = "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp",
+  sf_block_col = "CODIGO_",
+  spatial_crs = NA,             # Optional projected CRS (e.g., 32719). NA = keep CRS unless lon/lat (then use EPSG:3857)
   
   # Data
   data_file = "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_manzana_2016_01_to_2019_12.csv",
@@ -34,14 +44,37 @@ cfg <- list(
 )
 
 date_suffix <- format(Sys.Date(), "%Y%m%d")
-re_suffix <- paste0(
-  ifelse(cfg$include_block_re, "blockRE", "noBlockRE"),
-  "_",
-  ifelse(cfg$include_time_re, "timeRE", "noTimeRE")
-)
-run_suffix <- paste0(date_suffix, "_", re_suffix)
+if (!cfg$ar1_group %in% c("block", "global")) {
+  stop("cfg$ar1_group must be either 'block' or 'global'")
+}
 
-dir.create(cfg$output_dir, recursive = TRUE, showWarnings = FALSE)
+ar1_suffix <- ifelse(
+  cfg$include_ar1_temporal,
+  paste0("AR1-", cfg$ar1_group),
+  "noAR1"
+)
+
+# Run suffix is now just the date (model spec is in parent folder)
+run_suffix <- date_suffix
+
+# Output structure:
+# <output_dir>/<model_spec>/<run_suffix>/
+time_ar_spec <- ifelse(cfg$include_ar1_temporal, paste0("AR1-", cfg$ar1_group), "noAR1")
+# space_ar_spec <- ifelse(cfg$include_spatial_ar, "AR-EXP", "noAR")
+space_ar_spec <- ifelse(cfg$include_spatial_ar, "AR-Mat", "noAR")
+
+model_spec <- paste0(
+  "space-", ifelse(cfg$include_block_re, "RE", "noRE"),
+  "_time-", ifelse(cfg$include_time_re, "RE", "noRE"),
+  "_time-", time_ar_spec,
+  "_space-", space_ar_spec,
+  "_lag", cfg$max_lag,
+  "_k", cfg$kappa
+)
+
+model_output_dir <- file.path(cfg$output_dir, model_spec)
+run_output_dir <- file.path(model_output_dir, run_suffix)
+dir.create(run_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # =========================
 # 1. LOAD DATA
@@ -58,10 +91,80 @@ df <- df %>%
   ) %>%
   select(-c(CMF, CP, AREA))
 
+# Optional: add spatial coordinates by matching block names to shapefile IDs
+if (cfg$include_spatial_ar) {
+  if (is.null(cfg$shapefile_path) || !file.exists(cfg$shapefile_path)) {
+    stop("Spatial autocorrelation requested but shapefile not found: ", cfg$shapefile_path)
+  }
+
+  sf_blocks <- st_read(cfg$shapefile_path, quiet = TRUE)
+  if (!cfg$sf_block_col %in% names(sf_blocks)) {
+    stop("Spatial autocorrelation requested but sf block id column not found: ", cfg$sf_block_col)
+  }
+
+  # Use representative point coordinates (stable for polygons)
+  pts <- suppressWarnings(st_point_on_surface(sf_blocks))
+
+  # If lon/lat, transform to projected CRS for distance-based covariance
+  if (isTRUE(sf::st_is_longlat(pts))) {
+    pts <- st_transform(pts, 3857)
+  } else if (!is.na(cfg$spatial_crs)) {
+    pts <- st_transform(pts, cfg$spatial_crs)
+  }
+
+  xy <- st_coordinates(pts)
+  coords_df <- sf_blocks %>%
+    st_drop_geometry() %>%
+    mutate(
+      block = as.character(.data[[cfg$sf_block_col]]),
+      x = as.numeric(xy[, 1]),
+      y = as.numeric(xy[, 2])
+    ) %>%
+    select(block, x, y) %>%
+    distinct(block, .keep_all = TRUE)
+
+  df <- df %>%
+    mutate(block_chr = as.character(block)) %>%
+    left_join(coords_df, by = c("block_chr" = "block")) %>%
+    select(-block_chr)
+
+  # Scale coordinates for better numerical stability, then encode for glmmTMB spatial covariance
+  df <- df %>%
+    mutate(
+      x_sc = as.numeric(scale(x)),
+      y_sc = as.numeric(scale(y)),
+      xy = glmmTMB::numFactor(x_sc, y_sc)
+    )
+
+  # Single spatial field across all observations
+  df <- df %>% mutate(spatial = factor("all"))
+
+  cat("Spatial coordinates added from shapefile:\n")
+  cat("  ", cfg$shapefile_path, "\n", sep = "")
+  cat("Rows with missing x/y after join:", sum(is.na(df$x) | is.na(df$y)), "\n\n")
+}
+
+# Ordered monthly factor for AR(1) (must be in temporal order)
+time_levels <- df %>%
+  distinct(year_month, year_month_date) %>%
+  arrange(year_month_date) %>%
+  pull(year_month) %>%
+  unique()
+
+df <- df %>%
+  mutate(year_month_ar1 = factor(year_month, levels = time_levels, ordered = TRUE))
+
+# Grouping factor for AR(1): per-block or global
+if (identical(cfg$ar1_group, "global")) {
+  df <- df %>% mutate(ar1_group = factor("all"))
+} else {
+  df <- df %>% mutate(ar1_group = block)
+}
+
 # =========================
 # 2. STANDARDIZE NUMERIC COVARIATES
 # =========================
-lag_vars <- c("avg_temp", "rel_hum", "total_precip", "mean_ndvi") # ndmi and ndwi removed due to collinearity
+lag_vars <- c("avg_temp", "rel_hum", "total_precip", "mean_ndvi", "precip_max_day") # ndmi and ndwi removed due to collinearity
 unlagged_vars <- c("WS2M", "is_urban", "has_aljibes", "nr_aljibes", "is_WI", "is_WUI", "water_shortage", "water_containers")
 
 # Numeric variables to standardize (z-score)
@@ -177,6 +280,13 @@ if (cfg$include_block_re) {
 if (cfg$include_time_re) {
   random_effects <- c(random_effects, "(1 | year_month)")
 }
+if (cfg$include_ar1_temporal) {
+  random_effects <- c(random_effects, "ar1(year_month_ar1 + 0 | ar1_group)")
+}
+if (cfg$include_spatial_ar) {
+  # random_effects <- c(random_effects, "exp(xy + 0 | spatial)")
+  random_effects <- c(random_effects, "mat(xy + 0 | spatial)")
+}
 
 if (length(random_effects) > 0) {
   formula_str <- paste(formula_str, "+", paste(random_effects, collapse = " + "))
@@ -196,7 +306,9 @@ formula <- as.formula(formula_str)
 required_cols <- unique(c(
   "y_bt", "n_trials", fixed_effects,
   if (cfg$include_block_re) "block" else NULL,
-  if (cfg$include_time_re) "year_month" else NULL
+  if (cfg$include_time_re) "year_month" else NULL,
+  if (cfg$include_ar1_temporal) c("year_month_ar1", "ar1_group") else NULL,
+  if (cfg$include_spatial_ar) c("x_sc", "y_sc", "xy", "spatial") else NULL
 ))
 
 missing_required <- setdiff(required_cols, names(df_expanded))
@@ -216,15 +328,21 @@ if (sum(keep_rows) == 0) {
 
 df_model <- df_expanded[keep_rows, , drop = FALSE]
 
+cat("\nStarting model fit...\n")
+cat("Formula: ", formula_str, "\n")
+cat("Observations: ", nrow(df_model), "\n\n")
+
 model <- glmmTMB(
   formula,
   family = binomial(link = "logit"),
   data = df_model,
-  control = glmmTMBControl(optCtrl = list(iter.max = cfg$iter_max, eval.max = cfg$eval_max))
+  control = glmmTMBControl(optCtrl = list(iter.max = cfg$iter_max, eval.max = cfg$eval_max, trace = 6))
 )
 
+cat("\nModel fit complete!\n\n")
+
 # Save fitted model object
-model_file <- file.path(cfg$output_dir, paste0("glmm_model_", run_suffix, ".rds"))
+model_file <- file.path(run_output_dir, paste0("glmm_model_", run_suffix, ".rds"))
 saveRDS(model, model_file)
 
 # =========================
@@ -251,14 +369,15 @@ cat("\nFixed-effects interpretation (log-odds and odds ratios):\n")
 print(coef_table, n = nrow(coef_table))
 
 # Save coefficient interpretation table
-coef_table_file <- file.path(cfg$output_dir, paste0("glmm_fixed_effects_OR_", run_suffix, ".csv"))
+coef_table_file <- file.path(run_output_dir, paste0("glmm_fixed_effects_OR_", run_suffix, ".csv"))
 write_csv(coef_table, coef_table_file)
 
 # Save model summary and formula
-summary_file <- file.path(cfg$output_dir, paste0("glmm_summary_", run_suffix, ".txt"))
+summary_file <- file.path(run_output_dir, paste0("glmm_summary_", run_suffix, ".txt"))
 summary_output <- capture.output(summary(model))
 writeLines(c(
   paste0("Run suffix: ", run_suffix),
+  paste0("Model spec folder: ", model_spec),
   paste0("Formula: ", formula_str),
   "",
   summary_output
@@ -294,15 +413,17 @@ df_summary <- df_expanded %>%
   rename(fitted_prob_baseline = baseline, fitted_prob_reactive = reactive)
 
 # Save data outputs for later checking/calling
-expanded_file <- file.path(cfg$output_dir, paste0("glmm_expanded_predictions_", run_suffix, ".csv"))
-summary_pred_file <- file.path(cfg$output_dir, paste0("glmm_summary_predictions_", run_suffix, ".csv"))
-cfg_file <- file.path(cfg$output_dir, paste0("glmm_config_", run_suffix, ".rds"))
+expanded_file <- file.path(run_output_dir, paste0("glmm_expanded_predictions_", run_suffix, ".csv"))
+summary_pred_file <- file.path(run_output_dir, paste0("glmm_summary_predictions_", run_suffix, ".csv"))
+cfg_file <- file.path(run_output_dir, paste0("glmm_config_", run_suffix, ".rds"))
 
 write_csv(df_expanded, expanded_file)
 write_csv(df_summary, summary_pred_file)
 saveRDS(cfg, cfg_file)
 
 cat("\nSaved outputs:\n")
+cat("  Model spec folder: ", model_output_dir, "\n", sep = "")
+cat("  Run folder: ", run_output_dir, "\n", sep = "")
 cat("  Model RDS: ", model_file, "\n", sep = "")
 cat("  Summary TXT: ", summary_file, "\n", sep = "")
 cat("  Fixed effects OR CSV: ", coef_table_file, "\n", sep = "")
@@ -380,6 +501,6 @@ p_probs <- ggplot(df_plot_long, aes(x = year_month_date, y = probability, color 
   theme_minimal() +
   theme(legend.position = "bottom")
 
-plot_file <- file.path(cfg$output_dir, paste0("probabilities_timeseries_", run_suffix, ".png"))
+plot_file <- file.path(run_output_dir, paste0("probabilities_timeseries_", run_suffix, ".png"))
 ggsave(plot_file, p_probs, width = 12, height = 6, dpi = 150)
 cat("  Probability plot PNG: ", plot_file, "\n", sep = "")
