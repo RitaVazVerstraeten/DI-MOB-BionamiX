@@ -387,7 +387,7 @@ A key question remains: are we overdoing it by modeling household persistence, v
 
 \section{Penalized GLMM with Block Random Effects}
 
-This section describes the maximum-likelihood penalized GLMM implemented in \texttt{Penalized\_GLMM\_with\_Block\_RE.r}. The model is estimated at block--month level and uses ridge-type penalties for regularization.
+This section describes the maximum-likelihood GLMM implemented in \texttt{Penalized\_GLMM.r}. The model is estimated at block--month level using \texttt{glmmTMB} in R.
 
 \subsection{Data Structure and Covariates}
 
@@ -396,110 +396,182 @@ For each observation (block $b$, month $t$), the model uses:
 \item $y_{bt}$: positive houses (\texttt{Houses\_pos\_IS}),
 \item $N_b^{HH}$: inspected houses (\texttt{Inspected\_houses}),
 \item $C_{bt}$: dengue cases (\texttt{cases}),
-\item lagged environmental covariates (temperature, humidity, precipitation, wind, NDMI, NDWI, NDVI),
-\item unlagged block covariates (\texttt{is\_urban}, \texttt{has\_aljibes}, \texttt{nr\_aljibes}, \texttt{is\_WI}, \texttt{is\_WUI}, \texttt{water\_shortage}).
+\item \textbf{lagged environmental covariates} (lags 0 to $L=1$): temperature, humidity, precipitation, NDVI,
+\item \textbf{unlagged block covariates}: urban status, water infrastructure indicators, water shortage.
 \end{itemize}
 
-Lagged covariates are included up to $L=2$ months, and all lagged predictors are standardized (z-score).  \\
+All numeric covariates (both lagged and unlagged) are standardized (z-score).
+Therefore, fixed-effect coefficients for numeric predictors are interpreted on a one-standard-deviation scale (change in log-odds for a +1 SD increase in the predictor).
 
-\sout{Seasonality is captured with harmonic terms:
+\subsection{Data Expansion: Baseline and Reactive Splits}
+
+Rather than fitting the mixture directly, the data are expanded into two rows per (block, month) pair when cases \(>\) 0:
+
+\textbf{Baseline (systematic surveillance):}
 \begin{equation}
-\sin\left(2\pi m_t/12\right), \qquad \cos\left(2\pi m_t/12\right),
+n_{bt}^{(base)} = \lfloor (1 - \omega_{bt}) n_{bt} \rfloor, \quad y_{bt}^{(base)} = \lfloor y_{bt}(1-\omega_{bt}) \rfloor,
 \end{equation}
-where $m_t$ is calendar month.}
+where $\omega_{bt} = \frac{\kappa C_{bt}}{N_b^{HH} + \kappa C_{bt}}$ is the proportion of visits that are reactive.
 
-We didn't add the harmonic for seasonality out of fear that the environmental weights get shrunk if harmonics "explain away" seasonality first. Then the temperature/precip coefficients might appear weaker than they truly are.
-
-
-
-\subsection{Linear Predictor and Ecological Probability}
-
-For each row $i$ (corresponding to block--month pair), the ecological linear predictor is:
+\textbf{Reactive (additional inspections):}
 \begin{equation}
-\eta_i = \alpha + \mathbf{x}^{(season)}_i \boldsymbol{\beta}_{season}
-+ \mathbf{x}^{(lag)}_i \mathbf{w}
-+ \mathbf{x}^{(unlag)}_i \mathbf{w}_u
-+ u_{b(i)},
-\end{equation}
-with block random effect $u_b$. The baseline mosquito positivity is:
-\begin{equation}
-p_i = \text{logit}^{-1}(\eta_i).
+n_{bt}^{(react)} = \lfloor \omega_{bt} n_{bt} \rfloor, \quad y_{bt}^{(react)} = \lfloor y_{bt} \omega_{bt} \rfloor, \quad \text{with reactive\_shift} = \log(1 + C_{bt}).
 \end{equation}
 
-\subsection{Reactive Shift and Mixture Observation Process}
+The \texttt{reactive\_shift} variable is a covariate added to reactive rows that captures the intensity of the outbreak, allowing the model to estimate whether positivity increases with dengue case load beyond what is expected from systematic surveillance alone.  
+\\
+For months with no cases ($C_{bt}=0$), only a baseline row is created. For rows where cases \(>\) 0, one baseline row and one reactive surveillance row are created.  
+\\
 
-Reactive positivity is defined for case months:
+Example: if the original dataset was $n_{bt}$ = 100 and $C_{bt}$ = 5, with $\kappa$ set to 2, this would become baseline = 90 and reactive = 10 visits. 
+
+\subsubsection{Surveillance-Mixture Representation}
+
+This data expansion encodes a \textbf{latent two-process data-generating mechanism}: each original observation is decomposed into a baseline component (routine inspections) and a reactive component (case-triggered inspections). Both components are then treated as separate binomial contributions within the same GLMM, effectively representing:
 \begin{equation}
-p_i^R =
-\begin{cases}
-p_i, & C_i=0,\\
-\text{logit}^{-1}\left(\eta_i + \delta_0 + \delta_1 \log C_i\right), & C_i>0.
-\end{cases}
+\text{original signal} \approx \text{baseline part} + \text{reactive part}.
 \end{equation}
 
-With fixed $\kappa=2$, total effort is:
-\begin{equation}
-n_i = N_i^{HH} + \kappa C_i, 
-\qquad
-\omega_i = \frac{\kappa C_i}{n_i} \;\; (C_i>0),
-\end{equation}
-and effective observed positivity is:
-\begin{equation}
-\pi_i =
-\begin{cases}
-p_i, & C_i=0,\\
-(1-\omega_i)p_i + \omega_i p_i^R, & C_i>0.
-\end{cases}
-\end{equation}
-
-The likelihood is:
-\begin{equation}
-y_i \sim \text{Binomial}(n_i,\pi_i).
-\end{equation}
-
-\subsection{Penalized Objective Function}
-
-Parameters are estimated by minimizing penalized negative log-likelihood:
-\begin{equation}
-\mathcal{J}(\theta) = -\sum_i \log \Pr(y_i \mid n_i,\pi_i)
-+ \frac{\|\mathbf{w}\|^2}{2\lambda_w}
-+ \frac{\|\mathbf{w}_u\|^2}{2\lambda_u^{(unlag)}}
-+ \frac{\|\boldsymbol{\beta}_{season}\|^2}{2\lambda_{season}}
-+ \frac{\|\mathbf{u}\|^2}{2\lambda_{u}\sigma_u^2},
-\end{equation}
-with $\sigma_u=\exp(\log \sigma_u)$ and tuning constants set in code (default: 10).
-
-\subsection{Estimation and Outputs}
-
-Optimization is performed with \texttt{nlminb}. The script returns:
+\textbf{Practical implications:}
 \begin{itemize}
-\item fitted ecological probabilities $\hat p_{bt}$,
-\item fitted reactive probabilities $\hat p^R_{bt}$,
-\item estimated block effects $\hat u_b$ and $\hat\sigma_u$,
-\item diagnostic plots: observed vs fitted, $\hat p_{bt}$ vs $\hat p^R_{bt}$, and distribution of block effects.
+\item \textbf{Bias adjustment:} Reactive surveillance is not random. The decomposition allows \texttt{reactive\_shift} to capture extra detection pressure due to outbreaks, reducing surveillance-induced confounding.
+\item \textbf{Increased rows, weighted by trials:} Rebinding baseline and reactive rows increases sample size, but each row retains its own $n_{trials}$; likelihood weight is still driven by trial counts.
+\item \textbf{Two fitted probabilities per block--month:} After prediction, the model produces both baseline fitted probability $\hat{p}_{bt}$ and reactive fitted probability $\hat{p}_{bt}^R$ for each original unit.
+\item \textbf{Conditional interpretation:} Model coefficients describe effects conditional on this surveillance-mixture decomposition, with $\delta$ representing the systematic log-odds change linked to reactive surveillance intensity.
 \end{itemize}
 
-This model is a penalized frequentist approximation of the hierarchical surveillance-correction framework, retaining reactive-bias correction while remaining computationally efficient.
+\subsection{Critical Assumption: Proportional Allocation of Positives}
 
-\subsection{Model Development Steps and Main Findings}
+\textbf{Flawed Assumption:} The data expansion above assumes that observed positives are split proportionately to the fraction of reactive inspections:
+\begin{equation}
+\frac{y_{bt}^{(base)}}{n_{bt}^{(base)}} = \frac{y_{bt}^{(react)}}{n_{bt}^{(react)}} = \frac{y_{bt}}{n_{bt}}.
+\end{equation}
 
-To assess robustness and structural sensitivity, we evaluated several nested model variants during development.
+This is a \textbf{strong and problematic} assumption because:
 
-\subsubsection*{Step 0: Baseline penalized GLMM without block random effects}
+\begin{enumerate}
+\item \textbf{Reactive inspections are targeted.} Cases $C_{bt}$ are concentrated in specific households or neighborhoods. Reactive inspections focus on these high-risk locations, making them mechanically more likely to detect positive houses than random systematic inspections.
 
-\subsubsection*{Step 1: Baseline penalized GLMM with block random effects}
-We began with the full penalized model including block random intercepts $u_b$. This served as the reference specification and captured persistent block-level heterogeneity not explained by observed covariates. The random effect variance $\hat\sigma_u$ was moderate, suggesting that unobserved block structure (e.g., microhabitat, unmeasured infrastructure) contributes meaningfully to mosquito risk.
+\item \textbf{Positivity rates likely differ by inspection type.} The true positivity rate in reactively inspected households is almost certainly \textit{higher} than in systematically inspected ones. Proportional allocation ignores this heterogeneity, leading to underestimation of $p_{bt}^R$ (the reactive detection probability) and potential bias in the reactive shift term $\delta$.
 
-\subsubsection*{Step 2: Removal of block random effects}
-We then fitted a model without $u_b$ to test whether fixed effects alone were sufficient. Fit quality decreased noticeably, and residual spatial patterning became more evident in diagnostic plots. This indicated that block-level structure is not fully absorbed by the available spatial covariates, supporting the use of random effects.
+\item \textbf{Non-independence of effort and detection.} The number of reactive inspections is determined by observed cases $C_{bt}$, which are themselves outputs of the (unobserved) underlying positivity $p_{bt}$. This creates a confounding between effort allocation and the ecological signal we seek to estimate.
 
-\subsubsection*{Step 3: Removal of temporal random effects (where applicable)}
+\item \textbf{Invalid synthetic data split.} Splitting observed positives in proportion to effort assumes the data-generating process respects effort proportionality. In reality, reactive inspections are specifically triggered \textit{because} cases occurred, suggesting higher local mosquito prevalence. The proportional split introduces artificial noise and can bias estimates of both $p_{bt}$ and $\delta$.
+\end{enumerate}
 
+\textbf{Implications:} The magnitude and even the sign of the reactive shift parameter $\delta$ may be unreliable. If reactive inspections genuinely find more positives per inspection, then $\delta$ should capture this; but the proportional allocation may obscure or distort this signal. A more principled approach would model the selection process explicitly (e.g., a Heckman selection model) or use sensitivity analysis to test how results change under alternative allocation schemes.
 
-\subsubsection*{Step 4: Addition of spatial autocorrelation structure}
+For now, this limitation should be acknowledged when interpreting the reactive shift, and future work should prioritize obtaining data on which inspections were systematic vs.\ reactive to enable more rigorous estimation.
 
+\subsection{Linear Predictor and GLMM Model}
 
-\subsubsection*{Summary interpretation}
+For each row $i$ (baseline or reactive), the linear predictor is:
+\begin{equation}
+\eta_i = \alpha + \sum_{\ell=0}^{L} \mathbf{w}_\ell \mathbf{x}^{(lag)}_\ell + \mathbf{w}_u \mathbf{x}^{(unlag)} + \delta \cdot \text{reactive\_shift}_i + u_{b(i)},
+\end{equation}
+where:
+\begin{itemize}
+\item $\mathbf{w}_\ell$ = lag-specific coefficient vectors for lagged covariates,
+\item $\mathbf{w}_u$ = coefficient vector for unlagged covariates,
+\item $\delta$ = coefficient for reactive shift (log of cases + 1),
+\item $u_b \sim \text{Normal}(0, \sigma_u)$ = random intercept for block $b$ (optional),
+\item $v_t \sim \text{Normal}(0, \sigma_v)$ = random intercept for time $t$ (optional).
+\end{itemize}
+
+\subsection{Observation Model}
+
+The likelihood for each row is:
+\begin{equation}
+y_i \sim \text{Binomial}(n_i, \pi_i), \quad \text{where} \quad \pi_i = \text{logit}^{-1}(\eta_i).
+\end{equation}
+
+In \texttt{glmmTMB}, this is specified as \texttt{cbind(y\_i, n\_i - y\_i) \textasciitilde{} \ldots}, which creates success/failure counts.
+
+\subsection{Estimation via glmmTMB}
+
+The model is fit using:
+\begin{itemize}
+\item \textbf{Optimizer:} \texttt{nlminb} (via TMB backend),
+\item \textbf{Likelihood:} Binomial with logit link,
+\item \textbf{Random effects:} Block intercept $u_b$ and/or time intercept $v_t$ (configurable),
+\item \textbf{Regularization:} None explicit; standard frequentist inference with MLE.
+\end{itemize}
+
+\subsection{Model Outputs}
+
+The script produces:
+\begin{itemize}
+\item Fitted ecological probabilities $\hat{p}_{bt}$ (baseline rows),
+\item Fitted reactive probabilities $\hat{p}_{bt}^R$ (reactive rows),
+\item Block random effect estimates $\hat{u}_b$ and $\hat{\sigma}_u$,
+\item Aggregated predictions at original (block, month) resolution,
+\item Diagnostic plot comparing observed vs.\ fitted probabilities over time.
+\end{itemize}
+
+\subsection{Model Flexibility}
+
+The configuration allows easy modification via the \texttt{cfg} list:
+\begin{itemize}
+\item \texttt{include\_block\_re}: Toggle block random intercept,
+\item \texttt{include\_time\_re}: Toggle time random intercept,
+\item \texttt{max\_lag}: Maximum lag for environmental covariates (default: 1),
+\item \texttt{kappa}: Scaling factor for reactive inspections per case (default: 2),
+\item \texttt{iter\_max, eval\_max}: Optimization convergence criteria.
+\end{itemize}
+
+This approach bridges the hierarchical conceptual model (Section~\ref{sec:framework}) with practical frequentist estimation, offering computational efficiency and straightforward interpretation of fixed and random effects.
+
+\appendix
+\section{Appendix: Example GLMM Results and Interpretation}
+
+\subsection{Fixed Effects (Odds-Ratio Interpretation)}
+
+Table~\ref{tab:glmm_example_fixed} reports all fixed effects from \texttt{glmm\_fixed\_effects\_OR\_20260309\_blockRE\_timeRE.csv}, including estimate, standard error, p-value, and odds ratio.
+
+\begin{table}[h]
+\centering
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccc}
+\toprule
+Term & Estimate ($\beta$) & Std. Error & p-value & OR ($e^{\beta}$) \\
+\midrule
+(Intercept) & -6.131 & 0.082 & $< 10^{-15}$ & 0.002 \\
+\texttt{reactive\_shift} & -0.813 & 0.216 & $1.62 \times 10^{-4}$ & 0.443 \\
+\texttt{is\_WUITRUE} & -0.496 & 0.102 & $1.25 \times 10^{-6}$ & 0.609 \\
+\texttt{is\_urbanTRUE} & 0.484 & 0.068 & $1.36 \times 10^{-12}$ & 1.623 \\
+\texttt{mean\_ndvi\_lag1} & -0.201 & 0.042 & $1.46 \times 10^{-6}$ & 0.818 \\
+\texttt{total\_precip\_lag0} & -0.185 & 0.104 & 0.0744 & 0.831 \\
+\texttt{avg\_temp\_lag1} & 0.180 & 0.121 & 0.1347 & 1.198 \\
+\texttt{has\_aljibesTRUE} & -0.146 & 0.413 & 0.7243 & 0.864 \\
+\texttt{rel\_hum\_lag1} & 0.145 & 0.123 & 0.2356 & 1.157 \\
+\texttt{rel\_hum\_lag0} & 0.137 & 0.123 & 0.2652 & 1.146 \\
+\texttt{water\_shortageTRUE} & 0.126 & 0.099 & 0.2033 & 1.134 \\
+\texttt{is\_WITRUE} & -0.111 & 0.064 & 0.0824 & 0.895 \\
+\texttt{avg\_temp\_lag0} & 0.107 & 0.137 & 0.4346 & 1.113 \\
+\texttt{total\_precip\_lag1} & -0.101 & 0.100 & 0.3135 & 0.904 \\
+\texttt{WS2M} & 0.095 & 0.095 & 0.3179 & 1.099 \\
+\texttt{mean\_ndvi\_lag0} & -0.070 & 0.044 & 0.1167 & 0.933 \\
+\texttt{nr\_aljibes} & 0.024 & 0.049 & 0.6238 & 1.025 \\
+\texttt{water\_containers} & 0.006 & 0.027 & 0.8162 & 1.006 \\
+\bottomrule
+\end{tabular}
+}
+\caption{All fixed effects from the fitted GLMM (block and time random intercepts included).}
+\label{tab:glmm_example_fixed}
+\end{table}
+
+\textbf{Odds-ratio level interpretation:} For each term, $\exp(\beta)$ is the multiplicative change in odds for a one-unit increase in the predictor.
+
+\textbf{Standardized-estimate interpretation:} For continuous predictors (NDVI, temperature, precipitation, humidity, windspeed, number of aljibes, number of depositos), one unit corresponds to \textbf{+1 SD} because variables were z-standardized before fitting. Therefore, $\beta=-0.201$ for \texttt{mean\_ndvi\_lag1} means that a +1 SD NDVI increase changes log-odds by -0.201, equivalent to OR $=0.818$ (18.2\% lower odds). Likewise, $\beta=0.180$ for \texttt{avg\_temp\_lag1} implies OR $=1.198$ (19.8\% higher odds) per +1 SD.
+
+\subsection{Baseline vs Reactive Fitted Probabilities}
+
+For each original block--month unit with $C_{bt}>0$, the expanded model yields two fitted probabilities:
+\begin{itemize}
+\item baseline fitted probability $\hat{p}_{bt}$,
+\item reactive fitted probability $\hat{p}_{bt}^{R}$.
+\end{itemize}
 
 
 \end{document}
