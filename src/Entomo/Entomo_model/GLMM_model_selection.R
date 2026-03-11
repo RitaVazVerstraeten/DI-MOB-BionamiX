@@ -47,11 +47,11 @@ df <- df %>%
 
 # -------------------------------------------------------------------
 # Subset to first 100 blocks for test run
-# set.seed(42)  # for reproducibility
-# unique_blocks <- unique(df$block)
-# blocks_to_keep <- unique_blocks[1:min(100, length(unique_blocks))]
-# df <- df %>% filter(block %in% blocks_to_keep)
-# cat("Subset to", n_distinct(df$block), "blocks for test run\n")
+set.seed(42)  # for reproducibility
+unique_blocks <- unique(df$block)
+blocks_to_keep <- unique_blocks[1:min(100, length(unique_blocks))]
+df <- df %>% filter(block %in% blocks_to_keep)
+cat("Subset to", n_distinct(df$block), "blocks for test run\n")
 # -------------------------------------------------------------------
 
 # Add spatial coordinates
@@ -88,7 +88,8 @@ if (cfg$include_spatial_ar) {
 
 # Standardize numeric covariates
 lag_vars <- c("avg_temp",  "rel_hum", "total_precip", "mean_ndvi", "precip_max_day_resid")
-unlagged_vars <- c("is_urban", "has_aljibes", "nr_aljibes", "is_WI", "is_WUI", "water_shortage", "water_containers")
+unlagged_vars <- c("is_urban", "has_aljibes", "nr_aljibes", "is_WI", "is_WUI", "water_shortage", "water_containers", "nr_aljibes", "water_containers", "WS2M")
+
 numeric_vars <- c(lag_vars, "nr_aljibes", "water_containers", "WS2M")
 for (var in numeric_vars) {
   if (var %in% names(df)) {
@@ -176,9 +177,8 @@ model_full <- glmmTMB(
 )
 cat("Full model AIC:", AIC(model_full), "\n")
 
-# Stepwise backward selection
-# Remove one predictor at a time, refit, and compare AIC
 results <- tibble(predictor = character(), AIC = numeric())
+
 for (pred in all_predictors) {
   predictors_minus <- setdiff(all_predictors, pred)
   formula_str_minus <- paste(
@@ -189,50 +189,25 @@ for (pred in all_predictors) {
     formula_str_minus <- paste(formula_str_minus, "+ (1 | year_month)")
   }
   if (cfg$include_spatial_ar) {
-    formula_str_minus <- paste(formula_str_minus, "+ exp(xy + 0 | spatial)")
+    formula_str_minus <- paste(formula_str_minus, "+ exp(xy + 0 | spatial, range = 400)")
   }
   formula_minus <- as.formula(formula_str_minus)
   model_minus <- glmmTMB(
     formula_minus,
     family = binomial(link = "logit"),
     data = df_model,
-    control = glmmTMBControl(optCtrl = list(iter.max = cfg$iter_max, eval.max = cfg$eval_max, trace = 6))
+    control = glmmTMBControl(optCtrl = list(iter.max = cfg$iter_max, eval.max = cfg$eval_max, trace = 10))
   )
   results <- results %>% add_row(predictor = pred, AIC = AIC(model_minus))
-    cat("Removed", pred, ": AIC =", AIC(model_minus), "\n")
-    # Save results after each fit
-    write_csv(results, file.path(cfg$output_dir, "model_selection_AIC.csv"))
-    # Save model summary for each evaluated model
-    summary_output <- capture.output(summary(model_minus))
-    summary_file <- file.path(cfg$output_dir, paste0("model_summary_removed_", pred, ".txt"))
-    writeLines(summary_output, summary_file)
+  cat("Removed", pred, ": AIC =", AIC(model_minus), "\n")
+  # Save results after each fit
+  write_csv(results, file.path(cfg$output_dir, "model_selection_AIC.csv"))
+  # Save model summary for each evaluated model
+  summary_output <- capture.output(summary(model_minus))
+  summary_file <- file.path(cfg$output_dir, paste0("model_summary_removed_", pred, ".txt"))
+  writeLines(summary_output, summary_file)
 }
 
 # Save results
 write_csv(results, file.path(cfg$output_dir, "model_selection_AIC.csv"))
 cat("\nModel selection results saved to model_selection_AIC.csv\n")
-
-# Optionally, select predictors with lowest AIC and refit final model
-best_predictors <- setdiff(all_predictors, results %>% filter(AIC == min(AIC)) %>% pull(predictor))
-final_formula_str <- paste(
-  "cbind(y_bt, n_trials - y_bt) ~",
-  paste(best_predictors, collapse = " + ")
-)
-if (cfg$include_time_re) {
-  final_formula_str <- paste(final_formula_str, "+ (1 | year_month)")
-}
-if (cfg$include_spatial_ar) {
-  final_formula_str <- paste(final_formula_str, "+ exp(xy + 0 | spatial)")
-}
-final_formula <- as.formula(final_formula_str)
-final_model <- glmmTMB(
-  final_formula,
-  family = binomial(link = "logit"),
-  data = df_model,
-  control = glmmTMBControl(optCtrl = list(iter.max = cfg$iter_max, eval.max = cfg$eval_max, trace = 6))
-)
-cat("\nFinal model formula:", final_formula_str, "\n")
-cat("Final model AIC:", AIC(final_model), "\n")
-
-saveRDS(final_model, file.path(cfg$output_dir, "glmm_final_model.rds"))
-cat("Final model saved to glmm_final_model.rds\n")
