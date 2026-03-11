@@ -18,7 +18,7 @@ cfg <- list(
   # Random effects to include
   include_block_re = FALSE,      # Random intercept for block (spatial)
   include_time_re = FALSE,      # Random intercept for time (temporal)
-  include_ar1_temporal = FALSE, # AR(1) temporal autocorrelation (within group)
+  include_ar1_temporal = TRUE, # AR(1) temporal autocorrelation (within group)
   ar1_group = "block",         # "block" (within-block AR1) or "global"
   include_spatial_ar = TRUE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
   # include_spatial_ar = TRUE,  # Matérn spatial autocorrelation: mat(xy + 0 | spatial)
@@ -357,20 +357,6 @@ cat("\nModel fit complete!\n\n")
 model_file <- file.path(run_output_dir, paste0("glmm_model_", run_suffix, ".rds"))
 saveRDS(model, model_file)
 
-  # ---- VIF for fixed effects ----
-  if (!requireNamespace("car", quietly = TRUE)) {
-    install.packages("car")
-  }
-  library(car)
-  cat("\nVIF for fixed effects:\n")
-  vif_vals <- tryCatch({
-    vif(model)
-  }, error = function(e) {
-    # If direct VIF fails, use design matrix
-    X <- model.matrix(model)
-    vif(X)
-  })
-  print(vif_vals)
 
 # =========================
 # 7. INSPECT RESULTS
