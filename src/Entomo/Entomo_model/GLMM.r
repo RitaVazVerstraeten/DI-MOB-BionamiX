@@ -29,10 +29,10 @@ cfg <- list(
   spatial_crs = NA,             # Optional projected CRS (e.g., 32719). NA = keep CRS unless lon/lat (then use EPSG:3857)
   
   # Data
-  data_file = "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_manzana_2016_01_to_2019_12.csv",
+  data_file = "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv",
   
   # Lag settings
-  max_lag = 1,
+  max_lag = 2,
   kappa = 2,  # multiplier for cases in n_bt calculation
 
   # Output
@@ -176,11 +176,11 @@ if (identical(cfg$ar1_group, "global")) {
 # =========================
 # 2. STANDARDIZE NUMERIC COVARIATES
 # =========================
-lag_vars <- c("avg_temp", "rel_hum", "total_precip", "mean_ndvi", "precip_max_day") # ndmi and ndwi removed due to collinearity
-unlagged_vars <- c("WS2M", "is_urban", "has_aljibes", "nr_aljibes", "is_WI", "is_WUI", "water_shortage", "water_containers")
+lag_vars <- c("avg_temp",  "total_precip", "mean_ndvi", "precip_max_day_resid") # ndmi and ndwi removed due to collinearity
+unlagged_vars <- c("is_urban", "has_aljibes", "nr_aljibes", "is_WI", "is_WUI", "water_shortage", "water_containers")
 
 # Numeric variables to standardize (z-score)
-numeric_vars <- c(lag_vars, "WS2M", "nr_aljibes", "water_containers")
+numeric_vars <- c(lag_vars, "nr_aljibes", "water_containers")
 
 for (var in numeric_vars) {
   if (var %in% names(df)) {
@@ -356,6 +356,21 @@ cat("\nModel fit complete!\n\n")
 # Save fitted model object
 model_file <- file.path(run_output_dir, paste0("glmm_model_", run_suffix, ".rds"))
 saveRDS(model, model_file)
+
+  # ---- VIF for fixed effects ----
+  if (!requireNamespace("car", quietly = TRUE)) {
+    install.packages("car")
+  }
+  library(car)
+  cat("\nVIF for fixed effects:\n")
+  vif_vals <- tryCatch({
+    vif(model)
+  }, error = function(e) {
+    # If direct VIF fails, use design matrix
+    X <- model.matrix(model)
+    vif(X)
+  })
+  print(vif_vals)
 
 # =========================
 # 7. INSPECT RESULTS
