@@ -162,15 +162,15 @@ if (identical(cfg$ar1_group, "global")) {
 }
 
 
-# =========================
-# OPTIONAL: SUBSET TO FIRST 100 BLOCKS (for testing)
-# =========================
-# Uncomment to enable faster testing
-set.seed(42)  # for reproducibility
-unique_blocks <- unique(df$block)
-blocks_to_keep <- sample(unique_blocks[1:min(100, length(unique_blocks))], size = min(100, length(unique_blocks)))
-df <- df %>% filter(block %in% blocks_to_keep)
-cat("Subset to", n_distinct(df$block), "blocks\n")
+# # =========================
+# # OPTIONAL: SUBSET TO FIRST 100 BLOCKS (for testing)
+# # =========================
+# # Uncomment to enable faster testing
+# set.seed(42)  # for reproducibility
+# unique_blocks <- unique(df$block)
+# blocks_to_keep <- sample(unique_blocks[1:min(100, length(unique_blocks))], size = min(100, length(unique_blocks)))
+# df <- df %>% filter(block %in% blocks_to_keep)
+# cat("Subset to", n_distinct(df$block), "blocks\n")
 
 
 # =========================
