@@ -47,11 +47,11 @@ df <- df %>%
 
 # -------------------------------------------------------------------
 # Subset to first 100 blocks for test run
-set.seed(42)  # for reproducibility
-unique_blocks <- unique(df$block)
-blocks_to_keep <- unique_blocks[1:min(100, length(unique_blocks))]
-df <- df %>% filter(block %in% blocks_to_keep)
-cat("Subset to", n_distinct(df$block), "blocks for test run\n")
+# set.seed(42)  # for reproducibility
+# unique_blocks <- unique(df$block)
+# blocks_to_keep <- unique_blocks[1:min(100, length(unique_blocks))]
+# df <- df %>% filter(block %in% blocks_to_keep)
+# cat("Subset to", n_distinct(df$block), "blocks for test run\n")
 # -------------------------------------------------------------------
 
 # Add spatial coordinates
@@ -152,7 +152,7 @@ if (cfg$include_time_re) {
   formula_str <- paste(formula_str, "+ (1 | year_month)")
 }
 if (cfg$include_spatial_ar) {
-  formula_str <- paste(formula_str, "+ exp(xy + 0 | spatial)")
+  formula_str <- paste(formula_str, "+ exp(xy + 0 | spatial, range = 400)")
 }
 formula <- as.formula(formula_str)
 
@@ -202,6 +202,10 @@ for (pred in all_predictors) {
     cat("Removed", pred, ": AIC =", AIC(model_minus), "\n")
     # Save results after each fit
     write_csv(results, file.path(cfg$output_dir, "model_selection_AIC.csv"))
+    # Save model summary for each evaluated model
+    summary_output <- capture.output(summary(model_minus))
+    summary_file <- file.path(cfg$output_dir, paste0("model_summary_removed_", pred, ".txt"))
+    writeLines(summary_output, summary_file)
 }
 
 # Save results

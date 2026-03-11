@@ -296,8 +296,8 @@ if (cfg$include_ar1_temporal) {
   random_effects <- c(random_effects, "ar1(year_month_ar1 + 0 | ar1_group)")
 }
 if (cfg$include_spatial_ar) {
-  random_effects <- c(random_effects, "exp(xy + 0 | spatial)")
-  # random_effects <- c(random_effects, "mat(xy + 0 | spatial)")
+  random_effects <- c(random_effects, "exp(xy + 0 | spatial, range = 400)")
+  # random_effects <- c(random_effects, "mat(xy + 0 | spatial, range = 400)")
 }
 
 if (length(random_effects) > 0) {
@@ -348,7 +348,7 @@ model <- glmmTMB(
   formula,
   family = binomial(link = "logit"),
   data = df_model,
-  control = glmmTMBControl(optCtrl = list(iter.max = cfg$iter_max, eval.max = cfg$eval_max, trace = 6))
+  control = glmmTMBControl(optCtrl = list(iter.max = cfg$iter_max, eval.max = cfg$eval_max, trace = 10))
 )
 
 cat("\nModel fit complete!\n\n")
