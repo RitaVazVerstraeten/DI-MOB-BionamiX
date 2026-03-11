@@ -18,10 +18,10 @@ cfg <- list(
   # Random effects to include
   include_block_re = FALSE,      # Random intercept for block (spatial)
   include_time_re = FALSE,      # Random intercept for time (temporal)
-  include_ar1_temporal = TRUE, # AR(1) temporal autocorrelation (within group)
+  include_ar1_temporal = FALSE, # AR(1) temporal autocorrelation (within group)
   ar1_group = "block",         # "block" (within-block AR1) or "global"
-  # include_spatial_ar = TRUE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
-  include_spatial_ar = TRUE,  # Exponential spatial autocorrelation: mat(xy + 0 | spatial)
+  include_spatial_ar = TRUE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
+  # include_spatial_ar = TRUE,  # Matérn spatial autocorrelation: mat(xy + 0 | spatial)
 
   # Spatial coordinates from shapefile (used when include_spatial_ar = TRUE)
   shapefile_path = "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp",
@@ -60,8 +60,8 @@ run_suffix <- date_suffix
 # Output structure:
 # <output_dir>/<model_spec>/<run_suffix>/
 time_ar_spec <- ifelse(cfg$include_ar1_temporal, paste0("AR1-", cfg$ar1_group), "noAR1")
-# space_ar_spec <- ifelse(cfg$include_spatial_ar, "AR-EXP", "noAR")
-space_ar_spec <- ifelse(cfg$include_spatial_ar, "AR-Mat", "noAR")
+space_ar_spec <- ifelse(cfg$include_spatial_ar, "AR-EXP", "noAR")
+# space_ar_spec <- ifelse(cfg$include_spatial_ar, "AR-Mat", "noAR")
 
 model_spec <- paste0(
   "space-", ifelse(cfg$include_block_re, "RE", "noRE"),
@@ -160,6 +160,18 @@ if (identical(cfg$ar1_group, "global")) {
 } else {
   df <- df %>% mutate(ar1_group = block)
 }
+
+
+# =========================
+# OPTIONAL: SUBSET TO FIRST 100 BLOCKS (for testing)
+# =========================
+# Uncomment to enable faster testing
+set.seed(42)  # for reproducibility
+unique_blocks <- unique(df$block)
+blocks_to_keep <- sample(unique_blocks[1:min(100, length(unique_blocks))], size = min(100, length(unique_blocks)))
+df <- df %>% filter(block %in% blocks_to_keep)
+cat("Subset to", n_distinct(df$block), "blocks\n")
+
 
 # =========================
 # 2. STANDARDIZE NUMERIC COVARIATES
@@ -284,8 +296,8 @@ if (cfg$include_ar1_temporal) {
   random_effects <- c(random_effects, "ar1(year_month_ar1 + 0 | ar1_group)")
 }
 if (cfg$include_spatial_ar) {
-  # random_effects <- c(random_effects, "exp(xy + 0 | spatial)")
-  random_effects <- c(random_effects, "mat(xy + 0 | spatial)")
+  random_effects <- c(random_effects, "exp(xy + 0 | spatial)")
+  # random_effects <- c(random_effects, "mat(xy + 0 | spatial)")
 }
 
 if (length(random_effects) > 0) {
