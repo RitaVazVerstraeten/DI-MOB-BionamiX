@@ -330,7 +330,7 @@ cat(formula_str, "\n\n")
 formula <- as.formula(formula_str)
 
 required_cols <- unique(c(
-  "y_bt", "n_trials", all_predictors,
+  "y_bt", "n_trials", fixed_effects,
   if (cfg$include_time_re) "year_month" else NULL,
   if (cfg$include_spatial_ar) c("x_sc", "y_sc", "xy", "spatial") else NULL
 ))
@@ -351,8 +351,8 @@ cat("Full model AIC:", AIC(model_full), "\n")
 
 results <- tibble(predictor = character(), AIC = numeric())
 
-for (pred in all_predictors) {
-  predictors_minus <- setdiff(all_predictors, pred)
+for (pred in fixed_effects) {
+  predictors_minus <- setdiff(fixed_effects, pred)
   formula_str_minus <- paste(
     "cbind(y_bt, n_trials - y_bt) ~",
     paste(predictors_minus, collapse = " + ")
