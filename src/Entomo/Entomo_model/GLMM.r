@@ -91,6 +91,10 @@ df <- df %>%
   ) %>%
   select(-c(CMF, CP, AREA))
 
+# create landcover as factor variable 
+df <- df %>%
+  mutate(landcover = factor(landcover))
+
 # Optional: add spatial coordinates by matching block names to shapefile IDs
 if (cfg$include_spatial_ar) {
   if (is.null(cfg$shapefile_path) || !file.exists(cfg$shapefile_path)) {
@@ -177,7 +181,7 @@ if (identical(cfg$ar1_group, "global")) {
 # 2. STANDARDIZE NUMERIC COVARIATES
 # =========================
 lag_vars <- c("avg_temp",  "total_precip", "mean_ndvi", "precip_max_day_resid") # ndmi and ndwi removed due to collinearity
-unlagged_vars <- c("is_urban", "has_aljibes", "nr_aljibes", "is_WI", "is_WUI", "water_shortage", "water_containers")
+unlagged_vars <- c("is_urban", "landcover", "has_aljibes", "nr_aljibes", "is_WI", "is_WUI", "water_shortage", "water_containers")
 
 # Numeric variables to standardize (z-score)
 numeric_vars <- c(lag_vars, "nr_aljibes", "water_containers")
