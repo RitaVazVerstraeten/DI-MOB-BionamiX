@@ -35,8 +35,10 @@ Observations table (one row per block-time combination):
 |has_aljibes | Binary | TRUE/FALSE value for whether/not there are underground cisternas within a 20m radius of the manzana |
 |nr_aljibes | Numeric | Number of underground water cisternas within 20m of the manzana |
 |water_shortage | Binary | TRUE/FALSE value for whether/not manzanas have reduced water provision (more days between water provision cycles) |
+|water_containers | Continuous | Average number of water containers per person available at the popular counsil level |
 |avg_temp | Numeric | average temperature (°C) for that manzana-month |
-|total_precip | Numeric | cummulative precipitation (mm) for that manzana-month |
+|total_precip | Numeric | cummulative precipitation (mm) for that manzana-month | max_precip_daily
+|precip_max_day | Numeric | cummulative precipitation (mm/24h) for the day in that manzana-month with the highest precipitation | 
 |rel_hum | Numeric | average relative humidity (%) for that manzana-month |
 
 <!-- |omega |	Numeric	| Reactive bias weight (calculated from C_bt) | -->
@@ -221,7 +223,9 @@ This is very important to keep in mind when joining the environmental data later
 library(sf)
 shapefile_path <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders"
 # Read the shapefile
-dimob_manzanas <- st_read(file.path(shapefile_path, "Manzanas vectores 21_11_2024_CMF column uncleaned/manzanero_AS_1a8_19112024.shp"))
+dimob_manzanas_old <- st_read(file.path(shapefile_path, "Manzanas vectores 21_11_2024_CMF column uncleaned/manzanero_AS_1a8_19112024.shp"))
+dimob_manzanas <- st_read(file.path(shapefile_path, "Manzanas_cleaned_05032026", "Mz_CMF_Correcto_2022026.shp"))
+
 dimob_areas <- st_read(file.path(shapefile_path, "Area de Salud/AS LIMITES 3022025.shp"))
 dimob_cps <- st_read(file.path(shapefile_path, "Consejo Popular/CONSEJOS Populares Cfgos 3022025.shp"))
 
@@ -233,8 +237,11 @@ dimob_cps <- st_read(file.path(shapefile_path, "Consejo Popular/CONSEJOS Popular
 ## Remove out-of-bound manzana (A8APSMMzFcSAMA)
 
 ```{r remove A8APSMMzFcSAMA from the list of manzanas and all the data}
+# dimob_manzanas <- dimob_manzanas %>%
+#   filter(CODIGO_ != "A8APSMMzFcSAMA")
+
 dimob_manzanas <- dimob_manzanas %>%
-  filter(CODIGO_ != "A8APSMMzFcSAMA")
+  filter(CODIGO_ != "")
 
 ento_epi_data <- ento_epi_data %>%
   filter(CODIGO_DIMOB != "A8APSMMzFcSAMA")
@@ -272,11 +279,11 @@ cat("Number of unique manzanas in shapefile: \n", length(shapefile_mz_names), "\
 
 # check which manzanas ARE in the shapefiles, but not in the data
 cat("\nManzanas in shapefile but not in data:\n")
-unique(setdiff(shapefile_mz_names, data_mz_names))  # NA               "A4CPSLMzTaller"
+unique(setdiff(shapefile_mz_names, data_mz_names))  # "A4CPBVMzAERO"   "A4CPSLMzTaller"
 
 # check which manzanas ARE in the data, but not in the shapefiles
 cat("\nManzanas in data but not in shapefile: \n")
-unique(setdiff(data_mz_names, shapefile_mz_names))  #  "A7CNAMzPPESC" "DD"   
+unique(setdiff(data_mz_names, shapefile_mz_names))  #  "A8APGuMzFcPSOL" "DD" 
 length(unique(setdiff(data_mz_names, shapefile_mz_names)))  # should be 0 -> is now 2
 
 ```
@@ -292,16 +299,28 @@ cat("Number of rows after filtering: ", nrow(ento_epi_data), "\n") # 50688 -> 72
 
 ## Manzana allocation to CP/AREA/CMF
 ```{r load the manzana allocation file}
-mz_allocation_path <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_ Demographic_Data/Mzlist_overview CMF allocation_Shared between Areas_Original Mzlist_PerArea.xlsx"
-mz_allocation <- suppressWarnings(read_excel(mz_allocation_path, sheet = "unique CMF allocation")) %>%
-  select(1:10) %>% # selects first 10 columns (A-J)
-  select(CODIGO_DIMOB, Area...2, MAP_PC, CMF_unico, MAP_Universo, Poblacion_3) %>%
-  rename(CP = MAP_PC, 
-  AREA = Area...2,
-  CMF = CMF_unico,
-  UNIVERSE = MAP_Universo)
+# mz_allocation_path <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_ Demographic_Data/Mzlist_overview CMF allocation_Shared between Areas_Original Mzlist_PerArea.xlsx"
+
+# mz_allocation <- suppressWarnings(read_excel(mz_allocation_path, sheet = "unique CMF allocation")) %>%
+#   select(1:10) %>% # selects first 10 columns (A-J)
+#   select(CODIGO_DIMOB, Area...2, MAP_PC, CMF_unico, MAP_Universo, Poblacion_3) %>%
+#   rename(CP = MAP_PC, 
+#   AREA = Area...2,
+#   CMF = CMF_unico,
+#   UNIVERSE = MAP_Universo)
+
+mz_allocation_path <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders/Manzanas_cleaned_05032026/Mzlist_per_Polygon_DIMOB_v03032026_CORRECTED.xlsx"
+
+mz_allocation <- read_excel(mz_allocation_path)
+
+mz_allocation <- mz_allocation %>%
+rename(AREA = Area, 
+CMF = CMF_unico, 
+UNIVERSE = MAP_Universo, 
+CP = MAP_PC)
 
 head(mz_allocation)
+
 # print(colnames(mz_allocation))
 ```
 
@@ -357,7 +376,7 @@ if (all(c("Inspected_houses", "UNIVERSE") %in% colnames(ento_epi_data))) {
   cat("Note: Inspected_houses or UNIVERSE not found in ento_epi_data.\n")
 }
 
-message("Mismatches alway occurring for same manzana, ",print(unique(mismatches$CODIGO_DIMOB)))
+message("Mismatches alway occurring for same manzana, ",print(unique(mismatches$CODIGO_DIMOB))) #  A5Mz0
 ```
 
 ### Use UNIVERSE as household count
@@ -369,7 +388,7 @@ ento_epi_data <- ento_epi_data %>%
 ```
 
 ```{r check manzanas with zero universe}
-manzanas_without_houses <- subset(ento_epi_data, ento_epi_data$Inspected_houses == 0)
+manzanas_without_houses <- subset(ento_epi_data, ento_epi_data$Inspected_houses == 0) # 70 unique manzanas 
 manzanas_without_houses_pos <- subset(manzanas_without_houses, manzanas_without_houses$Houses_pos_IS != 0)
 library(writexl)
 write_xlsx(manzanas_without_houses, 
@@ -549,15 +568,15 @@ What would make most sense -> to use the houseblock location itself (centroid) +
 **Actually**, the manzanas that have classification "TB" in the "MZ" variable indicate that these are *terreno baldio*, which means emtpy terrain. 
 So, these manzanas are actually not of interest for our analysis given that there will not be any mosquito measures in absence of houses (and therefore population). 
 
-### Exclude TB and empty manzanas
+### Exclude TB and empty manzanas - already done by Sylke in new files
 ```{r filter manzanas without TB}
-# Keep only manzanas that do NOT have "TB" in the MZ field and have non-empty MZ names
+# # Keep only manzanas that do NOT have "TB" in the MZ field and have non-empty MZ names
 dimob_manzanas_filtered <- dimob_manzanas %>%
   filter(!grepl("TB", MZ, ignore.case = TRUE) & CODIGO_ != "")
 
-cat("Original number of manzanas:", nrow(dimob_manzanas), "\n") #1480
-cat("Number of manzanas after filtering out TB:", nrow(dimob_manzanas_filtered), "\n") # 1415
-cat("Number of TB manzanas removed:", nrow(dimob_manzanas) - nrow(dimob_manzanas_filtered), "\n") # 65 removed -> 71
+# cat("Original number of manzanas:", nrow(dimob_manzanas), "\n") #1480
+# cat("Number of manzanas after filtering out TB:", nrow(dimob_manzanas_filtered), "\n") # 1415
+# cat("Number of TB manzanas removed:", nrow(dimob_manzanas) - nrow(dimob_manzanas_filtered), "\n") # 65 removed -> 71
 ```
 
 ### Re-plot areas after TB filter
@@ -618,6 +637,7 @@ Some manzanas are in fact huge.
   - NDWI -> mazana-month
   - temperature -> month
   - precipitation -> month
+  - max_precip_daily -> month
   - humidity -> month
   - wind speed -> month
   - WI -> manzana
@@ -626,6 +646,7 @@ Some manzanas are in fact huge.
   - urbanization -> manzana
   - aljibes -> manzana 
   - water_shortage -> manzana 
+  - water_containers -> consejo popular
 
 
 2. Join this environmental dataset to the ento_epi_data based on year_month and manzana
@@ -633,9 +654,9 @@ Some manzanas are in fact huge.
 ```{r prepare the evironmental dataset first}
 env_data_path <- "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality"
 
-ndvi <- read_csv(file.path(env_data_path, "NDVI", "NDVI_per_manzana_2015_2019_all_months.csv"), show_col_types = FALSE)
-ndwi <- read_csv(file.path(env_data_path, "NDWI", "NDWI_per_manzana_2015_2019_all_months.csv"), show_col_types = FALSE)
-ndmi <- read_csv(file.path(env_data_path, "NDMI", "NDMI_per_manzana_2015_2019_all_months.csv"), show_col_types = FALSE)
+ndvi <- read_csv(file.path(env_data_path, "NDVI", "NDVI_per_manzana_nobuf_2015_2025_all_months.csv"), show_col_types = FALSE)
+ndwi <- read_csv(file.path(env_data_path, "NDWI", "NDWI_per_manzana_nobuf_2015_2025_all_months.csv"), show_col_types = FALSE)
+ndmi <- read_csv(file.path(env_data_path, "NDMI", "NDMI_per_manzana_nobuf_2015_2025_all_months.csv"), show_col_types = FALSE)
 windspeed <- read_csv(file.path(env_data_path, "WindSpeed", "wind_speed_2015_2019_monthly.csv"), show_col_types = FALSE)
 landcover <- read_csv(file.path(env_data_path, "LandCover", "LandCover_per_manzana_2021.csv"), show_col_types = FALSE)
 wi <- read_csv(file.path(env_data_path, "WI", "WI_per_manzana_100mBuffer_classification.csv"), show_col_types = FALSE)
@@ -644,6 +665,7 @@ urban <- read_csv(file.path(env_data_path, "WUI", "WSF_per_manzana_noBuffer_clas
 meteo_daily <- read_xlsx("/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx")
 aljibes <- read_csv(file.path(env_data_path, "aljibes", "20m_buffer_manzanas_aljibes.csv"), show_col_types=FALSE)
 water_shortage <- read_csv(file.path(env_data_path, "abasto", "no_buffer_manzanas_water_shortage.csv"), show_col_types=FALSE)
+water_containers <- read_csv(file.path(env_data_path, "abasto", "avg_water_tank_by_mz.csv"), show_col_types=FALSE)
 ```
 
 
@@ -693,6 +715,10 @@ water_shortage <- water_shortage %>%
     manzana_id = CODIGO_,
     water_shortage = has_shortage) %>%
   select(manzana_id, water_shortage)
+
+water_containers <- water_containers %>%
+  rename(manzana_id = CODIGO_DIMOB) %>%
+  select(manzana_id, water_containers)
 ```
 
 ```{r keep relevant columns for landcover}
@@ -731,27 +757,33 @@ meteo_monthly <- meteo_daily %>%
     avg_temp = mean(Temp_med, na.rm = TRUE),
     rel_hum = mean(Humedad_r_med, na.rm = TRUE),
     total_precip = sum(precip_ponderada, na.rm = TRUE),
+    precip_max_day = max(precip_ponderada, na.rm = TRUE),
     .groups = "drop"
-  )
+  ) %>%
+  filter(year_month >= "2016_01" & year_month <= "2019_12")
 ```
 
 
 **Temporal variables** 
-  - temperature -> month (2015-01 -> 2019-12)
-  - precipitation -> month (2015-01 -> 2019-12)
-  - humidity -> month (2015-01 -> 2019-12)
-  - wind speed -> month (2015-01 -> 2019-12)
+  - temperature -> month (2016-01 -> 2019-12)
+  - precipitation -> month (2016-01 -> 2019-12)
+  - precip_max_day -> month (2016-01 -> 2019-12)
+  - humidity -> month (2016-01 -> 2019-12)
+  - wind speed -> month (2016-01 -> 2019-12)
 
 **Spatial variables**
   - WI -> manzana
   - WUI -> manzana
   - LandCover -> manzana
+  - aljibes -> manzana
+  - water_containers -> manzana (CP)
+  - 
   - water shortage classification -> manzana
 
 **Spatio-temporal variables**
-  - NDVI -> mazana-month (2016-04 -> 2019-12)
-  - NDMI -> mazana-month (2016-04 -> 2019-12)
-  - NDWI -> mazana-month (2016-04 -> 2019-12)
+  - NDVI -> mazana-month (2016-01 -> 2019-12)
+  - NDMI -> mazana-month (2016-01 -> 2019-12)
+  - NDWI -> mazana-month (2016-01 -> 2019-12)
 
 ## Build temporal variables (monthly)
 ```{r aggregate the temporal variables based on year_month}
@@ -761,29 +793,30 @@ environmental_temp <- meteo_monthly %>%
 
 # select only the temporal var's as of 2016-04, since the spatio-temporal variables are only available from 2016-04 onwards
 environmental_temp <- environmental_temp %>%
-  filter(year_month >= "2016_04") 
+  filter(year_month >= "2016_01" & year_month <= "2019_12")
 ```
 
 
 ## Build spatial variables (per manzana)
 ```{r aggregate the spatial variables based on manzana_id}
 setdiff(unique(landcover$manzana_id), wi$manzana_id)  # check if all manzanas in landcover are in wi
-setdiff(unique(landcover$manzana_id), wui$manzana_id)
+setdiff(unique(landcover$manzana_id), wui$manzana_id) # 
 
 environmental_spatial <- landcover %>%
   left_join(wi, by = "manzana_id") %>%
   left_join(wui, by = "manzana_id") %>%
   left_join(urban, by = "manzana_id") %>%
   left_join(aljibes, by = "manzana_id") %>%
-  left_join(water_shortage, by = "manzana_id")
+  left_join(water_shortage, by = "manzana_id") %>%
+  left_join(water_containers, by = "manzana_id")
 ```
 
 ## Build spatio-temporal variables (per manzana-month)
 ```{r aggregate the spatio-temporal variables based on manzana_id and year_month}
 
-environmental_spatio_temp <- ndmi %>%
+environmental_spatio_temp <- ndvi %>%
   left_join(ndwi, by = c("manzana_id", "year_month"), relationship = "one-to-one") %>%
-  left_join(ndvi, by = c("manzana_id", "year_month"), relationship = "one-to-one")
+  left_join(ndmi, by = c("manzana_id", "year_month"), relationship = "one-to-one")
 
 ```
 
@@ -794,14 +827,14 @@ Same for the spatial variables, we will repeat the same value for all months wit
 ```{r aggregate all environmental variables into one dataset}
 
 # Define the time range
-start_month <- "2016_04"
+start_month <- "2016_01"
 end_month <- "2019_12"
 
 # Get all unique manzanas from spatial data
 all_manzanas <- unique(dimob_manzanas_filtered$CODIGO_)
 
 # Create all expected months in range
-all_expected_months <- seq(as.Date("2016-04-01"), as.Date("2019-12-01"), by="month")
+all_expected_months <- seq(as.Date("2016-01-01"), as.Date("2019-12-01"), by="month")
 all_months <- format(all_expected_months, "%Y_%m")
 
 cat("Building complete grid...\n")
@@ -840,14 +873,14 @@ cat("\nFinal environmental dataset dimensions:", nrow(env_all), "x", ncol(env_al
 final_env_data_path <-  "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality"
 final_env_data_path_1 <-  "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data"
 
-write_csv(env_all, file.path(final_env_data_path, "all_environmental_data_per_manzana_2016_04_to_2019_12.csv"))
-write_csv(env_all, file.path(final_env_data_path_1, "all_environmental_data_per_manzana_2016_04_to_2019_12.csv"))
+write_csv(env_all, file.path(final_env_data_path, "all_environmental_data_per_manzana_2016_01_to_2019_12.csv"))
+write_csv(env_all, file.path(final_env_data_path_1, "all_environmental_data_per_manzana_2016_01_to_2019_12.csv"))
 
 ```
 
 # Environmental data missingness checks
 ```{r check final file}
-env_all <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_manzana_2016_04_to_2019_12.csv")
+env_all <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_manzana_2016_01_to_2019_12.csv")
 # Check the final result
 head(env_all)
 cat("\nFinal environmental dataset dimensions:", nrow(env_all), "x", ncol(env_all), "\n")
@@ -860,9 +893,7 @@ print(colSums(is.na(env_all)))
 ```
 
 There are some missing values in the environmental dataset. 
-- ndmi, ndwi -> 10541
-- ndvi ->  14768 
-
+- ndvi, ndwi, ndmi -> 16174
 
 ```{r quality checks final manzanas in env data}
 # let's check whether all year_month - Manzana combinations are in the env_all dataset
@@ -1132,6 +1163,258 @@ cat("\n\nMonths with most missing data:\n")
 print(tail(complete_by_month, 10))
 ```
 
+## Impute missing data for NDVI, NDMI, and NDWI
+
+This section implements a hierarchical imputation strategy for the vegetation and moisture indices (NDVI, NDMI, NDWI). The strategy prioritizes:
+1. **Temporal interpolation** - Linear interpolation when both neighboring months have data
+2. **Manzana-specific climatology** - Monthly mean for each (manzana, month) if sufficient observations exist
+3. **Manzana-specific climatology** - Used for all remaining gaps without both neighbors
+
+```{r imputation function for NDVI NDMI NDWI}
+
+impute_NDXI_index <- function(df, index_name) {
+  
+  cat("\n", strrep("=", 60), "\n")
+  cat("Computing manzana-specific monthly climatology for", index_name, "...\n")
+  cat(strrep("=", 60), "\n")
+  
+  # Create a copy for imputation
+  df_imputed <- df %>% arrange(manzana, year_month)
+  
+  # Column names
+  mean_col <- paste0("mean_", tolower(index_name))
+  flag_col <- paste0("imputed_", tolower(index_name))
+  
+  # Calculate climatology: mean index for each (manzana, month) across all years
+  # Extract month from year_month format (YYYY_MM)
+  df_for_clim <- df_imputed %>%
+    mutate(month = as.integer(substr(year_month, 6, 7))) %>%
+    select(manzana, month, !!mean_col)
+  
+  climatology <- df_for_clim %>%
+    group_by(manzana, month) %>%
+    summarise(
+      climatology_mean = mean(!!sym(mean_col), na.rm = TRUE),
+      n_obs = sum(!is.na(!!sym(mean_col))),
+      .groups = "drop"
+    )
+  
+  cat(sprintf("  Climatology computed for %d (manzana, month) combinations\n", 
+              nrow(climatology)))
+  cat(sprintf("  Average observations per (manzana, month): %.1f\n", 
+              mean(climatology$n_obs, na.rm = TRUE)))
+  
+  # Merge climatology back
+  df_imputed <- df_imputed %>%
+    mutate(month = as.integer(substr(year_month, 6, 7))) %>%
+    left_join(climatology, by = c("manzana", "month"))
+  
+  # Identify missing values before imputation
+  missing_mask <- is.na(df_imputed[[mean_col]])
+  n_missing_before <- sum(missing_mask)
+  
+  # Keep track of which rows were originally missing for plotting/reporting
+  df_imputed <- df_imputed %>%
+    mutate(was_missing_before = is.na(!!sym(mean_col)))
+  
+  cat(sprintf("\nAnalyzing %d missing %s values for imputation strategy...\n", 
+              n_missing_before, index_name))
+  
+  # Check for adjacent time points within each manzana
+  # Note: year_month is in YYYY_MM format, so we can sort as character
+  df_imputed <- df_imputed %>%
+    arrange(manzana, year_month) %>%
+    group_by(manzana) %>%
+    mutate(
+      prev_value = lag(!!sym(mean_col), 1),
+      next_value = lead(!!sym(mean_col), 1),
+      is_missing = is.na(!!sym(mean_col)),
+      has_both_neighbors = is_missing & !is.na(prev_value) & !is.na(next_value),
+      sufficient_clim = n_obs >= 3
+    ) %>%
+    ungroup()
+  
+  # Step 1: Interpolate where BOTH neighbors exist
+  cat("\nStep 1: Interpolating where BOTH neighbors exist within manzana...\n")
+  
+  n_interpolated <- sum(df_imputed$has_both_neighbors, na.rm = TRUE)
+  
+  df_imputed <- df_imputed %>%
+    mutate(
+      !!mean_col := ifelse(
+        has_both_neighbors,
+        (prev_value + next_value) / 2,  # Linear interpolation
+        !!sym(mean_col)
+      )
+    )
+  
+  cat(sprintf("  Interpolated %d missing values\n", n_interpolated))
+  
+  # Step 2: Use climatology for gaps without both neighbors
+  cat("Step 2: Filling gaps without both neighbors using climatology...\n")
+  
+  # Recalculate missing mask after interpolation and fill with climatology
+  df_imputed <- df_imputed %>%
+    mutate(
+      is_missing = is.na(!!sym(mean_col)),
+      use_manzana_clim = is_missing
+    )
+  
+  n_climatology_manzana <- sum(df_imputed$use_manzana_clim, na.rm = TRUE)
+  
+  df_imputed <- df_imputed %>%
+    mutate(
+      !!mean_col := case_when(
+        use_manzana_clim ~ climatology_mean,
+        TRUE ~ !!sym(mean_col)
+      )
+    )
+
+  # Persistent flag for values that were imputed in this run
+  df_imputed <- df_imputed %>%
+    mutate(!!flag_col := was_missing_before & !is.na(!!sym(mean_col)))
+  
+  # Verify imputation
+  n_missing_after <- sum(is.na(df_imputed[[mean_col]]))
+  
+  cat("\n", strrep("=", 60), "\n")
+  cat(sprintf("%s Imputation Summary:\n", index_name))
+  cat(sprintf("  ✓ Interpolated (both neighbors present): %d\n", n_interpolated))
+  cat(sprintf("  ✓ Manzana-specific climatology: %d\n", n_climatology_manzana))
+  cat(sprintf("  Total imputed: %d\n", n_interpolated + n_climatology_manzana))
+  cat(sprintf("  Missing values remaining: %d\n", n_missing_after))
+  cat(strrep("=", 60), "\n")
+  
+  # Clean up temporary columns
+  df_imputed <- df_imputed %>%
+    select(-c(month, climatology_mean, n_obs, prev_value, next_value, 
+          is_missing, has_both_neighbors, sufficient_clim, use_manzana_clim,
+          was_missing_before))
+  
+  cat(sprintf("\n✓ %s imputation complete. Final dataset: %d rows\n\n", 
+              index_name, nrow(df_imputed)))
+  
+  return(df_imputed)
+}
+```
+
+```{r apply imputation to NDVI}
+env_all <- impute_NDXI_index(env_all, "NDVI")
+```
+
+```{r apply imputation to NDMI}
+env_all <- impute_NDXI_index(env_all, "NDMI")
+```
+
+```{r apply imputation to NDWI}
+env_all <- impute_NDXI_index(env_all, "NDWI")
+```
+
+```{r visualize imputation results for NDVI, NDMI, NDWI}
+
+plot_imputation_results <- function(df, index_name, n_samples = 3) {
+  
+  mean_col <- paste0("mean_", tolower(index_name))
+  flag_col <- paste0("imputed_", tolower(index_name))
+  
+  cat(sprintf("\nVisualizing %s imputation results (3 sample manzanas)...\n", index_name))
+  
+  # Sample manzanas
+  set.seed(42)
+  sample_manzanas <- sample(unique(df$manzana), 
+                            size = min(n_samples, length(unique(df$manzana))), 
+                            replace = FALSE)
+  
+  fig_list <- list()
+  
+  for (i in seq_along(sample_manzanas)) {
+    sample_manzana <- sample_manzanas[i]
+    
+    # Get original data (before imputation) - we need to compare against the input
+    # Since we've already imputed, we'll just show the current state
+    imputed_data <- df %>%
+      filter(manzana == sample_manzana) %>%
+      arrange(year_month) %>%
+      mutate(
+        is_imputed = if (flag_col %in% names(.)) !!sym(flag_col) else FALSE,
+        point_type = ifelse(is_imputed, "Imputed", "Observed"),
+        year_month_date = as.Date(paste0(substr(year_month, 1, 4), "-", 
+                                          substr(year_month, 6, 7), "-01"))
+      )
+    
+    p <- ggplot(imputed_data, aes(x = year_month_date, y = !!sym(mean_col))) +
+      geom_line(color = "grey60", linewidth = 1, na.rm = TRUE) +
+      geom_point(aes(color = point_type), size = 2, na.rm = TRUE) +
+      scale_color_manual(values = c("Observed" = "steelblue", "Imputed" = "coral3")) +
+      labs(
+        title = sprintf("Manzana: %s", sample_manzana),
+        x = "Date",
+        y = index_name,
+        subtitle = sprintf("%d values, %d imputed, %d missing after imputation", 
+                          nrow(imputed_data), 
+                          sum(imputed_data$is_imputed, na.rm = TRUE),
+                          sum(is.na(imputed_data[[mean_col]])))
+      ) +
+      theme_minimal() +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid.minor = element_blank()
+      )
+    
+    fig_list[[i]] <- p
+  }
+  
+  # Combine plots
+  combined_plot <- gridExtra::grid.arrange(grobs = fig_list, ncol = 1)
+  
+  return(combined_plot)
+}
+
+# Visualize results
+library(gridExtra)
+
+ndvi_impute_plot <- plot_imputation_results(env_all, "NDVI")
+ggsave(
+  filename = file.path(save_images_to, "ndvi_imputation_samples.png"),
+  plot = ndvi_impute_plot,
+  width = 10,
+  height = 8,
+  dpi = 150
+)
+
+ndmi_impute_plot <- plot_imputation_results(env_all, "NDMI")
+ggsave(
+  filename = file.path(save_images_to, "ndmi_imputation_samples.png"),
+  plot = ndmi_impute_plot,
+  width = 10,
+  height = 8,
+  dpi = 150
+)
+
+ndwi_impute_plot <- plot_imputation_results(env_all, "NDWI")
+ggsave(
+  filename = file.path(save_images_to, "ndwi_imputation_samples.png"),
+  plot = ndwi_impute_plot,
+  width = 10,
+  height = 8,
+  dpi = 150
+)
+```
+
+```{r remove imputation indicator before saving dataset}
+# Remove imputation flag columns before exporting/final joins
+env_all <- env_all %>%
+  select(-starts_with("imputed_"))
+```
+
+```{r save the environmental dataset with missing data imputed}
+final_env_data_path <-  "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality"
+final_env_data_path_1 <-  "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data"
+
+write_csv(env_all, file.path(final_env_data_path, "all_environmental_data_per_manzana_2016_01_to_2019_12_imputed.csv"))
+write_csv(env_all, file.path(final_env_data_path_1, "all_environmental_data_per_manzana_2016_01_to_2019_12_imputed.csv"))
+
+```
 
 # Merge ento-epi with environmental data
 
@@ -1148,7 +1431,7 @@ ento_epi_join <- ento_epi_data %>%
     year_month = format(year_month, "%Y_%m"),  # convert Date to "YYYY_MM" format
     manzana = CODIGO_DIMOB  # rename to match env_all
   ) %>%
-  filter(year_month >= "2016_04" & year_month <= "2019_12") %>%
+  filter(year_month >= "2016_01" & year_month <= "2019_12") %>%
   select(manzana, year_month, Inspected_houses, Houses_pos_IS, cases, CMF, CP, AREA) 
 head(ento_epi_join)
 ```
@@ -1339,7 +1622,26 @@ final_epi_entomo_env_data_path <- "/media/rita/New Volume/Documenten/DI-MOB/Othe
 final_epi_entomo_env_data_path_1 <- "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality"
 final_epi_entomo_env_data_path_2 <- "/home/rita/PyProjects/DI-MOB-BionamiX/data"
 
-write_csv(final_dataset, file.path(final_epi_entomo_env_data_path, "env_epi_entomo_data_per_manzana_2016_04_to_2019_12.csv"))
-write_csv(final_dataset, file.path(final_epi_entomo_env_data_path_1, "env_epi_entomo_data_per_manzana_2016_04_to_2019_12.csv"))
-write_csv(final_dataset, file.path(final_epi_entomo_env_data_path_2, "env_epi_entomo_data_per_manzana_2016_04_to_2019_12.csv"))
+write_csv(final_dataset, file.path(final_epi_entomo_env_data_path, "env_epi_entomo_data_per_manzana_2016_01_to_2019_12.csv"))
+write_csv(final_dataset, file.path(final_epi_entomo_env_data_path_1, "env_epi_entomo_data_per_manzana_2016_01_to_2019_12.csv"))
+write_csv(final_dataset, file.path(final_epi_entomo_env_data_path_2, "env_epi_entomo_data_per_manzana_2016_01_to_2019_12.csv"))
+```
+
+# Correcting for colinnearity (check Descriptive Statistics for measures of colinnearity)
+
+```{r create residuals for precip_max_day in linear relation to total_precip}
+env_epi_ento <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_manzana_2016_01_to_2019_12.csv")
+
+# na.exclude pads residuals with NA for missing rows so lengths match the dataframe
+resid_fit <- lm(precip_max_day ~ total_precip, data = env_epi_ento, na.action = na.exclude)
+
+env_epi_ento <- env_epi_ento %>%
+  mutate(precip_max_day_resid = resid(resid_fit))
+```
+
+# Save the final dataset 
+```{r save corrected dataset with environmental entomological and epi data}
+write_csv(env_epi_ento, file.path(final_epi_entomo_env_data_path, "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv"))
+write_csv(env_epi_ento, file.path(final_epi_entomo_env_data_path_1, "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv"))
+write_csv(env_epi_ento, file.path(final_epi_entomo_env_data_path_2, "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv"))
 ```
