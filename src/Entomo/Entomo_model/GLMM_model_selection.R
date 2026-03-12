@@ -18,18 +18,27 @@ cfg <- list(
   # Random effects to include
   include_block_re = FALSE,      # Random intercept for block (spatial)
   include_time_re = FALSE,      # Random intercept for time (temporal)
-  include_ar1_temporal = FALSE, # AR(1) temporal autocorrelation (within group)
+  include_ar1_temporal = TRUE, # AR(1) temporal autocorrelation (within group)
   ar1_group = "block",         # "block" (within-block AR1) or "global"
   include_spatial_ar = TRUE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
   # include_spatial_ar = TRUE,  # Matérn spatial autocorrelation: mat(xy + 0 | spatial)
 
   # Spatial coordinates from shapefile (used when include_spatial_ar = TRUE)
-  shapefile_path = "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp",
+  shapefile_path = if (Sys.info()["nodename"] == "frietjes") {
+    "data/Entomo/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp"
+  } else {
+    "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp"
+    },
+  
   sf_block_col = "CODIGO_",
   spatial_crs = NA,             # Optional projected CRS (e.g., 32719). NA = keep CRS unless lon/lat (then use EPSG:3857)
   
   # Data
-  data_file = "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv",
+  data_file = if (Sys.info()["nodename"] == "frietjes") {
+    "data/Entomo/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv"
+  } else {
+    "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv"
+  },
   
   # Lag settings
   max_lag = 2,
@@ -177,8 +186,9 @@ if (identical(cfg$ar1_group, "global")) {
 # lag_vars <- c("avg_temp",  "total_precip", "rel_hum", "mean_ndvi", "precip_max_day_resid") # ndmi and ndwi removed due to collinearity
 # unlagged_vars <- c("is_urban", "has_aljibes", "nr_aljibes", "is_WI", "is_WUI", "water_shortage", "water_containers", "WS2M")
 
-lag_vars <- c("avg_temp",  "total_precip", "mean_ndvi", "precip_max_day_resid") # WS, RH, ndmi and ndwi removed due to collinearity
+lag_vars <- c("avg_temp", "total_precip",  "mean_ndvi", "precip_max_day_resid") # RH, WS, ndmi and ndwi removed due to collinearity
 unlagged_vars <- c("is_urban", "has_aljibes", "nr_aljibes", "is_WI", "is_WUI", "water_shortage", "water_containers")
+
 # Numeric variables to standardize (z-score)
 numeric_vars <- c(lag_vars, "nr_aljibes", "water_containers")
 
