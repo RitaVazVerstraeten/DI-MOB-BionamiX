@@ -352,6 +352,12 @@ cat("Full model AIC:", AIC(model_full), "\n")
 
 results <- tibble(predictor = character(), AIC = numeric())
 
+# Save full model summary output
+summary_output_full <- capture.output(summary(model_full))
+dir.create(model_output_dir, recursive = TRUE, showWarnings = FALSE)
+summary_file_full <- file.path(model_output_dir, "model_summary_full.txt")
+writeLines(summary_output_full, summary_file_full)
+
 for (pred in fixed_effects) {
   predictors_minus <- setdiff(fixed_effects, pred)
   formula_str_minus <- paste(
