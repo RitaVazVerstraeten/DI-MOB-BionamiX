@@ -9,7 +9,11 @@ library(ggplot2)
 library(glmmTMB)
 library(slider)
 library(sf)
-
+# Ensure conda R library is always available
+conda_lib <- "/home/rita/miniconda3/envs/r_entomo/lib/R/library"
+if (dir.exists(conda_lib) && !(conda_lib %in% .libPaths())) {
+  .libPaths(c(.libPaths(), conda_lib))
+}
 # Resolve namespace conflicts - prefer tidyverse/dplyr versions
 if (!require("conflicted", quietly = TRUE)) {
   install.packages("conflicted")
