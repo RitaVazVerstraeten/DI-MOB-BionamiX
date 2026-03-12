@@ -374,6 +374,7 @@ for (pred in fixed_effects) {
   results <- results %>% add_row(predictor = pred, AIC = AIC(model_minus))
   cat("Removed", pred, ": AIC =", AIC(model_minus), "\n")
   # Save results after each fit
+  dir.create(model_output_dir, recursive = TRUE, showWarnings = FALSE)
   write_csv(results, file.path(model_output_dir, "model_selection_AIC.csv"))
   # Save model summary for each evaluated model
   summary_output <- capture.output(summary(model_minus))
@@ -382,5 +383,6 @@ for (pred in fixed_effects) {
 }
 
 # Save results
+dir.create(model_output_dir, recursive = TRUE, showWarnings = FALSE)
 write_csv(results, file.path(model_output_dir, "model_selection_AIC.csv"))
 cat("\nModel selection results saved to model_selection_AIC.csv\n")
