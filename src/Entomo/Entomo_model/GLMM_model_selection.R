@@ -48,8 +48,8 @@ cfg <- list(
   output_dir = if (Sys.info()["nodename"] == "frietjes") {
     "/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM_selection"
     } else {
-    "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM_selection",
-    }
+    "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM_selection"
+    },
   # GLMM control
   iter_max = 1e4,
   eval_max = 1e4
