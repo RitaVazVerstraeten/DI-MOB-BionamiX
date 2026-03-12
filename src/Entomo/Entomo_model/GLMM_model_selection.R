@@ -62,6 +62,7 @@ cfg <- list(
   eval_max = 1e4
 )
 
+print(cfg$shapefile_path)
 date_suffix <- format(Sys.Date(), "%Y%m%d")
 if (!cfg$ar1_group %in% c("block", "global")) {
   stop("cfg$ar1_group must be either 'block' or 'global'")
