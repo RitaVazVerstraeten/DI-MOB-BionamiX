@@ -32,7 +32,7 @@ cfg <- list(
   data_file = "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv",
   
   # Lag settings
-  max_lag = 2,
+  max_lag = 1,
   kappa = 2,  # multiplier for cases in n_bt calculation
 
   # Output
