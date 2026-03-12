@@ -53,7 +53,7 @@ cfg <- list(
 
   # Output
   output_dir = if (Sys.info()["nodename"] == "frietjes") {
-    "/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM_selection"
+    "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM_selection"
     } else {
     "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM_selection"
     },
