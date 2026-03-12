@@ -32,7 +32,7 @@ cfg <- list(
 
   # Spatial coordinates from shapefile (used when include_spatial_ar = TRUE)
   shapefile_path = if (Sys.info()["nodename"] == "frietjes") {
-    "data/Entomo/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp"
+    "/data/Entomo/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp"
   } else {
     "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp"
     },
