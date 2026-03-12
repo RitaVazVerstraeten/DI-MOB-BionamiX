@@ -45,8 +45,11 @@ cfg <- list(
   kappa = 2,  # multiplier for cases in n_bt calculation
 
   # Output
-  output_dir = "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM_selection",
-  
+  output_dir = if (Sys.info()["nodename"] == "frietjes") {
+    "/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM_selection"
+    } else {
+    "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM_selection",
+    }
   # GLMM control
   iter_max = 1e4,
   eval_max = 1e4
