@@ -1,7 +1,11 @@
+
 library(tidyverse)
 library(glmmTMB)
 library(slider)
 library(sf)
+
+# Source plot functions for GLMM diagnostics
+source("plot_functions.r")
 
 # Resolve namespace conflicts - prefer tidyverse/dplyr versions
 if (!require("conflicted", quietly = TRUE)) {
@@ -18,10 +22,13 @@ cfg <- list(
   # Random effects to include
   include_block_re = FALSE,      # Random intercept for block (spatial)
   include_time_re = FALSE,      # Random intercept for time (temporal)
-  include_ar1_temporal = TRUE, # AR(1) temporal autocorrelation (within group)
+  include_ar1_temporal = FALSE, # AR(1) temporal autocorrelation (within group)
   ar1_group = "block",         # "block" (within-block AR1) or "global"
-  include_spatial_ar = TRUE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
+  include_spatial_ar = FALSE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
   # include_spatial_ar = TRUE,  # Matérn spatial autocorrelation: mat(xy + 0 | spatial)
+
+  # Link function for binomial GLMM
+  link_function = "logit",     # Options: "logit", "probit", "cloglog", "cauchit"
 
   # Spatial coordinates from shapefile (used when include_spatial_ar = TRUE)
   shapefile_path = "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp",
@@ -32,7 +39,7 @@ cfg <- list(
   data_file = "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv",
   
   # Lag settings
-  max_lag = 1,
+  max_lag = 2,
   kappa = 2,  # multiplier for cases in n_bt calculation
 
   # Output
@@ -69,7 +76,8 @@ model_spec <- paste0(
   "_time-", time_ar_spec,
   "_space-", space_ar_spec,
   "_lag", cfg$max_lag,
-  "_k", cfg$kappa
+  "_k", cfg$kappa,
+  "_link-", cfg$link_function
 )
 
 model_output_dir <- file.path(cfg$output_dir, model_spec)
@@ -96,6 +104,9 @@ df <- df %>%
   mutate(landcover = factor(landcover))
 
 # Optional: add spatial coordinates by matching block names to shapefile IDs
+
+sf_blocks <- st_read(cfg$shapefile_path, quiet = TRUE)
+
 if (cfg$include_spatial_ar) {
   if (is.null(cfg$shapefile_path) || !file.exists(cfg$shapefile_path)) {
     stop("Spatial autocorrelation requested but shapefile not found: ", cfg$shapefile_path)
@@ -267,7 +278,7 @@ cat("After reactive filter(n_trials > 0):", n_distinct(df_reactive$year_month_da
 
 # Combine
 df_expanded <- bind_rows(df_baseline, df_reactive) %>%
-  select(-omega, -has_cases, -y_bt) %>%
+  select(-has_cases, -y_bt) %>%  # keep omega
   rename(y_bt = y_bt_adj) %>%
   arrange(block, year_month_date, type) %>%
   # Ensure y_bt doesn't exceed n_trials
@@ -350,7 +361,7 @@ cat("Observations: ", nrow(df_model), "\n\n")
 
 model <- glmmTMB(
   formula,
-  family = binomial(link = "logit"),
+  family = binomial(link = cfg$link_function),
   data = df_model,
   control = glmmTMBControl(optCtrl = list(iter.max = cfg$iter_max, eval.max = cfg$eval_max, trace = 10))
 )
@@ -403,31 +414,56 @@ writeLines(c(
 # =========================
 # 8. ADD PREDICTIONS (fitted p_bt)
 # =========================
-cat("df_expanded rows:", nrow(df_expanded), "\n")
-preds <- predict(model, type = "response")
-cat("Predictions length:", length(preds), "\n")
 
-# Add predictions back to full df_expanded safely
-if (length(preds) == nrow(df_model)) {
+cat("df_expanded rows:", nrow(df_expanded), "\n")
+preds_with_se <- predict(model, type = "response", se.fit = TRUE)
+cat("Predictions length:", length(preds_with_se$fit), "\n")
+
+# Compute 95% confidence intervals
+fit <- preds_with_se$fit
+se <- preds_with_se$se.fit
+lower <- fit - 1.96 * se
+upper <- fit + 1.96 * se
+
+# Add predictions and uncertainty back to full df_expanded safely
+if (length(fit) == nrow(df_model)) {
   df_expanded <- df_expanded %>%
-    mutate(fitted_prob = NA_real_)
-  df_expanded$fitted_prob[keep_rows] <- preds
+    mutate(
+      fitted_prob = NA_real_,
+      fitted_prob_se = NA_real_,
+      fitted_prob_lower = NA_real_,
+      fitted_prob_upper = NA_real_
+    )
+  df_expanded$fitted_prob[keep_rows] <- fit
+  df_expanded$fitted_prob_se[keep_rows] <- se
+  df_expanded$fitted_prob_lower[keep_rows] <- lower
+  df_expanded$fitted_prob_upper[keep_rows] <- upper
 } else {
-  stop("Mismatch: ", nrow(df_model), " model rows vs ", length(preds), " predictions")
+  stop("Mismatch: ", nrow(df_model), " model rows vs ", length(fit), " predictions")
 }
 
 # =========================
 # 9. AGGREGATE BACK TO ORIGINAL OBSERVATION LEVEL
 # =========================
-# For each original observation, get baseline p_bt and reactive p_R predictions 
+
+# For each original observation, get baseline p_bt and reactive p_R predictions and their uncertainty
 df_summary <- df_expanded %>%
-  select(block, year_month_date, type, fitted_prob) %>%
+  select(block, year_month_date, type, omega, fitted_prob, fitted_prob_se, fitted_prob_lower, fitted_prob_upper) %>%
   pivot_wider(
-    names_from = type,
-    values_from = fitted_prob,
+    names_from = type, # splits fitted_prob into p_bt and p_R
+    values_from = c(fitted_prob, fitted_prob_se, fitted_prob_lower, fitted_prob_upper),
     values_fill = NA
   ) %>%
-  rename(fitted_prob_baseline = baseline, fitted_prob_reactive = reactive)
+  rename(
+    p_bt_fitted = fitted_prob_baseline,
+    p_R_fitted = fitted_prob_reactive,
+    p_bt_fitted_se = fitted_prob_se_baseline,
+    p_R_fitted_se = fitted_prob_se_reactive,
+    p_bt_fitted_lower = fitted_prob_lower_baseline,
+    p_R_fitted_lower = fitted_prob_lower_reactive,
+    p_bt_fitted_upper = fitted_prob_upper_baseline,
+    p_R_fitted_upper = fitted_prob_upper_reactive
+  )
 
 # Save data outputs for later checking/calling
 expanded_file <- file.path(run_output_dir, paste0("glmm_expanded_predictions_", run_suffix, ".csv"))
@@ -455,69 +491,134 @@ df_observed <- df %>%
   transmute(
     block,
     year_month_date,
-    p_bt_observed = ifelse(n_bt > 0, y_bt / n_bt, NA_real_),
+    p_observed = ifelse(n_bt > 0, y_bt / n_bt, NA_real_),
     cases
   )
 
-df_plot <- df_summary %>%
-  rename(
-    p_bt_fitted = fitted_prob_baseline,
-    p_R_fitted = fitted_prob_reactive
-  ) %>%
-  left_join(df_observed, by = c("block", "year_month_date"))
 
-df_plot_ts <- df_plot %>%
-  group_by(year_month_date) %>%
-  summarise(
-    p_bt_fitted = mean(p_bt_fitted, na.rm = TRUE),
-    p_R_fitted = mean(p_R_fitted, na.rm = TRUE),
-    p_bt_observed = mean(p_bt_observed, na.rm = TRUE),
-    cases = sum(cases, na.rm = TRUE),
-    .groups = "drop"
-  )
+# Use modular plot function instead
+save_glmm_prob_timeseries_plot(
+  df_summary = df_summary,
+  df_observed = df_observed,
+  output_dir = run_output_dir,
+  run_suffix = run_suffix,
+  cfg = cfg
+)
 
-df_plot_long <- df_plot_ts %>%
-  pivot_longer(
-    cols = c(p_bt_fitted, p_R_fitted, p_bt_observed),
-    names_to = "series",
-    values_to = "probability"
-  )
-
-max_prob <- max(df_plot_long$probability, na.rm = TRUE)
-max_cases <- max(df_plot_ts$cases, na.rm = TRUE)
-scale_factor <- ifelse(is.finite(max_cases) && max_cases > 0, max_prob / max_cases, 1)
-
-p_probs <- ggplot(df_plot_long, aes(x = year_month_date, y = probability, color = series)) +
-  geom_col(
-    data = df_plot_ts,
-    aes(x = year_month_date, y = cases * scale_factor),
-    inherit.aes = FALSE,
-    fill = "grey75",
-    alpha = 0.5,
-    width = 25
-  ) +
-  geom_line(linewidth = 1) +
-  geom_point(size = 1.3) +
-  scale_color_manual(
-    values = c(
-      p_bt_fitted = "#1f77b4",
-      p_R_fitted = "#ff7f0e",
-      p_bt_observed = "#d62728"
+df_summary_weighted <- df_summary %>%
+  left_join(df_observed, by = c("block", "year_month_date")) %>%
+  mutate(
+    p_fitted_weighted = ifelse(
+      omega == 0 | is.na(p_R_fitted),
+      p_bt_fitted,
+      (1 - omega) * p_bt_fitted + omega * p_R_fitted
     )
-  ) +
-  scale_y_continuous(
-    name = "Probability",
-    sec.axis = sec_axis(~ . / scale_factor, name = "Cases")
-  ) +
-  labs(
-    x = "Time",
-    color = NULL,
-    title = "Observed vs Fitted Probabilities with Cases",
-    subtitle = "Lines: mean probabilities across blocks | Bars: total cases"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "bottom")
+  ) 
 
-plot_file <- file.path(run_output_dir, paste0("probabilities_timeseries_", run_suffix, ".png"))
-ggsave(plot_file, p_probs, width = 12, height = 6, dpi = 150)
-cat("  Probability plot PNG: ", plot_file, "\n", sep = "")
+save_glmm_prob_timeseries_plot_weighted(
+  df_summary = df_summary_weighted,
+  output_dir = run_output_dir,
+  run_suffix = run_suffix,
+  cfg = cfg
+)
+
+# QQ plot of observed vs expected (fitted) probabilities (aggregated over time)
+save_glmm_qqplot_observed_vs_expected(
+  df_summary = df_summary,
+  df_observed = df_observed,  
+  output_dir = run_output_dir,
+  run_suffix = run_suffix
+)
+
+# QQ plot of observed vs weighted average fitted probability
+save_glmm_qqplot_weighted_avg(
+  df = df_summary_weighted,
+  output_dir = run_output_dir,
+  run_suffix = run_suffix
+)
+
+# =========================
+# 11. PLOT MODEL RESIDUALS (using plot_functions)
+# =========================
+save_glmm_residuals_plot(model, run_output_dir, run_suffix)
+
+# =========================
+# 12. PLOT RANDOM EFFECTS (using plot_functions)
+# =========================
+save_glmm_random_effects_plot(model, run_output_dir, run_suffix)
+
+# # =========================
+# # 13. SPATIAL AUTOCORRELATION (MORAN'S I)
+# # =========================
+# # Calculate block-level mean Pearson residuals and join coordinates
+
+# # Calculate block-level mean Pearson residuals and join coordinates
+# block_resid <- df_model %>%
+#   group_by(block) %>%
+#   summarise(
+#     mean_pearson = mean(residuals(model, type = "pearson"), na.rm = TRUE),
+#     n_obs = n(),
+#     .groups = "drop"
+#   )
+
+# coords_df <- sf_blocks %>%
+#   st_drop_geometry() %>%
+#   mutate(
+#     block = as.character(.data[[cfg$sf_block_col]]),
+#     x = as.numeric(st_coordinates(st_point_on_surface(sf_blocks))[, 1]),
+#     y = as.numeric(st_coordinates(st_point_on_surface(sf_blocks))[, 2])
+#   ) %>%
+#   select(block, x, y) %>%
+#   distinct(block, .keep_all = TRUE)
+# block_resid <- block_resid %>% left_join(coords_df, by = "block")
+
+# # Precompute spatial weights matrix for all blocks
+# all_blocks <- coords_df$block
+# coords_all <- as.matrix(coords_df[, c("x", "y")])
+# dist_mat_all <- as.matrix(dist(coords_all))
+# diag(dist_mat_all) <- NA_real_
+# # Set weights to 0 for pairs > 400m, otherwise 1/distance
+# w_mat_all <- matrix(0, nrow = length(all_blocks), ncol = length(all_blocks))
+# rownames(w_mat_all) <- all_blocks
+# colnames(w_mat_all) <- all_blocks
+# within_400 <- dist_mat_all <= 400 & !is.na(dist_mat_all)
+# w_mat_all[within_400] <- 1 / pmax(dist_mat_all[within_400], 1e-6)
+# diag(w_mat_all) <- 0
+
+# # Calculate monthly Moran's I using precomputed weights
+# monthly_moran <- tibble()
+# if ("year_month_date" %in% names(df_model)) {
+#   tmp <- df_model %>%
+#     filter(!is.na(year_month_date)) %>%
+#     group_by(year_month_date, block) %>%
+#     summarise(mean_pearson = mean(residuals(model, type = "pearson"), na.rm = TRUE), .groups = "drop") %>%
+#     left_join(coords_df, by = "block")
+#   months <- sort(unique(tmp$year_month_date))
+#   monthly_list <- vector("list", length(months))
+#   for (i in seq_along(months)) {
+#     m <- months[i]
+#     dfm <- tmp %>% filter(year_month_date == m)
+#     if (nrow(dfm) < 3) {
+#       monthly_list[[i]] <- tibble(
+#         year_month_date = m,
+#         moran_I = NA_real_,
+#         p_value = NA_real_
+#       )
+#       next
+#     }
+#     # Subset precomputed weights matrix to blocks present in this month
+#     blocks_month <- dfm$block
+#     w_mat_sub <- w_mat_all[blocks_month, blocks_month, drop = FALSE]
+#     lw <- spdep::mat2listw(w_mat_sub, style = "W")
+#     mt <- spdep::moran.test(dfm$mean_pearson, lw, zero.policy = TRUE)
+#     monthly_list[[i]] <- tibble(
+#       year_month_date = m,
+#       moran_I = unname(mt$estimate[["Moran I statistic"]]),
+#       p_value = mt$p.value
+#     )
+#   }
+#   monthly_moran <- bind_rows(monthly_list)
+# }
+
+# # Save and plot
+# save_glmm_moransI_plot(monthly_moran, run_output_dir, run_suffix)

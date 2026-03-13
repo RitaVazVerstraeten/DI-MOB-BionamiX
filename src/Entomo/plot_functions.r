@@ -1,3 +1,215 @@
+#' Save GLMM Probability Time Series Plot with Weighted Fitted Probability
+#'
+#' Plots observed and weighted fitted probabilities (with 95% CI ribbons) and cases over time.
+#' @param df_summary Data frame with summary predictions (wide format, includes uncertainty columns)
+#' @param df_observed Data frame with observed values (block, year_month_date, p_observed, cases)
+#' @param output_dir Output directory for plot
+#' @param run_suffix Suffix for filename
+#' @param cfg Model configuration list (for subtitle)
+#' @return NULL (saves plot)
+save_glmm_prob_timeseries_plot_weighted <- function(df_summary_weighted, output_dir, run_suffix, cfg) {
+  # df_summary_weighted must have: block, year_month_date, p_observed, omega, p_fitted_weighted, p_bt_fitted_lower, p_bt_fitted_upper, p_R_fitted_lower, p_R_fitted_upper
+  df_plot <- df_summary_weighted %>%
+    mutate(
+      p_fitted_weighted_lower = ifelse(
+        omega == 0 | is.na(p_R_fitted_lower),
+        p_bt_fitted_lower,
+        (1 - omega) * p_bt_fitted_lower + omega * p_R_fitted_lower
+      ),
+      p_fitted_weighted_upper = ifelse(
+        omega == 0 | is.na(p_R_fitted_upper),
+        p_bt_fitted_upper,
+        (1 - omega) * p_bt_fitted_upper + omega * p_R_fitted_upper
+      )
+    )
+
+  df_plot_ts <- df_plot %>%
+    group_by(year_month_date) %>%
+    summarise(
+      p_fitted_weighted = mean(p_fitted_weighted, na.rm = TRUE),
+      p_fitted_weighted_lower = mean(p_fitted_weighted_lower, na.rm = TRUE),
+      p_fitted_weighted_upper = mean(p_fitted_weighted_upper, na.rm = TRUE),
+      p_observed = mean(p_observed, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  df_plot_long <- df_plot_ts %>%
+    pivot_longer(
+      cols = c(p_fitted_weighted, p_observed),
+      names_to = "series",
+      values_to = "probability"
+    ) %>%
+    mutate(
+      lower = ifelse(series == "p_fitted_weighted", df_plot_ts$p_fitted_weighted_lower[match(year_month_date, df_plot_ts$year_month_date)], NA_real_),
+      upper = ifelse(series == "p_fitted_weighted", df_plot_ts$p_fitted_weighted_upper[match(year_month_date, df_plot_ts$year_month_date)], NA_real_)
+    )
+
+  subtitle_parts <- c(
+    if (cfg$include_block_re) "Space RE: YES" else "Space RE: NO",
+    if (cfg$include_time_re) "Time RE: YES" else "Time RE: NO",
+    if (cfg$include_spatial_ar) "Space AR: YES" else "Space AR: NO",
+    if (cfg$include_ar1_temporal) paste0("Time AR1: YES (", cfg$ar1_group, ")") else "Time AR1: NO",
+    paste0("Link: ", cfg$link_function),
+    "Weighted fitted probability: (1-omega)*p_bt + omega*p_R; fallback to p_bt when omega=0 or p_R NA"
+  )
+  plot_subtitle <- paste(subtitle_parts, collapse = " | ")
+  plot_caption <- "Shaded ribbon: 95% confidence interval for weighted fitted probability."
+
+  max_prob <- max(df_plot_long$probability, na.rm = TRUE)
+
+  ribbon_data <- subset(df_plot_long, series == "p_fitted_weighted")
+  ribbon_ok <- nrow(ribbon_data) > 0 &&
+    !all(is.na(ribbon_data$lower)) &&
+    !all(is.na(ribbon_data$upper)) &&
+    !all(is.na(ribbon_data$probability)) &&
+    !all(is.na(ribbon_data$year_month_date))
+
+  p_probs <- ggplot(df_plot_long, aes(x = year_month_date, y = probability, color = series, group = series))
+
+  if (ribbon_ok) {
+    p_probs <- p_probs +
+      geom_ribbon(
+        data = ribbon_data,
+        aes(x = year_month_date, ymin = lower, ymax = upper, fill = series),
+        alpha = 0.2,
+        color = NA,
+        inherit.aes = FALSE
+      )
+  } else {
+    warning("Skipping uncertainty ribbon: missing or invalid aesthetics.")
+  }
+
+  p_probs <- p_probs +
+    geom_line(linewidth = 1) +
+    geom_point(size = 1.3) +
+    scale_color_manual(
+      values = c(
+        p_fitted_weighted = "#009E73",
+        p_observed = "#d62728"
+      ),
+      labels = c(
+        p_fitted_weighted = "Weighted Fitted",
+        p_observed = "Observed"
+      )
+    ) +
+    scale_fill_manual(
+      values = c(
+        p_fitted_weighted = "#009E73"
+      ),
+      guide = "none"
+    ) +
+    labs(
+      x = "Time",
+      color = NULL,
+      title = "Observed vs Weighted Fitted Probabilities",
+      subtitle = plot_subtitle,
+      caption = plot_caption
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      plot.caption = element_text(size = 10, hjust = 0)
+    )
+
+  print(p_probs)
+  plot_file <- file.path(output_dir, paste0("probabilities_timeseries_weighted_", run_suffix, ".png"))
+  ggsave(plot_file, p_probs, width = 12, height = 6, dpi = 150)
+  cat("  Probability plot (weighted) PNG: ", plot_file, "\n", sep = "")
+}
+# =====================================================
+# Plot functions for GLMM entomological model
+# =====================================================
+#' Save Moran's I Plot for Spatial Residuals
+#'
+#' Plots Moran's I for spatial residuals (global and monthly), highlights significant autocorrelation in red.
+#' @param monthly_moran Data frame with columns: year_month_date, moran_I, p_value
+#' @param output_dir Output directory for plot
+#' @param run_suffix Suffix for filename
+#' @return NULL (saves plot)
+save_glmm_moransI_plot <- function(monthly_moran, output_dir, run_suffix) {
+  if (nrow(monthly_moran) == 0) return(invisible(NULL))
+  p_month <- ggplot(monthly_moran, aes(x = year_month_date, y = moran_I)) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
+    geom_line(na.rm = TRUE) +
+    geom_point(aes(color = p_value < 0.05), size = 2, na.rm = TRUE) +
+    scale_color_manual(values = c("TRUE" = "#d62728", "FALSE" = "#1f77b4"), na.translate = FALSE) +
+    labs(
+      x = "Month",
+      y = "Moran's I (Pearson residuals)",
+      color = "p < 0.05",
+      title = "Monthly spatial autocorrelation in GLMM residuals",
+      caption = "Red dots: significant spatial autocorrelation (p < 0.05).\nSpatial autocorrelation is bounded to 400m (only neighbors within 400m are considered)."
+    ) +
+    theme_minimal()
+  ggsave(file.path(output_dir, paste0("glmm_moransI_monthly_timeseries_", run_suffix, ".png")), p_month, width = 11, height = 5, dpi = 150)
+  cat("  Moran's I plot PNG: ", file.path(output_dir, paste0("glmm_moransI_monthly_timeseries_", run_suffix, ".png")), "\n", sep = "")
+}
+
+#' Save GLMM Observed vs Expected QQ Plot
+#'
+#' Plots a QQ plot of observed vs expected (fitted) probabilities aggregated over time.
+#' @param df_plot Data frame with columns: p_observed, p_bt_fitted (or similar)
+#' @param output_dir Output directory for plot
+#' @param run_suffix Suffix for filename
+#' @return NULL (saves plot)
+save_glmm_qqplot_observed_vs_expected <- function(df_summary, df_observed, output_dir, run_suffix) {
+  # Merge summary and observed data
+  df_plot <- df_summary %>%
+    left_join(df_observed, by = c("block", "year_month_date"))
+  # Remove NA values for fair comparison
+  qq_df <- df_plot %>%
+    filter(!is.na(p_observed) & !is.na(p_bt_fitted))
+  qq_data <- data.frame(Observed = qq_df$p_observed, Expected = qq_df$p_bt_fitted)
+  p_qq <- ggplot(qq_data, aes(x = Expected, y = Observed)) +
+    geom_point(alpha = 0.7, color = "#0072B2") +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+    labs(
+      x = "Expected (Fitted Probability)",
+      y = "Observed Probability",
+      title = "QQ Plot: Observed vs Expected Probabilities",
+      subtitle = "Paired by block/month"
+    ) +
+    theme_minimal()
+  print(p_qq)
+  qqplot_file <- file.path(output_dir, paste0("glmm_qqplot_observed_vs_expected_", run_suffix, ".png"))
+  ggsave(qqplot_file, p_qq, width = 7, height = 7, dpi = 150)
+  cat("  QQ plot PNG: ", qqplot_file, "\n", sep = "")
+}
+
+
+#' Save QQ Plot for Weighted Average Fitted Probability
+#'
+#' Plots a QQ plot of observed vs weighted average fitted probability: p_fit = (1-omega)*p_bt + omega*p_R
+#' @param df Data frame with columns: p_observed, p_bt_fitted, p_R_fitted, omega
+#' @param output_dir Output directory for plot
+#' @param run_suffix Suffix for filename
+#' @return NULL (saves plot)
+save_glmm_qqplot_weighted_avg <- function(df, output_dir, run_suffix) {
+  # Remove NA values for fair comparison
+  qq_df <- df %>%
+    filter(!is.na(p_observed) & !is.na(p_fitted_weighted))
+  qq_data <- data.frame(Observed = df$p_observed, Weighted_Fitted = df$p_fitted_weighted)
+
+  p_qq <- ggplot(qq_data, aes(x = Weighted_Fitted, y = Observed)) +
+    geom_point(alpha = 0.7, color = "#009E73") +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+    labs(
+      x = "Weighted Fitted Probability",
+      y = "Observed Probability",
+      title = "QQ Plot: Observed vs Weighted Fitted Probability",
+      subtitle = "Weighted average: (1-omega)*p_bt + omega*p_R"
+    ) +
+    theme_minimal()
+  print(p_qq)
+  qqplot_file <- file.path(output_dir, paste0("glmm_qqplot_weighted_avg_", run_suffix, ".png"))
+  ggsave(qqplot_file, p_qq, width = 7, height = 7, dpi = 150)
+  cat("  QQ plot (weighted avg) PNG: ", qqplot_file, "\n", sep = "")
+}
+
+# Needed for CRAN checks and to avoid 'no visible global function definition' errors
+#' @importFrom ggplot2 ggplot aes geom_point geom_hline labs theme_minimal ggsave geom_histogram facet_wrap
+#' @importFrom glmmTMB ranef
+NULL
 # =====================================================
 # Plot functions for Stan entomological model
 # =====================================================
@@ -205,7 +417,7 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
     geom_vline(xintercept = median(df_corr$correlation), linetype = "dashed", color = "red", linewidth = 1) +
     labs(x = "Correlation (Observed vs Fitted)",
          y = "Number of Blocks",
-         title = "Correlation p_bt_observed vs p_bt_fitted over all timepoints",
+         title = "Correlation p_observed vs p_bt_fitted over all timepoints",
          subtitle = paste0("Median correlation: ", round(median(df_corr$correlation), 3))) +
     theme_minimal()
   
@@ -218,4 +430,202 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
   cat("  RMSE:", round(sqrt(mean((df$observed_p_bt - df$fitted_p_bt)^2)), 4), "\n")
   cat("  MAE:", round(mean(abs(df$observed_p_bt - df$fitted_p_bt)), 4), "\n")
   cat("  Time series plots saved to:", timeseries_dir, "\n")
+}
+
+#' Save GLMM Residuals Plot
+#'
+#' Plots Pearson residuals vs fitted values for a glmmTMB model and saves as PNG.
+#' @param model A fitted glmmTMB model
+#' @param output_dir Output directory for plot
+#' @param run_suffix Suffix for filename
+#' @return NULL (saves plot)
+save_glmm_residuals_plot <- function(model, output_dir, run_suffix) {
+  resid_plot_file <- file.path(output_dir, paste0("glmm_residuals_plot_", run_suffix, ".png"))
+  residuals_model <- residuals(model, type = "pearson")
+  df_resid <- data.frame(
+    fitted = fitted(model),
+    residuals = residuals_model
+  )
+  p_resid <- ggplot(df_resid, aes(x = fitted, y = residuals)) +
+    geom_point(alpha = 0.5) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+    labs(
+      x = "Fitted values",
+      y = "Pearson residuals",
+      title = "Residuals vs Fitted Values"
+    ) +
+    theme_minimal()
+  ggsave(resid_plot_file, p_resid, width = 8, height = 6, dpi = 150)
+  cat("  Residuals plot PNG: ", resid_plot_file, "\n", sep = "")
+}
+
+#' Save GLMM Random Effects Plot
+#'
+#' Plots histograms of random effects for each grouping factor in a glmmTMB model and saves as PNG.
+#' @param model A fitted glmmTMB model
+#' @param output_dir Output directory for plot
+#' @param run_suffix Suffix for filename
+#' @return NULL (saves plot)
+save_glmm_random_effects_plot <- function(model, output_dir, run_suffix) {
+  re_plot_file <- file.path(output_dir, paste0("glmm_random_effects_plot_", run_suffix, ".png"))
+  re <- suppressWarnings(ranef(model)$cond)
+  if (length(re) > 0) {
+    re_df <- dplyr::bind_rows(lapply(names(re), function(grp) {
+      data.frame(
+        group = grp,
+        level = rownames(re[[grp]]),
+        effect = re[[grp]][, 1],
+        stringsAsFactors = FALSE
+      )
+    }))
+    p_re <- ggplot(re_df, aes(x = effect)) +
+      geom_histogram(bins = 30, fill = "skyblue", color = "white") +
+      facet_wrap(~ group, scales = "free_y") +
+      labs(
+        x = "Random effect value",
+        y = "Count",
+        title = "Distribution of Random Effects"
+      ) +
+      theme_minimal()
+    ggsave(re_plot_file, p_re, width = 8, height = 6, dpi = 150)
+    cat("  Random effects plot PNG: ", re_plot_file, "\n", sep = "")
+  } else {
+    cat("  No random effects to plot.\n")
+  }
+}
+
+#' Save GLMM Probability Time Series Plot with Uncertainty
+#'
+#' Plots observed and fitted probabilities (with 95% CI ribbons) and cases over time.
+#' @param df_summary Data frame with summary predictions (wide format, includes uncertainty columns)
+#' @param df_observed Data frame with observed values (block, year_month_date, p_observed, cases)
+#' @param output_dir Output directory for plot
+#' @param run_suffix Suffix for filename
+#' @param cfg Model configuration list (for subtitle)
+#' @return NULL (saves plot)
+save_glmm_prob_timeseries_plot <- function(df_summary, df_observed, output_dir, run_suffix, cfg) {
+  df_plot <- df_summary %>%
+    left_join(df_observed, by = c("block", "year_month_date"))
+
+  df_plot_ts <- df_plot %>%
+    group_by(year_month_date) %>%
+    summarise(
+      p_bt_fitted = mean(p_bt_fitted, na.rm = TRUE),
+      p_bt_fitted_lower = mean(p_bt_fitted_lower, na.rm = TRUE),
+      p_bt_fitted_upper = mean(p_bt_fitted_upper, na.rm = TRUE),
+      p_R_fitted = mean(p_R_fitted, na.rm = TRUE),
+      p_R_fitted_lower = mean(p_R_fitted_lower, na.rm = TRUE),
+      p_R_fitted_upper = mean(p_R_fitted_upper, na.rm = TRUE),
+      p_observed = mean(p_observed, na.rm = TRUE),
+      cases = sum(cases, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  df_plot_long <- df_plot_ts %>%
+    pivot_longer(
+      cols = c(p_bt_fitted, p_R_fitted, p_observed),
+      names_to = "series",
+      values_to = "probability"
+    ) %>%
+    mutate(
+      lower = case_when(
+        series == "p_bt_fitted" ~ df_plot_ts$p_bt_fitted_lower[match(year_month_date, df_plot_ts$year_month_date)],
+        series == "p_R_fitted" ~ df_plot_ts$p_R_fitted_lower[match(year_month_date, df_plot_ts$year_month_date)],
+        TRUE ~ NA_real_
+      ),
+      upper = case_when(
+        series == "p_bt_fitted" ~ df_plot_ts$p_bt_fitted_upper[match(year_month_date, df_plot_ts$year_month_date)],
+        series == "p_R_fitted" ~ df_plot_ts$p_R_fitted_upper[match(year_month_date, df_plot_ts$year_month_date)],
+        TRUE ~ NA_real_
+      )
+    )
+
+  subtitle_parts <- c(
+    if (cfg$include_block_re) "Space RE: YES" else "Space RE: NO",
+    if (cfg$include_time_re) "Time RE: YES" else "Time RE: NO",
+    if (cfg$include_spatial_ar) "Space AR: YES" else "Space AR: NO",
+    if (cfg$include_ar1_temporal) paste0("Time AR1: YES (", cfg$ar1_group, ")") else "Time AR1: NO",
+    "Lines: mean probabilities across blocks | Bars: total cases"
+  )
+  plot_subtitle <- paste(subtitle_parts, collapse = " | ")
+
+  # Add explanation for ribbon and NA values to the legend/caption
+  plot_caption <- paste(
+    "Shaded ribbon: 95% confidence interval for fitted probabilities (if available).",
+    sep = "\n"
+  )
+
+  max_prob <- max(df_plot_long$probability, na.rm = TRUE)
+  max_cases <- max(df_plot_ts$cases, na.rm = TRUE)
+  scale_factor <- ifelse(is.finite(max_cases) && max_cases > 0, max_prob / max_cases, 1)
+
+  # Only plot ribbon if aesthetics are present and not all NA
+  ribbon_data <- subset(df_plot_long, series %in% c("p_bt_fitted", "p_R_fitted"))
+  ribbon_ok <- nrow(ribbon_data) > 0 &&
+    !all(is.na(ribbon_data$lower)) &&
+    !all(is.na(ribbon_data$upper)) &&
+    !all(is.na(ribbon_data$probability)) &&
+    !all(is.na(ribbon_data$year_month_date))
+
+  p_probs <- ggplot(df_plot_long, aes(x = year_month_date, y = probability, color = series, group = series)) +
+    geom_col(
+      data = df_plot_ts,
+      aes(x = year_month_date, y = cases * scale_factor),
+      inherit.aes = FALSE,
+      fill = "grey75",
+      alpha = 0.5,
+      width = 25
+    )
+
+  if (ribbon_ok) {
+    p_probs <- p_probs +
+      geom_ribbon(
+        data = ribbon_data,
+        aes(x = year_month_date, ymin = lower, ymax = upper, fill = series),
+        alpha = 0.2,
+        color = NA,
+        inherit.aes = FALSE
+      )
+  } else {
+    warning("Skipping uncertainty ribbon: missing or invalid aesthetics.")
+  }
+
+  p_probs <- p_probs +
+    geom_line(linewidth = 1) +
+    geom_point(size = 1.3) +
+    scale_color_manual(
+      values = c(
+        p_bt_fitted = "#1f77b4",
+        p_R_fitted = "#ff7f0e",
+        p_observed = "#d62728"
+      )
+    ) +
+    scale_fill_manual(
+      values = c(
+        p_bt_fitted = "#1f77b4",
+        p_R_fitted = "#ff7f0e"
+      ),
+      guide = "none"
+    ) +
+    scale_y_continuous(
+      name = "Probability",
+      sec.axis = sec_axis(~ . / scale_factor, name = "Cases")
+    ) +
+    labs(
+      x = "Time",
+      color = NULL,
+      title = "Observed vs Fitted Probabilities with Cases",
+      subtitle = plot_subtitle,
+      caption = plot_caption
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      plot.caption = element_text(size = 10, hjust = 0)
+    )
+
+  print(p_probs)
+  plot_file <- file.path(output_dir, paste0("probabilities_timeseries_", run_suffix, ".png"))
+  ggsave(plot_file, p_probs, width = 12, height = 6, dpi = 150)
+  cat("  Probability plot PNG: ", plot_file, "\n", sep = "")
 }
