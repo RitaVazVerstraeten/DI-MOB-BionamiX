@@ -209,7 +209,7 @@ This reasoning would imply that at the height of entomological surveillance (201
   \frametitle{Spatial Variables}
   \centering
   \vspace{0.1cm}
-  \includegraphics[width=0.65\textwidth]{10_spatial_map_landcover.png}
+  \includegraphics[width=0.65\textwidth]{11_spatial_map_landcover.png}
 \end{frame} 
 
 \begin{frame}
@@ -227,14 +227,14 @@ This reasoning would imply that at the height of entomological surveillance (201
 \begin{frame}
   \frametitle{Mosquito positivity rate over time at houseblock level}
   \centering
-  \includegraphics[width=0.8\textwidth]{15_ento_positivity_heatmap_manzana_time.png} 
+  \includegraphics[width=0.8\textwidth]{14_ento_positivity_heatmap_manzana_time.png} 
 \end{frame}
 
 
 \begin{frame}
   \frametitle{Mosquito positivity rate over time at CMF level}
   \centering
-  \includegraphics[width=0.8\textwidth]{16_ento_positivity_heatmap_cmf_time.png} 
+  \includegraphics[width=0.8\textwidth]{15_ento_positivity_heatmap_cmf_time.png} 
 \end{frame}
 
 \section{Description Epi Data}
@@ -244,13 +244,13 @@ This reasoning would imply that at the height of entomological surveillance (201
   \includegraphics[width=0.8\textwidth]{17_dengue_cases_temp.png} 
 \end{frame}
 
-\begin{frame}
-  \frametitle{Dengue cases over space and time}
-  \centering
-  \includegraphics[width=0.8\textwidth]{18_dengue_cases_heatmap_manzana_time.png} 
-\end{frame}
+% \begin{frame}
+%   \frametitle{Dengue cases over space and time}
+%   \centering
+%   \includegraphics[width=0.8\textwidth]{18_dengue_cases_heatmap_manzana_time.png} 
+% \end{frame}
 
-\section{Correlations}
+\section{Collinearity in env predictors}
 \begin{frame}
   \frametitle{Correlations environmental covariates}
   \begin{columns}[T]
@@ -276,19 +276,50 @@ This reasoning would imply that at the height of entomological surveillance (201
     \end{column}
     \begin{column}{0.65\textwidth}
       \centering
-      \includegraphics[height=0.9\textheight]{11c_deseasonalized_correlation.png}
+      \includegraphics[height=0.9\textheight]{11a_numeric_vars_correlation_corrected.png}
     \end{column}
   \end{columns}
 \end{frame}
 
 \begin{frame}
-\frametitle{Temporal and Spatial Consistency}
-\begin{itemize}
-    \item Verify all blocks present across all time periods
-    \item Check for gaps in the time series
-    \item Inspect temporal autocorrelation patterns
-\end{itemize}
+  \frametitle{Pairwise plots climate variables}
+    \centering
+    \vspace{0.2cm}
+    \includegraphics[height=0.9\textheight]{11a_numeric_vars_pairs_plot_corrected.png}
 \end{frame}
+
+% \begin{frame}
+% \frametitle{Temporal and Spatial Consistency}
+% \begin{itemize}
+%     \item Verify all blocks present across all time periods
+%     \item Check for gaps in the time series
+%     \item Inspect temporal autocorrelation patterns
+% \end{itemize}
+% \end{frame}
+
+\section{Correlations env predictors \textasciitilde mosquito positivity rate}
+
+\begin{frame}
+  \frametitle{Linear correlation}
+    \centering
+    \vspace{0.2cm}
+    \includegraphics[height=0.9\textheight]{19b_temporal_env_vs_monthly_lag_0_1_2_positivity.png}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Quadratic transformation}
+    \centering
+    \vspace{0.2cm}
+    \includegraphics[height=0.9\textheight]{19b_temporal_env_vs_monthly_lag_0_1_2_positivity_quadratic.png}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Spline transformation}
+    \centering
+    \vspace{0.2cm}
+    \includegraphics[height=0.9\textheight]{19b_temporal_env_vs_monthly_lag_0_1_2_positivity_spline.png}
+\end{frame}
+
 
 % % Section 3: Preprocessing
 % \section{Preprocessing Steps}

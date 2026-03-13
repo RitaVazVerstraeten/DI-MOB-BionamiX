@@ -69,8 +69,10 @@ if (!dir.exists(output_dir)) {
   dir.create(output_dir, recursive = TRUE)
 }
 
-# Load data
-env_all <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_manzana_2016_01_to_2019_12_imputed.csv")
+# # Load data
+# env_all <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_manzana_2016_01_to_2019_12_imputed.csv")
+
+env_all <- read_csv("/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/all_environmental_data_per_manzana_2016_01_to_2019_12_imputed.csv")
 
 # Load manzanas shapefile (assumed to be already loaded in environment as 'manzanas')
 # If not loaded, uncomment and adjust path:
@@ -717,13 +719,19 @@ env_all <- env_all %>%
 cor(env_all$total_precip, env_all$precip_max_day_resid, use = "complete.obs")
 ```
 
+### Correct correlation between avg_temp and total_precip 
+
+
+
+
+
 
 Re-check the correlation plot with the new variable. 
 ```{r pairwise_plot_numeric_vars after correction, fig.cap="Pairwise scatterplot matrix of numeric explanatory variables after correction"}
 all_numeric <- c(all_numeric, "precip_max_day_resid")
 
 # remove the original variables causing issues with collinearity 
-all_numeric_no_colin <- all_numeric[!all_numeric %in% c("precip_max_day", "mean_ndmi", "mean_ndwi")]
+all_numeric_no_colin <- all_numeric[!all_numeric %in% c("precip_max_day", "mean_ndmi", "mean_ndwi", "WS2M")]
 
 correlation_data <- env_all %>%
   select(all_of(all_numeric_no_colin)) %>%
@@ -756,6 +764,43 @@ corrplot(corr_matrix,
          tl.cex = 0.8)
 ```
 
+
+```{r pairwise_plot_numeric_vars without collinearity, fig.cap="Pairwise scatterplot matrix of numeric explanatory variables"}
+all_numeric_no_colin <- all_numeric[!all_numeric %in% c("precip_max_day", "mean_ndmi", "mean_ndwi", "WS2M", "water_containers", "nr_aljibes")]
+# Reuse numeric variables from previous chunk; build fresh complete-case dataset
+pairwise_data <- env_all %>%
+  select(all_of(all_numeric_no_colin)) %>%
+  drop_na()
+
+# Optional downsampling for readability/performance with very large datasets
+set.seed(123)
+max_points <- 5000
+if (nrow(pairwise_data) > max_points) {
+  pairwise_data <- pairwise_data %>%
+    slice_sample(n = max_points)
+  cat("Note: pairs() plot uses a random sample of", max_points, "rows for readability.\n")
+}
+
+# Save pairwise plot to file
+png(file.path(output_dir, "11a_numeric_vars_pairs_plot_corrected.png"), width = 1800, height = 1800, res = 200)
+pairs(
+  pairwise_data,
+  pch = 25,
+  cex = 0.35,
+  col = rgb(0, 0, 0, 0.15),
+  main = "Pairwise Scatterplot Matrix - Numeric Environmental Variables"
+)
+dev.off()
+
+# Display in report
+pairs(
+  pairwise_data,
+  pch = 20,
+  cex = 0.35,
+  col = rgb(0, 0, 0, 0.15),
+  main = "Pairwise Scatterplot Matrix - Numeric Environmental Variables"
+)
+```
 ### Correlation Among Binary Spatial Variables
 
 ```{r spatial_categorical_correlation}
@@ -1260,9 +1305,32 @@ ggplot(ento, aes(x = pos_rate_lag1, y = pos_rate)) +
   geom_point(alpha = 0.5) +
   labs(title = "IS Positivity Rate Autocorrelation (Lag 1)",
        x = "Previous Month Positivity Rate",
-       y = "Current Month Positivity Rate") +
+       y = "Current Month Positivity Rate",
+      subtitle = paste("Correlation: ", round(autocorr_result$correlation, 3))) +
   theme_minimal()
 ```
+
+Let's re-test the temporal autocorrelation but this time taking out all null-values (both at time t and time t-1)
+
+```{r re-test temp autocorr positivity rate after removal null values}
+ento_nonull <- ento %>%
+  filter(pos_rate != 0 & pos_rate_lag1 != 0)
+
+autocorr_result <- ento_nonull %>%
+  filter(!is.na(pos_rate) & !is.na(pos_rate_lag1)) %>%
+  summarise(correlation = cor(pos_rate, pos_rate_lag1))
+print(autocorr_result)
+
+# Optionally, plot for visual inspection
+ggplot(ento_nonull, aes(x = pos_rate_lag1, y = pos_rate)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "IS Positivity Rate Autocorrelation (Lag 1) after removal null values",
+       x = "Previous Month Positivity Rate",
+       y = "Current Month Positivity Rate", 
+       subtitle = paste("Correlation: ", round(autocorr_result$correlation, 3))) +
+  theme_minimal()
+```
+After removal of null values (98% of the data), the correlation is very large ...
 
 ## Spatial auto-correlation 
 
@@ -1722,7 +1790,9 @@ if (all(c("manzana", "year_month", "cases") %in% colnames(env_epi_ento))) {
 # One-on-one correlation between positivity rate and environmental var's 
 
 ```{r reload the data}
-env_epi_ento <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv")
+env_epi_ento <- read_csv("/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv")
+
+env_all <- read_csv("/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/all_environmental_data_per_manzana_2016_01_to_2019_12_imputed.csv")
 ```
 
 
@@ -1732,7 +1802,7 @@ env_epi_ento <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Munic
 ```{r env_vs_positivity_one_on_one, fig.width=16, fig.height=12, fig.cap="Temporal variables vs mosquito positivity rate"}
 # Temporal-only associations (corrected: one point per month)
 
-temporal_only_vars <- c("avg_temp", "total_precip", "rel_hum", "WS2M", "precip_max_day")
+temporal_only_vars <- c("avg_temp", "total_precip", "rel_hum", "WS2M", "precip_max_day", "precip_max_day_resid")
 
 # 1) Monthly outcome (weighted by inspected houses)
 monthly_pos <- env_epi_ento %>%
@@ -1743,7 +1813,7 @@ monthly_pos <- env_epi_ento %>%
   )
 
 # 2) Monthly environmental predictors (deduplicate month-level repetition)
-monthly_env <- env_all %>%
+monthly_env <- env_epi_ento %>%
   group_by(year_month) %>%
   summarise(across(all_of(temporal_only_vars), ~mean(.x, na.rm = TRUE)), .groups = "drop")
 
@@ -1785,6 +1855,180 @@ print(p_temporal)
 ggsave(file.path(output_dir, "19_temporal_env_vs_monthly_positivity.png"), p_temporal, width = 14, height = 8, dpi = 300)
 ```
 
+Actually, the correlation with windspeed and total_precipitation is very very low 0.03 and 0.01 respectively, while the correlation with relative humidity is higher (0.28). 
+
+**Plot the result for numeric temporal variables with 0 & 1 & 2 month lag**
+```{r calculate the one-on-one relations and their spearman correlation with lag}
+# 1) Create lagged variables for lag 0, 1, and 2
+monthly_env_lagged <- monthly_env %>%
+  arrange(year_month) %>%
+  mutate(
+    across(all_of(temporal_only_vars), ~.x, .names = "{.col}_lag0"),
+    across(all_of(temporal_only_vars), ~lag(.x, n = 1), .names = "{.col}_lag1"),
+    across(all_of(temporal_only_vars), ~lag(.x, n = 2), .names = "{.col}_lag2")
+  )
+
+# 2) Join lagged predictors to outcome
+lagged_data <- monthly_pos %>%
+  left_join(monthly_env_lagged, by = "year_month")
+
+# 3) Pivot to long format for plotting (all lags)
+lagged_long <- lagged_data %>%
+  pivot_longer(matches("_lag[012]$"), names_to = "Variable", values_to = "Value") %>%
+  filter(!is.na(Value), !is.na(Positivity_Rate)) %>%
+  mutate(
+    Lag = case_when(
+      grepl("_lag0$", Variable) ~ "0-month lag",
+      grepl("_lag1$", Variable) ~ "1-month lag",
+      grepl("_lag2$", Variable) ~ "2-month lag"
+    ),
+    Variable = gsub("_lag[012]$", "", Variable)
+  )
+
+# 4) Calculate Spearman rho for each variable and lag
+rho_tbl <- lagged_long %>%
+  group_by(Variable, Lag) %>%
+  summarise(rho = cor(Value, Positivity_Rate, method = "spearman"), .groups = "drop") %>%
+  mutate(label = paste0("rho = ", round(rho, 2)))
+
+plot_data <- lagged_long %>% left_join(rho_tbl, by = c("Variable", "Lag"))
+```
+
+```{r plot the one-on-one temporal vars with different month lag and their spearman correlation}
+p_temporal_lagged <- ggplot(plot_data, aes(x = Value, y = Positivity_Rate)) +
+  geom_point(color = "firebrick", alpha = 0.7) +
+  geom_smooth(method = "lm", color = "steelblue") +
+  facet_grid(Lag ~ Variable, scales = "free_x") +
+  geom_text(data = rho_tbl, aes(x = -Inf, y = Inf, label = label), hjust = -0.1, vjust = 1.2, inherit.aes = FALSE) +
+  labs(
+    title = "Monthly environmental variables (1- and 2-month lag) vs monthly mosquito positivity",
+    subtitle = "One point per month (pseudo-replication removed)",
+    x = "Lagged Environmental value",
+    y = "Positivity rate (%)"
+  )
+
+print(p_temporal_lagged)
+ggsave(file.path(output_dir, "19b_temporal_env_vs_monthly_lag_0_1_2_positivity.png"), p_temporal_lagged, width = 14, height = 8, dpi = 300)
+```
+
+### Testing non-linear transformations of numeric variables 
+#### Quadratic
+
+```{r temperature quadratic transformations}
+p_temporal_lagged_quad <- ggplot(plot_data, aes(x = Value, y = Positivity_Rate)) +
+  geom_point(color = "firebrick", alpha = 0.7) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2), color = "steelblue") +
+  facet_grid(Lag ~ Variable, scales = "free_x") +
+  labs(
+    title = "Monthly environmental variables (1- and 2-month lag, quadratic fit) vs monthly mosquito positivity",
+    subtitle = "Quadratic model: y = β₀ + β₁x + β₂x² + ε",
+    x = "Lagged Environmental value",
+    y = "Positivity rate (%)"
+  )
+
+print(p_temporal_lagged_quad)
+
+ggsave(file.path(output_dir, "19b_temporal_env_vs_monthly_lag_0_1_2_positivity_quadratic.png"), p_temporal_lagged_quad, width = 14, height = 8, dpi = 300)
+
+```
+
+#### Spline
+```{r temperature spline transformations}
+library(mgcv) # Required for GAM splines
+
+p_temporal_lagged_spline <- ggplot(plot_data, aes(x = Value, y = Positivity_Rate)) +
+  geom_point(color = "firebrick", alpha = 0.7) +
+  geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs"), color = "steelblue") +
+  facet_grid(Lag ~ Variable, scales = "free_x") +
+  labs(
+    title = "Monthly environmental variables (1- and 2-month lag, spline fit) vs monthly mosquito positivity",
+    subtitle = "Spline model: y = β₀ + f(x) + ε",
+    x = "Lagged Environmental value",
+    y = "Positivity rate (%)"
+  )
+
+print(p_temporal_lagged_spline)
+ggsave(file.path(output_dir, "19b_temporal_env_vs_monthly_lag_0_1_2_positivity_spline.png"), p_temporal_lagged_spline, width = 14, height = 8, dpi = 300)
+```
+
+The spline is definitely not worth it... not better 
+
+#### RH
+```{r RH quadratic transformations}
+
+# Select only avg_temp rows and add quadratic transformation
+lagged_temp <- lagged_long %>%
+  filter(Variable == "rel_hum") %>%
+  mutate(Value_sq = Value^2)
+
+# Plot for each lag
+plots <- lapply(unique(lagged_temp$Lag), function(lag) {
+  ggplot(filter(lagged_temp, Lag == lag), aes(x = Value, y = Positivity_Rate)) +
+    geom_point(alpha = 0.3) +
+    geom_smooth(method = "lm", formula = y ~ x+ I(x^2), color = "blue") +
+    labs(title = paste("Quadratic: rel_hum", lag), 
+    subtitle = "y = β₀ + β₁x + β₂x²",
+    x = "Relative Humidity", y = "Positivity Rate") +
+    theme_minimal()
+})
+
+# Combine plots
+p_temp_quadratic <- wrap_plots(plots)
+print(p_temp_quadratic)
+```
+
+#### precipitation
+```{r precipitation quadratic transformations}
+
+# Select only avg_temp rows and add quadratic transformation
+lagged_temp <- lagged_long %>%
+  filter(Variable == "total_precip") %>%
+  mutate(Value_sq = Value^2)
+
+# Plot for each lag
+plots <- lapply(unique(lagged_temp$Lag), function(lag) {
+  ggplot(filter(lagged_temp, Lag == lag), aes(x = Value, y = Positivity_Rate)) +
+    geom_point(alpha = 0.3) +
+    geom_smooth(method = "lm", formula = y ~ x+ I(x^2), color = "blue") +
+    labs(title = paste("Quadratic: total_precip", lag), 
+    subtitle = "y = β₀ + β₁x + β₂x²",
+    x = "Total Monthly Precipitation", y = "Positivity Rate") +
+    theme_minimal()
+})
+
+# Combine plots
+p_precip_quadratic <- wrap_plots(plots)
+print(p_precip_quadratic)
+```
+
+```{r precipitation spline transformations}
+
+library(mgcv) # for GAM
+
+# Filter for RH
+lagged_rh <- lagged_long %>%
+  filter(Variable == "total_precip")
+
+# Plot for each lag using a spline (GAM)
+plots <- lapply(unique(lagged_rh$Lag), function(lag) {
+  ggplot(filter(lagged_rh, Lag == lag), aes(x = Value, y = Positivity_Rate)) +
+    geom_point(alpha = 0.3) +
+    geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs"), color = "blue") +
+    labs(
+      title = paste("Spline: total_precip", lag),
+      subtitle = "y = s(x) (cubic spline)",
+      x = "Total MOnthly Precipitation",
+      y = "Positivity Rate"
+    ) +
+    theme_minimal()
+})
+
+p_precip_spline <- wrap_plots(plots)
+print(p_precip_spline)
+```
+Also not worth it... 
+
+#### Binary spatial variables 
 
 ```{r env_vs_positivity_one_on_one spatial}
 
@@ -1797,8 +2041,7 @@ manzana_outcome <- env_epi_ento %>%
   )
 
 # 2) One row per manzana for spatial predictors
-spatial_vars <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage",
-                  "landcover", "nr_aljibes", "water_containers")
+spatial_vars <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage","landcover", "nr_aljibes", "water_containers")
 
 manzana_spatial <- env_all %>%
   select(manzana, all_of(spatial_vars)) %>%
@@ -1809,7 +2052,6 @@ spatial_df <- manzana_outcome %>%
   left_join(manzana_spatial, by = "manzana")
 ```
 
-#### Binary spatial variables 
 
 ```{r plot the one-on-one relations posivity rate vs binary env var}
 binary_vars <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage")

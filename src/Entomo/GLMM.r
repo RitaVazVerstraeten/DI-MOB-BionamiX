@@ -20,9 +20,9 @@ conflicted::conflict_prefer("lag", "dplyr")
 # =========================
 cfg <- list(
   # Random effects to include
-  include_block_re = FALSE,      # Random intercept for block (spatial)
-  include_time_re = FALSE,      # Random intercept for time (temporal)
-  include_ar1_temporal = FALSE, # AR(1) temporal autocorrelation (within group)
+  include_block_re = TRUE,      # Random intercept for block (spatial)
+  include_time_re = TRUE,      # Random intercept for time (temporal)
+  include_ar1_temporal = TRUE, # AR(1) temporal autocorrelation (within group)
   ar1_group = "block",         # "block" (within-block AR1) or "global"
   include_spatial_ar = FALSE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
   # include_spatial_ar = TRUE,  # Matérn spatial autocorrelation: mat(xy + 0 | spatial)
@@ -514,6 +514,14 @@ df_summary_weighted <- df_summary %>%
       (1 - omega) * p_bt_fitted + omega * p_R_fitted
     )
   ) 
+
+save_glmm_prob_timeseries_plot_random_blocks(
+    df_summary = df_summary,
+    df_observed = df_observed, 
+    output_dir = run_output_dir,
+    run_suffix = run_suffix,
+    cfg = cfg,
+    n_blocks = 10)
 
 save_glmm_prob_timeseries_plot_weighted(
   df_summary = df_summary_weighted,
