@@ -20,15 +20,15 @@ conflicted::conflict_prefer("lag", "dplyr")
 # =========================
 cfg <- list(
   # Random effects to include
-  include_block_re = TRUE,      # Random intercept for block (spatial)
-  include_time_re = TRUE,      # Random intercept for time (temporal)
+  include_block_re = FALSE,      # Random intercept for block (spatial)
+  include_time_re = FALSE,      # Random intercept for time (temporal)
   include_ar1_temporal = TRUE, # AR(1) temporal autocorrelation (within group)
   ar1_group = "block",         # "block" (within-block AR1) or "global"
   include_spatial_ar = FALSE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
   # include_spatial_ar = TRUE,  # Matérn spatial autocorrelation: mat(xy + 0 | spatial)
 
   # Link function for binomial GLMM
-  link_function = "logit",     # Options: "logit", "probit", "cloglog", "cauchit"
+  link_function = "cloglog",     # Options: "logit", "probit", "cloglog", "cauchit"
 
   # Spatial coordinates from shapefile (used when include_spatial_ar = TRUE)
   shapefile_path = "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp",
