@@ -103,7 +103,7 @@ Temporal variables that vary over time and are measured consistently across all 
 ### Overall Summary Statistics
 
 ```{r temporal_overall_summary}
-temporal_vars <- c("WS2M", "avg_temp", "total_precip", "precip_max_day", "rel_hum")
+temporal_vars <- c("WS2M", "avg_temp", "total_precip", "precip_max_day", "consec_rainy_days", "rel_hum")
 
 temporal_data <- env_all %>%
   select(all_of(temporal_vars)) %>%
@@ -187,83 +187,81 @@ ggsave(file.path(output_dir, "01_temporal_distributions.png"), p, width = 12, he
 ### Temporal Variation Over Time
 
 ```{r temporal_by_month, fig.cap="Temporal variables by month - showing seasonal patterns", fig.width=14, fig.height=10}
-if ("year_month" %in% colnames(env_all)) {
-  temporal_with_month <- env_all %>%
-    select(all_of(c("year_month", temporal_vars))) %>%
-    drop_na() %>%
-    pivot_longer(all_of(temporal_vars), names_to = "Variable", values_to = "Value")
+
+meteo_to_plot <- env_all %>%
+  mutate(year_month_date = as.Date(paste0(gsub("_", "-", as.character(year_month)), "-01")))
+
+# Plot 1: avg_temp with 95% CI
+p1 <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
+  geom_line(aes(y = max_temp), color = "red") +
+  geom_point(aes(y = max_temp), color = "red") +
+  geom_ribbon(aes(ymin = max_temp - 1.96 * se_max_temp, ymax = max_temp + 1.96 * se_max_temp), fill = "red", alpha = 0.2) +
   
-  p1 <- ggplot(temporal_with_month %>% filter(Variable == "WS2M"),
-               aes(x = year_month, y = Value, group = 1)) +
-    geom_point(size = 2, alpha = 0.7, color = "slateblue") +
-    geom_line(alpha = 0.5, color = "slateblue") +
-    theme_minimal() +
-    theme(
-      axis.text.x = element_text(angle = 90, size = 6),
-      plot.title = element_text(size = 11, face = "bold")
-    ) +
-    labs(title = "Wind Speed",
-         x = "Year-Month",
-         y = "Wind Speed (m/s)")
-  
-  # # Plot individual other temporal variables
-  # other_vars <- setdiff(temporal_vars, ws_vars)
-  
-  p2 <- ggplot(temporal_with_month %>% filter(Variable == "avg_temp"), 
-               aes(x = year_month, y = Value, color = Variable, group = Variable)) +
-    geom_point(size = 2, alpha = 0.7, color = "firebrick") +
-    geom_line(alpha = 0.5, color = "firebrick") +
-    theme_minimal() +
-    theme(
-      axis.text.x = element_text(angle = 90, size = 6),
-      legend.position = "none",
-      plot.title = element_text(size = 11, face = "bold")
-    ) +
-    labs(title = "Average Temperature",
-         x = "Year-Month",
-         y = "Temperature (°C)")
-  
-  p3 <- ggplot(temporal_with_month %>% filter(Variable %in% c("total_precip", "precip_max_day")), 
-               aes(x = year_month, y = Value, color = Variable, group = Variable)) +
-    geom_point(size = 2, alpha = 0.7) +
-    geom_line(alpha = 0.5) +
-    scale_color_manual(values = c("total_precip" = "steelblue", "precip_max_day" = "lightblue"),
-                       labels = c("total_precip" = "Total precipitation", "precip_max_day" = "Maximum daily precipitation")) +
-    theme_minimal() +
-    theme(
-      axis.text.x = element_text(angle = 90, size = 6),
-      legend.position = c(0.98, 0.98),
-      legend.justification = c(1, 1),
-      legend.background = element_rect(fill = scales::alpha("white", 0.85), color = "gray80"),
-      plot.title = element_text(size = 11, face = "bold")
-    ) +
-    labs(title = "Total Precipitation",
-         x = "Year-Month",
-         y = "Precipitation (mm)",
-         color = "Metric")
-  
-  p4 <- ggplot(temporal_with_month %>% filter(Variable == "rel_hum"), 
-               aes(x = year_month, y = Value, color = Variable, group = Variable)) +
-    geom_point(size = 2, alpha = 0.7, color = "mediumseagreen") +
-    geom_line(alpha = 0.5, color = "mediumseagreen") +
-    theme_minimal() +
-    theme(
-      axis.text.x = element_text(angle = 90, size = 6),
-      legend.position = "none",
-      plot.title = element_text(size = 11, face = "bold")
-    ) +
-    labs(title = "Relative Humidity",
-         x = "Year-Month",
-         y = "Humidity (%)")
-  
-  # Combine into 2x2 grid
-  combined_plot <- cowplot::plot_grid(p1, p2, p3, p4, nrow = 2, ncol = 2)
-  
-  print(combined_plot)
-  ggsave(file.path(output_dir, "02_temporal_by_month.png"), combined_plot, width = 14, height = 10, dpi = 300)
-} else {
-  cat("Note: year_month variable not found in dataset")
-}
+  geom_line(aes(y = avg_temp), color = "orange") +
+  geom_point(aes(y = avg_temp), color = "orange") +
+  geom_ribbon(aes(ymin = avg_temp - 1.96 * se_avg_temp, ymax = avg_temp + 1.96 * se_avg_temp), fill = "orange", alpha = 0.2) +
+
+  geom_line(aes(y = min_temp), color = "blue") +
+  geom_point(aes(y = min_temp), color = "blue") +
+  geom_ribbon(aes(ymin = min_temp - 1.96 * se_min_temp, ymax = min_temp + 1.96 * se_min_temp), fill = "blue", alpha = 0.2) +
+  labs(title = "Average Temperature (95% CI)", x = "Month", y = "Avg Temp") +
+  theme_minimal()
+
+# Plot 2: rel_hum with 95% CI
+p2 <- ggplot(meteo_to_plot, aes(x = year_month_date, y = rel_hum)) +
+  geom_line(color = "green") +
+  geom_point(color = "green") +
+  geom_ribbon(aes(ymin = rel_hum - 1.96 * se_hum, ymax = rel_hum + 1.96 * se_hum), fill = "green", alpha = 0.2) +
+  labs(title = "Relative Humidity (95% CI)", x = "Month", y = "Rel Humidity") +
+  theme_minimal()
+
+# Plot 3: WS2M (wind speed)
+p3 <- ggplot(meteo_to_plot, aes(x = year_month_date, y = WS2M)) +
+  geom_line(color = "purple") +
+  geom_point(color = "purple") +
+  labs(title = "Wind Speed", x = "Month", y = "WS2M") +
+  theme_minimal()
+
+# Plot 4: total_precip
+scale_factor <- max(meteo_to_plot$total_precip, na.rm = TRUE) / max(meteo_to_plot$consec_rainy_days, na.rm = TRUE)
+
+p4 <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
+  geom_line(aes(y = total_precip, color = "Total Precip"), size = 1) +
+  geom_point(aes(y = total_precip, color = "Total Precip")) +
+  geom_line(aes(y = precip_max_day, color = "Max Daily Precip"), size = 1) +
+  geom_point(aes(y = precip_max_day, color = "Max Daily Precip")) +
+  geom_point(aes(y = consec_rainy_days * scale_factor, color = "Consec Rainy Days")) +
+  geom_line(aes(y = consec_rainy_days * scale_factor, color = "Consec Rainy Days")) +
+
+  scale_color_manual(
+    name = "Legend",
+    values = c(
+      "Total Precip" = "darkblue",
+      "Max Daily Precip" = "lightblue",
+      "Consec Rainy Days" = "orange"
+    )
+  ) +
+  scale_y_continuous(
+    name = "Precipitation (mm)",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Days")
+  ) +
+  labs(
+    title = "Precipitation",
+    x = "Month"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top", legend.justification = c(1, 1))
+
+
+# print(p4)
+# Combine into 2x2 grid
+combined_plot <- plot_grid(p1, p2, p3, p4, nrow = 2, ncol = 2)
+print(combined_plot)
+
+ggsave(file.path(output_dir, "02_temporal_by_month.png"), combined_plot, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "02a_temperature_by_month.png"), p1, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "02b_precipitation_by_month.png"), p4, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "02c_rel_hum_by_month.png"), p2, width = 14, height = 8, dpi = 300)
 ```
 
 ---
@@ -394,7 +392,7 @@ p <- ggplot(landcover_data, aes(x = reorder(landcover, -Count), y = Count, fill 
        x = "Landcover Type",
        y = "Count")
 print(p)
-ggsave(file.path(output_dir, "04_spatial_categorical_barplot.png"), p, width = 10, height = 6, dpi = 300)
+ggsave(file.path(output_dir, "04_spatial_categorical_barplot.png"), p, width = 12, height = 6, dpi = 300)
 ```
 
 ### Spatial Distribution Maps
@@ -434,7 +432,7 @@ for (var in binary_spatial) {
 # Combine into 2x2 grid
 combined_binary <- cowplot::plot_grid(plotlist = binary_plots, nrow = 2, ncol = 3)
 print(combined_binary)
-ggsave(file.path(output_dir, "08_spatial_maps_binary.png"), combined_binary, width = 14, height = 12, dpi = 300)
+ggsave(file.path(output_dir, "08_spatial_maps_binary.png"), combined_binary, width = 20, height = 10, dpi = 300)
 ```
 
 ```{r spatial_maps_continuous, fig.cap="Spatial distribution of nr_aljibes across manzanas", fig.width=10, fig.height=8}
@@ -986,7 +984,10 @@ if (all(c("Houses_pos_IS", "Inspected_houses", "year_month") %in% colnames(env_e
     summarise(
       Total_Pos = sum(Houses_pos_IS),
       Total_n   = sum(Inspected_houses),
-      Positivity_Rate = Total_Pos / Total_n * 100,
+      Positivity_Rate = Total_Pos / Total_n,
+      se = sqrt(Positivity_Rate * (1 - Positivity_Rate) / Total_n),
+      lower = Positivity_Rate - 1.96 * se,
+      upper = Positivity_Rate + 1.96 * se,
       N_Blocks = n(),
       .groups = "drop"
     ) 
@@ -994,6 +995,7 @@ if (all(c("Houses_pos_IS", "Inspected_houses", "year_month") %in% colnames(env_e
   p <- ggplot(temporal_pos_data, aes(x = year_month, y = Positivity_Rate, group = 1)) +
     geom_line(color = "darkred", alpha = 0.8, linewidth = 1) +
     geom_point(size = 3, color = "darkred", alpha = 0.8) +
+    geom_ribbon(aes(ymin = lower, ymax = upper), fill = "darkred", alpha = 0.2) +
     theme_minimal() +
     theme(
       axis.text.x = element_text(angle = 90, size = 8),
@@ -1001,7 +1003,7 @@ if (all(c("Houses_pos_IS", "Inspected_houses", "year_month") %in% colnames(env_e
     ) +
     labs(title = "Mosquito Survey Positivity Rate Over Time",
          x = "Year-Month",
-         y = "Positivity Rate (%)")
+         y = "Positivity Rate")
   
   print(p)
   ggsave(file.path(output_dir, "11_ento_temporal_positivity.png"), p, width = 12, height = 6, dpi = 300)
@@ -1209,7 +1211,7 @@ if (all(c("manzana", "year_month", "Houses_pos_IS", "Inspected_houses") %in% col
     )
   
   print(p)
-  ggsave(file.path(output_dir, "14_ento_positivity_heatmap_manzana_time.png"), p,width = 16, height = 10, dpi = 300)
+  ggsave(file.path(output_dir, "14_ento_positivity_heatmap_manzana_time.png"), p,width = 20, height = 10, dpi = 300)
 }
 ```
 
@@ -1269,7 +1271,7 @@ if (all(c("Area_CMF", "year_month", "Houses_pos_IS", "Inspected_houses") %in% co
     )
   
   print(p)
-  ggsave(file.path(output_dir, "15_ento_positivity_heatmap_cmf_time.png"), p, width = 16, height = 10, dpi = 300)
+  ggsave(file.path(output_dir, "15_ento_positivity_heatmap_cmf_time.png"), p, width = 20, height = 10, dpi = 300)
 } else {
   cat("Note: CMF or required variables not found in dataset.\n")
 }
@@ -1868,9 +1870,10 @@ monthly_env_lagged <- monthly_env %>%
     across(all_of(temporal_only_vars), ~lag(.x, n = 2), .names = "{.col}_lag2")
   )
 
-# 2) Join lagged predictors to outcome
-lagged_data <- monthly_pos %>%
-  left_join(monthly_env_lagged, by = "year_month")
+
+# # 2) Join lagged predictors to outcome
+# lagged_data <- monthly_pos %>%
+#   left_join(monthly_env_lagged, by = "year_month")
 
 # 3) Pivot to long format for plotting (all lags)
 lagged_long <- lagged_data %>%
@@ -1883,7 +1886,13 @@ lagged_long <- lagged_data %>%
       grepl("_lag2$", Variable) ~ "2-month lag"
     ),
     Variable = gsub("_lag[012]$", "", Variable)
-  )
+    ) %>%
+    mutate(
+      Variable = factor(
+        Variable,
+        levels = c("avg_temp", "total_precip", "precip_max_day", "precip_max_day_resid", "rel_hum", "WS2M")
+      )
+    )
 
 # 4) Calculate Spearman rho for each variable and lag
 rho_tbl <- lagged_long %>%
@@ -1953,80 +1962,6 @@ ggsave(file.path(output_dir, "19b_temporal_env_vs_monthly_lag_0_1_2_positivity_s
 
 The spline is definitely not worth it... not better 
 
-#### RH
-```{r RH quadratic transformations}
-
-# Select only avg_temp rows and add quadratic transformation
-lagged_temp <- lagged_long %>%
-  filter(Variable == "rel_hum") %>%
-  mutate(Value_sq = Value^2)
-
-# Plot for each lag
-plots <- lapply(unique(lagged_temp$Lag), function(lag) {
-  ggplot(filter(lagged_temp, Lag == lag), aes(x = Value, y = Positivity_Rate)) +
-    geom_point(alpha = 0.3) +
-    geom_smooth(method = "lm", formula = y ~ x+ I(x^2), color = "blue") +
-    labs(title = paste("Quadratic: rel_hum", lag), 
-    subtitle = "y = β₀ + β₁x + β₂x²",
-    x = "Relative Humidity", y = "Positivity Rate") +
-    theme_minimal()
-})
-
-# Combine plots
-p_temp_quadratic <- wrap_plots(plots)
-print(p_temp_quadratic)
-```
-
-#### precipitation
-```{r precipitation quadratic transformations}
-
-# Select only avg_temp rows and add quadratic transformation
-lagged_temp <- lagged_long %>%
-  filter(Variable == "total_precip") %>%
-  mutate(Value_sq = Value^2)
-
-# Plot for each lag
-plots <- lapply(unique(lagged_temp$Lag), function(lag) {
-  ggplot(filter(lagged_temp, Lag == lag), aes(x = Value, y = Positivity_Rate)) +
-    geom_point(alpha = 0.3) +
-    geom_smooth(method = "lm", formula = y ~ x+ I(x^2), color = "blue") +
-    labs(title = paste("Quadratic: total_precip", lag), 
-    subtitle = "y = β₀ + β₁x + β₂x²",
-    x = "Total Monthly Precipitation", y = "Positivity Rate") +
-    theme_minimal()
-})
-
-# Combine plots
-p_precip_quadratic <- wrap_plots(plots)
-print(p_precip_quadratic)
-```
-
-```{r precipitation spline transformations}
-
-library(mgcv) # for GAM
-
-# Filter for RH
-lagged_rh <- lagged_long %>%
-  filter(Variable == "total_precip")
-
-# Plot for each lag using a spline (GAM)
-plots <- lapply(unique(lagged_rh$Lag), function(lag) {
-  ggplot(filter(lagged_rh, Lag == lag), aes(x = Value, y = Positivity_Rate)) +
-    geom_point(alpha = 0.3) +
-    geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs"), color = "blue") +
-    labs(
-      title = paste("Spline: total_precip", lag),
-      subtitle = "y = s(x) (cubic spline)",
-      x = "Total MOnthly Precipitation",
-      y = "Positivity Rate"
-    ) +
-    theme_minimal()
-})
-
-p_precip_spline <- wrap_plots(plots)
-print(p_precip_spline)
-```
-Also not worth it... 
 
 #### Binary spatial variables 
 

@@ -39,6 +39,7 @@ Observations table (one row per block-time combination):
 |avg_temp | Numeric | average temperature (°C) for that manzana-month |
 |total_precip | Numeric | cummulative precipitation (mm) for that manzana-month | max_precip_daily
 |precip_max_day | Numeric | cummulative precipitation (mm/24h) for the day in that manzana-month with the highest precipitation | 
+|consec_rainy_days | Numeric | Maximum number of consecutive days with rain (> 1 mm) per month | 
 |rel_hum | Numeric | average relative humidity (%) for that manzana-month |
 
 <!-- |omega |	Numeric	| Reactive bias weight (calculated from C_bt) | -->
@@ -749,25 +750,99 @@ meteo_daily <- meteo_daily %>%
 meteo_daily <- meteo_daily %>%
   rename(Temp_med = "Temp med", Humedad_r_med = "Humedad r med") %>%
   select(Ano, Mes, Dia, Temp_med, Humedad_r_med, precip_ponderada) %>%
-  mutate(year_month = paste0(Ano, "_", sprintf("%02d", Mes))) 
+  mutate(year_month = paste0(Ano, "_", sprintf("%02d", Mes)),
+    precip_over_1 = precip_ponderada > 1) 
 
 meteo_monthly <- meteo_daily %>%
   group_by(year_month) %>%
   summarise(
     avg_temp = mean(Temp_med, na.rm = TRUE),
+    se_temp = sd(Temp_med, na.rm = TRUE) / sqrt(sum(!is.na(Temp_med))),
     rel_hum = mean(Humedad_r_med, na.rm = TRUE),
+    se_hum = sd(Humedad_r_med, na.rm = TRUE) / sqrt(sum(!is.na(Humedad_r_med))),
     total_precip = sum(precip_ponderada, na.rm = TRUE),
     precip_max_day = max(precip_ponderada, na.rm = TRUE),
+    consec_rainy_days = {
+      runs <- rle(precip_ponderada > 1)
+      ifelse(any(runs$values), max(runs$lengths[runs$values]), 0)
+    },
     .groups = "drop"
   ) %>%
   filter(year_month >= "2016_01" & year_month <= "2019_12")
 ```
 
+```{r plot temp_min temp_med and temp_max by month}
+meteo_daily <- read_xlsx("/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx")
+
+# Select relevant years
+meteo_daily <- meteo_daily %>%
+  filter(Ano >= 2015 & Ano <= 2019)
+
+# select relevant columns and create year_month 
+meteo_daily <- meteo_daily %>%
+  rename(Temp_med = "Temp med", Temp_min = "Temp min", Temp_max = "Temp max", Humedad_r_med = "Humedad r med", Humedad_r_min = "Humedad r min", Humedad_r_max = "Humedad r max") %>%
+  mutate(year_month = paste0(Ano, "_", sprintf("%02d", Mes)),
+    precip_over_1 = precip_ponderada > 1) 
+
+meteo_monthly <- meteo_daily %>%
+  group_by(year_month) %>%
+  summarise(
+    avg_temp = mean(Temp_med, na.rm = TRUE),
+    se_avg_temp = sd(Temp_med, na.rm = TRUE) / sqrt(sum(!is.na(Temp_med))),
+    min_temp = mean(Temp_min, na.rm = TRUE),
+    se_min_temp = sd(Temp_min, na.rm = TRUE) / sqrt(sum(!is.na(Temp_min))),
+    max_temp = mean(Temp_max, na.rm = TRUE),
+    se_max_temp = sd(Temp_max, na.rm = TRUE) / sqrt(sum(!is.na(Temp_max))),
+    rel_hum = mean(Humedad_r_med, na.rm = TRUE),
+    se_hum = sd(Humedad_r_med, na.rm = TRUE) / sqrt(sum(!is.na(Humedad_r_med))),
+    total_precip = sum(precip_ponderada, na.rm = TRUE),
+    precip_max_day = max(precip_ponderada, na.rm = TRUE),
+    consec_rainy_days = {
+      runs <- rle(precip_ponderada > 1)
+      ifelse(any(runs$values), max(runs$lengths[runs$values]), 0)
+    },
+    .groups = "drop"
+  ) %>%
+  filter(year_month >= "2016_01" & year_month <= "2019_12")
+
+# Reshape temperature and SE columns separately, then join
+temp_long <- meteo_monthly %>%
+  pivot_longer(cols = c(avg_temp, min_temp, max_temp),
+               names_to = "Type", values_to = "Value") %>%
+  mutate(Type = recode(Type, avg_temp = "Mean", min_temp = "Min", max_temp = "Max"),
+         year_month_date = as.Date(paste0(year_month, "_01"), format = "%Y_%m_%d"))
+
+se_long <- meteo_monthly %>%
+  pivot_longer(cols = c(se_avg_temp, se_min_temp, se_max_temp),
+               names_to = "Type", values_to = "SE") %>%
+  mutate(Type = recode(Type, se_avg_temp = "Mean", se_min_temp = "Min", se_max_temp = "Max"),
+         year_month_date = as.Date(paste0(year_month, "_01"), format = "%Y_%m_%d"))
+
+# Join temp and SE
+plot_long <- left_join(temp_long, se_long, by = c("year_month_date", "Type", "year_month"))
+
+# Plot with 95% CI ribbons
+p_temp <- ggplot(plot_long, aes(x = year_month_date, y = Value, color = Type, group = Type)) +
+  geom_line(size = 1) +
+  geom_ribbon(aes(ymin = Value - 1.96 * SE, ymax = Value + 1.96 * SE, fill = Type), alpha = 0.2, color = NA) +
+  scale_color_manual(
+    name = "Legend",
+    values = c("Mean" = "darkblue", "Max" = "red", "Min" = "orange")
+  ) +
+  scale_fill_manual(
+    values = c("Mean" = "darkblue", "Max" = "red", "Min" = "orange"),
+    guide = "none"
+  ) +
+  theme_minimal()
+
+print(p_temp)
+```
 
 **Temporal variables** 
   - temperature -> month (2016-01 -> 2019-12)
   - precipitation -> month (2016-01 -> 2019-12)
   - precip_max_day -> month (2016-01 -> 2019-12)
+  - consec_rainy_days -> month 
   - humidity -> month (2016-01 -> 2019-12)
   - wind speed -> month (2016-01 -> 2019-12)
 
@@ -1628,6 +1703,7 @@ write_csv(final_dataset, file.path(final_epi_entomo_env_data_path_2, "env_epi_en
 ```
 
 # Correcting for colinnearity (check Descriptive Statistics for measures of colinnearity)
+  geom_ribbon(aes(ymin = avg_temp - 1.96 * se_temp, ymax = avg_temp + 1.96 * se_temp), fill = "blue", alpha = 0.2) +
 
 ```{r create residuals for precip_max_day in linear relation to total_precip}
 env_epi_ento <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_manzana_2016_01_to_2019_12.csv")
