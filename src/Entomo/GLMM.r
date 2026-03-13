@@ -31,20 +31,31 @@ cfg <- list(
   link_function = "cloglog",     # Options: "logit", "probit", "cloglog", "cauchit"
 
   # Spatial coordinates from shapefile (used when include_spatial_ar = TRUE)
-  shapefile_path = "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp",
+  shapefile_path = if (Sys.info()["nodename"] == "frietjes") {
+    "/home/rita/data/Entomo/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp"
+  } else {
+    "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp"
+    },
   sf_block_col = "CODIGO_",
   spatial_crs = NA,             # Optional projected CRS (e.g., 32719). NA = keep CRS unless lon/lat (then use EPSG:3857)
   
   # Data
-  data_file = "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv",
-  
+
+  data_file = if (Sys.info()["nodename"] == "frietjes") {
+    "/home/rita/data/Entomo/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv"
+  } else {
+    "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv"
+  },
   # Lag settings
   max_lag = 2,
   kappa = 2,  # multiplier for cases in n_bt calculation
 
   # Output
-  output_dir = "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM",
-  
+  output_dir = if (Sys.info()["nodename"] == "frietjes") {
+    "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM"
+    } else {
+    "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM"
+    },
   # GLMM control
   iter_max = 1e4,
   eval_max = 1e4
