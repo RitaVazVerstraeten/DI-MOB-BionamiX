@@ -20,7 +20,7 @@ conflicted::conflict_prefer("lag", "dplyr")
 # =========================
 cfg <- list(
   # Random effects to include
-  include_block_re = FALSE,      # Random intercept for block (spatial)
+  include_block_re = TRUE,      # Random intercept for block (spatial)
   include_time_re = TRUE,      # Random intercept for time (temporal)
   include_ar1_temporal = FALSE, # AR(1) temporal autocorrelation (within group)
   ar1_group = "block",         # "block" (within-block AR1) or "global"
