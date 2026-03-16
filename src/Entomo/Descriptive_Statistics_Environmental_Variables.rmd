@@ -1871,9 +1871,9 @@ monthly_env_lagged <- monthly_env %>%
   )
 
 
-# # 2) Join lagged predictors to outcome
-# lagged_data <- monthly_pos %>%
-#   left_join(monthly_env_lagged, by = "year_month")
+# 2) Join lagged predictors to outcome
+lagged_data <- monthly_pos %>%
+  left_join(monthly_env_lagged, by = "year_month")
 
 # 3) Pivot to long format for plotting (all lags)
 lagged_long <- lagged_data %>%

@@ -110,6 +110,10 @@ print(tail(entomo_data))
 Now that the entomological data is loaded, we can perform some logical checks.
 ```{r logical checks entomo}
 message("Number of missing Manzana names: ", sum(entomo_data$CODIGO_DIMOB == "DD")) # 168!!
+
+entomo_check <- entomo_data %>%
+  filter(year_month < as.Date(2020-01-01) & year_month >= as.Date(2016-01-01))
+message("Number of missing Manzana names: ", sum(entomo_check$CODIGO_DIMOB == "DD")) # 0
 ```
 
 # Epidemiological data
@@ -241,11 +245,15 @@ dimob_cps <- st_read(file.path(shapefile_path, "Consejo Popular/CONSEJOS Popular
 # dimob_manzanas <- dimob_manzanas %>%
 #   filter(CODIGO_ != "A8APSMMzFcSAMA")
 
+nrow(dimob_manzanas) # 1414
 dimob_manzanas <- dimob_manzanas %>%
   filter(CODIGO_ != "")
 
-ento_epi_data <- ento_epi_data %>%
-  filter(CODIGO_DIMOB != "A8APSMMzFcSAMA")
+nrow(dimob_manzanas) # 1409 (5 removed)
+
+
+# ento_epi_data <- ento_epi_data %>%
+#   filter(CODIGO_DIMOB != "A8APSMMzFcSAMA")
 ```
 
 ### Normalize names for joins
@@ -291,10 +299,10 @@ length(unique(setdiff(data_mz_names, shapefile_mz_names)))  # should be 0 -> is 
 
 Let's filter out the data-points in the 2 manzanas that are not in the shapefile.
 ```{r filter out datapoint that do not have a valid location}
-cat("Number of rows before filtering: ", nrow(ento_epi_data), "\n") #50760
+cat("Number of rows before filtering: ", nrow(ento_epi_data), "\n") #50760 -> 84600 
 ento_epi_data <- ento_epi_data %>%
   filter(!CODIGO_DIMOB %in% c("A7CNAMzPPESC", "DD"))
-cat("Number of rows after filtering: ", nrow(ento_epi_data), "\n") # 50688 -> 72 removed
+cat("Number of rows after filtering: ", nrow(ento_epi_data), "\n") # 50688 -> 84480 -> 120 removed
 ```
 
 
@@ -312,7 +320,7 @@ cat("Number of rows after filtering: ", nrow(ento_epi_data), "\n") # 50688 -> 72
 
 mz_allocation_path <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders/Manzanas_cleaned_05032026/Mzlist_per_Polygon_DIMOB_v03032026_CORRECTED.xlsx"
 
-mz_allocation <- read_excel(mz_allocation_path)
+mz_allocation <- suppressWarnings(readxl::read_excel(mz_allocation_path))
 
 mz_allocation <- mz_allocation %>%
 rename(AREA = Area, 
@@ -336,11 +344,22 @@ allocation_info <- mz_allocation %>%
 
 # Join allocation info to ento_epi_data
 ento_epi_data <- ento_epi_data %>%
-  left_join(allocation_info, by = "CODIGO_DIMOB")
+  left_join(allocation_info, by = "CODIGO_DIMOB") %>%
+  left_join(dimob_manzanas %>% select(CODIGO_, Vivinds)%>% st_drop_geometry(), by = c("CODIGO_DIMOB" = "CODIGO_"))
 
 head(ento_epi_data)
 ```
 
+Let's check whether the new maznana shapefile has the same universe as the mz_allocation file 
+```{r universe check allocation file vs shapefile}
+comparison <- dimob_manzanas %>%
+  select(CODIGO_, Vivinds) %>%
+  left_join(mz_allocation %>% select(CODIGO_DIMOB, UNIVERSE), by = c("CODIGO_" = "CODIGO_DIMOB")) %>%
+  mutate(match = Vivinds == UNIVERSE)
+comparison %>% filter(!match)
+library(writexl)
+write_xlsx(comparison, "comparison_universe_shapefile_mzZllocationFile.xlsx")
+```
 
 ### Validate Inspected_houses vs UNIVERSE
 
@@ -377,15 +396,59 @@ if (all(c("Inspected_houses", "UNIVERSE") %in% colnames(ento_epi_data))) {
   cat("Note: Inspected_houses or UNIVERSE not found in ento_epi_data.\n")
 }
 
-message("Mismatches alway occurring for same manzana, ",print(unique(mismatches$CODIGO_DIMOB))) #  A5Mz0
+message("Mismatches alway occurring for same manzana, ",print(unique(mismatches$CODIGO_DIMOB))) #  A5Mz0 A8APSMMzFcSAMA
 ```
 
+### Validate Inspected_houses vs VIVINDS
+```{r}
+if (all(c("Inspected_houses", "UNIVERSE") %in% colnames(ento_epi_data))) {
+  # Compare Inspected_houses with UNIVERSE
+  ento_epi_check <- ento_epi_data %>%
+    mutate(
+      diff = Inspected_houses - Vivinds,
+      match = Inspected_houses == Vivinds
+    )
+
+  # Summary of matches/mismatches
+  check_summary <- ento_epi_check %>%
+    summarise(
+      total_rows = n(),
+      n_match = sum(match, na.rm = TRUE),
+      n_mismatch = sum(!match, na.rm = TRUE),
+      pct_mismatch = round(100 * n_mismatch / total_rows, 2)
+    )
+  print(check_summary)
+
+  # Show mismatching rows
+  mismatches <- ento_epi_check %>%
+    filter(!match) %>%
+    select(CODIGO_DIMOB, Inspected_houses, Vivinds, diff)
+  if (nrow(mismatches) > 0) {
+    print(head(mismatches, 50))
+  } else {
+    message("All rows match: Inspected_houses == UNIVERSE")
+  }
+
+} else {
+  cat("Note: Inspected_houses or UNIVERSE not found in ento_epi_data.\n")
+}
+
+message("Mismatches alway occurring for same manzanas, ",cat(unique(mismatches$CODIGO_DIMOB), sep = " ")) #  
+```
 ### Use UNIVERSE as household count
 
 ```{r substitute Inspected_houses by UNIVERSE}
 ento_epi_data <- ento_epi_data %>%
   mutate(Inspected_houses = UNIVERSE) %>%
-  select(-UNIVERSE)
+  select(-UNIVERSE, -Vivinds)
+```
+
+### Use SHAPEFILE VIVINDS as household count
+
+```{r substitute Inspected_houses by Vivinds}
+# ento_epi_data <- ento_epi_data %>%
+#   mutate(Inspected_houses = Vivinds) %>%
+#   select(-UNIVERSE, Vivinds)
 ```
 
 ```{r check manzanas with zero universe}
