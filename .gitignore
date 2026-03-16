@@ -172,6 +172,7 @@ sampler_output/
 
 # any .html file with results and data
 *.html
+*.xlsx
 
 # Any output in figures
 *.png
