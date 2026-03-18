@@ -800,43 +800,27 @@ windspeed <- windspeed %>%
   rename(year_month = date)
 ```
 
-### Aggregate meteorological data (daily → monthly)
+### Calculate Vapor Pressure Deficit (VPD) based off of RH
 
-```{r aggregate daily meteorological data to monthly}
+It represents the difference between the amount of moisture the air can hold when it is saturated (saturation vapor pressure) and the actual amount of moisture in the air (actual vapor pressure).
+
+The vapour pressure deficit (VPD) is the absolute difference between Es and Ea and is an important metric of atmospheric moisture because it has a near linear relationship with evaporative potential. Thus, as temperature warms, for a given decrease in RH, there will be a larger increase in VPD and the amount of water stress mosquitoes experience Brown et al. (2023). see: https://pmc.ncbi.nlm.nih.gov/articles/PMC10299817
+
+VPD is calculated as the absolute difference between saturation and actual vapor pressure: $e_a$ and $e_s$ 
+
+
+$$e_s(T) = 0.6108 x exp(\frac{17.27T}{T +  237.3}),$$ 
+Where T is in C and $e_s$ is in kPa. 
+
+$$e_a = e_s x \frac{RH}{100}, $$
+Where RH is in %
+
+Finally, 
+
+$$VPD = e_s - e_a$$
+
+```{r calculate VPD}
 meteo_daily <- read_xlsx("/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx")
-
-# Select relevant years
-meteo_daily <- meteo_daily %>%
-  filter(Ano >= 2015 & Ano <= 2019)
-
-# select relevant columns and create year_month 
-meteo_daily <- meteo_daily %>%
-  rename(Temp_med = "Temp med", Humedad_r_med = "Humedad r med") %>%
-  select(Ano, Mes, Dia, Temp_med, Humedad_r_med, precip_ponderada) %>%
-  mutate(year_month = paste0(Ano, "_", sprintf("%02d", Mes)),
-    precip_over_1 = precip_ponderada > 1) 
-
-meteo_monthly <- meteo_daily %>%
-  group_by(year_month) %>%
-  summarise(
-    avg_temp = mean(Temp_med, na.rm = TRUE),
-    se_temp = sd(Temp_med, na.rm = TRUE) / sqrt(sum(!is.na(Temp_med))),
-    rel_hum = mean(Humedad_r_med, na.rm = TRUE),
-    se_hum = sd(Humedad_r_med, na.rm = TRUE) / sqrt(sum(!is.na(Humedad_r_med))),
-    total_precip = sum(precip_ponderada, na.rm = TRUE),
-    precip_max_day = max(precip_ponderada, na.rm = TRUE),
-    consec_rainy_days = {
-      runs <- rle(precip_ponderada > 1)
-      ifelse(any(runs$values), max(runs$lengths[runs$values]), 0)
-    },
-    .groups = "drop"
-  ) %>%
-  filter(year_month >= "2016_01" & year_month <= "2019_12")
-```
-
-```{r plot temp_min temp_med and temp_max by month}
-meteo_daily <- read_xlsx("/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx")
-
 # Select relevant years
 meteo_daily <- meteo_daily %>%
   filter(Ano >= 2015 & Ano <= 2019)
@@ -847,6 +831,40 @@ meteo_daily <- meteo_daily %>%
   mutate(year_month = paste0(Ano, "_", sprintf("%02d", Mes)),
     precip_over_1 = precip_ponderada > 1) 
 
+
+meteo_daily$date <- as.Date(paste0(meteo_daily$Ano, meteo_daily$Mes, meteo_daily$Dia), format = "%Y_%m_%d") 
+
+# calculate saturation VP
+meteo_daily$e_s  <- 0.6108 * exp((17.27*meteo_daily$Temp_med)/(meteo_daily$Temp_med+237.3)) 
+
+# calculate absolute VP 
+meteo_daily$e_a <- meteo_daily$e_s * (meteo_daily$Humedad_r_med/100)
+
+# calculate VPD (kPa)
+meteo_daily$VPD <- meteo_daily$e_s - meteo_daily$e_a
+```
+
+```{r plot VPD over time}
+library(ggplot2)
+
+# If year_month is in "YYYY_MM" format:
+meteo_daily$date <- as.Date(paste0(meteo_daily$year_month, "_01"), format = "%Y_%m_%d")
+
+ggplot(meteo_daily) +
+  geom_line(aes(x = date, y = VPD), color="blue") +
+  geom_point(aes(x = date, y = VPD), color="blue") +
+  geom_line(aes(x = date, y = Humedad_r_med/100), color="red") +
+  geom_point(aes(x = date, y = Humedad_r_med/100), color="red") +
+  labs(x = "Month", y = "Vapor Pressure Deficit (kPa)", title = "Monthly VPD (blue) vs relative humidity (red)") +
+  theme_minimal()
+
+meteo_daily <- meteo_daily %>%
+  select(-e_a, -e_s, -date)
+```
+
+### Aggregate meteorological data (daily → monthly)
+
+```{r aggregate daily meteorological data to monthly}
 meteo_monthly <- meteo_daily %>%
   group_by(year_month) %>%
   summarise(
@@ -858,48 +876,284 @@ meteo_monthly <- meteo_daily %>%
     se_max_temp = sd(Temp_max, na.rm = TRUE) / sqrt(sum(!is.na(Temp_max))),
     rel_hum = mean(Humedad_r_med, na.rm = TRUE),
     se_hum = sd(Humedad_r_med, na.rm = TRUE) / sqrt(sum(!is.na(Humedad_r_med))),
+    avg_VPD = mean(VPD, na.rm = TRUE),
+    se_VPD = sd(VPD, na.rm = TRUE) / sqrt(sum(!is.na(VPD))),
     total_precip = sum(precip_ponderada, na.rm = TRUE),
     precip_max_day = max(precip_ponderada, na.rm = TRUE),
     consec_rainy_days = {
       runs <- rle(precip_ponderada > 1)
       ifelse(any(runs$values), max(runs$lengths[runs$values]), 0)
     },
+    total_rainy_days = sum(precip_ponderada > 1, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   filter(year_month >= "2016_01" & year_month <= "2019_12")
+```
 
-# Reshape temperature and SE columns separately, then join
+
+
+### Create temp x precipitation variable
+
+Temperature categorical variable based off of the 30th and 60th percentiles for the average monthly temperature. 
+
+```{r create temperature categories cold med warm}
+# constrict temperatures to include to viable range for Aedes aegypti development 
+temp_viable_range <- c(17,35) # not necessary because avg_temp is always between 21 and 28 degrees
+
+# based on the temperature percentiles, create "cold" "med" "warm" climate categories 
+# Calculate the percentiles
+q <- quantile(meteo_monthly$avg_temp, probs = c(0, 0.3, 0.6, 1), na.rm = TRUE)
+
+# Create the categorical variable
+meteo_monthly <- meteo_monthly %>%
+  mutate(
+    temp_cat = cut(
+      avg_temp,
+      breaks = q,
+      labels = c("cold", "med", "warm"),
+      include.lowest = TRUE,
+      right = FALSE
+    )
+  )
+# based on the total_precipitaion percentiles, create "wet" and "dry" climate categories
+
+```
+
+```{r plot categorical temp over time}
+
+meteo_monthly$year_month_date <- as.Date(paste0(meteo_monthly$year_month, "_01"), format = "%Y_%m_%d")
+
+# Prepare plot_long as before
 temp_long <- meteo_monthly %>%
-  pivot_longer(cols = c(avg_temp, min_temp, max_temp),
-               names_to = "Type", values_to = "Value") %>%
-  mutate(Type = recode(Type, avg_temp = "Mean", min_temp = "Min", max_temp = "Max"),
-         year_month_date = as.Date(paste0(year_month, "_01"), format = "%Y_%m_%d"))
+  select(year_month_date, temp_cat, avg_temp, min_temp, max_temp) %>%
+  pivot_longer(
+    cols = c(avg_temp, min_temp, max_temp),
+    names_to = "Type",
+    values_to = "Value"
+  ) %>%
+  mutate(Type = recode(Type, avg_temp = "Mean", min_temp = "Min", max_temp = "Max"))
 
 se_long <- meteo_monthly %>%
-  pivot_longer(cols = c(se_avg_temp, se_min_temp, se_max_temp),
-               names_to = "Type", values_to = "SE") %>%
-  mutate(Type = recode(Type, se_avg_temp = "Mean", se_min_temp = "Min", se_max_temp = "Max"),
-         year_month_date = as.Date(paste0(year_month, "_01"), format = "%Y_%m_%d"))
+  select(year_month_date, se_avg_temp, se_min_temp, se_max_temp) %>%
+  pivot_longer(
+    cols = c(se_avg_temp, se_min_temp, se_max_temp),
+    names_to = "Type",
+    values_to = "SE"
+  ) %>%
+  mutate(Type = recode(Type, se_avg_temp = "Mean", se_min_temp = "Min", se_max_temp = "Max"))
 
-# Join temp and SE
-plot_long <- left_join(temp_long, se_long, by = c("year_month_date", "Type", "year_month"))
+plot_long <- left_join(temp_long, se_long, by = c("year_month_date", "Type"))
 
-# Plot with 95% CI ribbons
+# Calculate y-range for the plot
+ymin <- min(plot_long$Value - 1.96 * plot_long$SE, na.rm = TRUE)
+ymax <- max(plot_long$Value + 1.96 * plot_long$SE, na.rm = TRUE)
+
+# Create a data frame for rectangles (one per month)
+rects <- meteo_monthly %>%
+  mutate(
+    xmin = year_month_date - 15, # half a month before
+    xmax = year_month_date + 15  # half a month after
+  )
+
+# Plot with per-month background color
 p_temp <- ggplot(plot_long, aes(x = year_month_date, y = Value, color = Type, group = Type)) +
+  geom_rect(
+    data = rects,
+    aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = temp_cat),
+    inherit.aes = FALSE,
+    alpha = 0.3
+  ) +
   geom_line(size = 1) +
-  geom_ribbon(aes(ymin = Value - 1.96 * SE, ymax = Value + 1.96 * SE, fill = Type), alpha = 0.2, color = NA) +
+  geom_ribbon(
+    aes(ymin = Value - 1.96 * SE, ymax = Value + 1.96 * SE, fill = Type),
+    alpha = 0.2,
+    color = NA,
+    show.legend = FALSE
+  ) +
   scale_color_manual(
     name = "Legend",
     values = c("Mean" = "darkblue", "Max" = "red", "Min" = "orange")
   ) +
   scale_fill_manual(
-    values = c("Mean" = "darkblue", "Max" = "red", "Min" = "orange"),
-    guide = "none"
+    name = "Temp Category",
+    values = c("cold" = "skyblue", "med" = "khaki", "warm" = "tomato"),
+    guide = "legend"
   ) +
-  theme_minimal()
+  theme_minimal() + 
+  labs(
+    title = "Temperature categories",
+    x = "Month"
+  )
 
 print(p_temp)
+
+ggsave(
+  filename = file.path(save_images_to, "Temperature_with_categories.png"),
+  plot = p_temp,
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+
+meteo_monthly <- meteo_monthly %>%
+ select(-year_month_date)
 ```
+
+Precipitation categorical variable based off of total_precipitation 
+
+```{r create precipitation categorical variable}
+
+# plot the precipitaiton variables on one graph first 
+meteo_to_plot <- meteo_monthly %>%
+  mutate(year_month_date = as.Date(paste0(gsub("_", "-", as.character(year_month)), "-01")))
+scale_factor <- max(meteo_to_plot$total_precip, na.rm = TRUE) / max(meteo_to_plot$consec_rainy_days, na.rm = TRUE)
+
+p_precip <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
+  geom_line(aes(y = total_precip, color = "Total Precip"), size = 1) +
+  geom_point(aes(y = total_precip, color = "Total Precip")) +
+  geom_line(aes(y = precip_max_day, color = "Max Daily Precip"), size = 1) +
+  geom_point(aes(y = precip_max_day, color = "Max Daily Precip")) +
+  geom_point(aes(y = consec_rainy_days * scale_factor, color = "Consec Rainy Days")) +
+  geom_line(aes(y = consec_rainy_days * scale_factor, color = "Consec Rainy Days")) +
+  geom_point(aes(y = total_rainy_days * scale_factor, color = "Total Rainy Days")) +
+  geom_line(aes(y = total_rainy_days * scale_factor, color = "Total Rainy Days")) +
+  scale_color_manual(
+    name = NULL,
+    values = c(
+      "Total Precip" = "darkblue",
+      "Max Daily Precip" = "lightblue",
+      "Consec Rainy Days" = "yellow",
+      "Total Rainy Days" = "darkorange"
+    )
+  ) +
+  scale_y_continuous(
+    name = "Precipitation (mm)",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Days")
+  ) +
+  labs(
+    title = "Precipitation",
+    x = "Month"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top", legend.justification = c(1, 1))
+print(p_precip)
+```
+
+```{r create precipitation categories}
+# divide precipitation into 3 categories based on percentiles
+q <- quantile(meteo_monthly$total_precip, probs = c(0, 0.3, 0.6, 1), na.rm = TRUE)
+
+# Create the categorical variable
+meteo_monthly <- meteo_monthly %>%
+  mutate(
+    precip_cat = cut(
+      total_precip,
+      breaks = q,
+      labels = c("dry", "med", "wett"),
+      include.lowest = TRUE,
+      right = FALSE
+    )
+  )
+print(q)
+```
+
+In summary, by using the 30th and 60th quantile, we set the limits at: 
+- < 51 mm/month for dry
+- 51 - 109 mm for medium 
+- > 109 mm for wett
+
+```{r plot the precipitation categories}
+meteo_monthly$year_month_date <- as.Date(paste0(meteo_monthly$year_month, "_01"), format = "%Y_%m_%d")
+
+# Create a data frame for rectangles (one per month)
+rects <- meteo_monthly %>%
+  mutate(
+    xmin = year_month_date - 15, # half a month before
+    xmax = year_month_date + 15  # half a month after
+  )
+scale_factor <- max(meteo_to_plot$total_precip, na.rm = TRUE) / max(meteo_to_plot$consec_rainy_days, na.rm = TRUE)
+
+p_precip_with_cat <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
+  geom_rect(
+    data = rects,
+    aes(
+      xmin = xmin,
+      xmax = xmax,
+      ymin = -Inf,
+      ymax = max(meteo_to_plot$total_precip, na.rm = TRUE),
+      fill = precip_cat
+    ),
+    alpha = 0.2,
+    inherit.aes = FALSE
+  ) +
+  geom_line(aes(y = total_precip, linetype = "Total Precip"), size = 1) +
+  geom_point(aes(y = total_precip)) +
+  geom_line(aes(y = consec_rainy_days * scale_factor, linetype = "Consec Rainy Days"), size = 1) +
+  geom_point(aes(y = consec_rainy_days * scale_factor)) +
+  scale_linetype_manual(
+    name = NULL,
+    values = c(
+      "Total Precip" = "solid",
+      "Consec Rainy Days" = "dotdash"
+    )
+  ) +
+  scale_y_continuous(
+    name = "Precipitation (mm)",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Days")
+  ) +
+  labs(
+    title = "Precipitation categories",
+    x = "Month"
+  ) +
+  scale_fill_manual(values = c("dry" = "red", "med" = "yellow", "wett" = "skyblue")) +
+  theme_minimal() +
+  theme(legend.position = "right", legend.justification = c(1, 1))
+print(p_precip_with_cat)
+ggsave(
+  filename = file.path(save_images_to, "Precipitation_with_categories.png"),
+  plot = p_precip_with_cat,
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+
+meteo_monthly <- meteo_monthly %>%
+ select(-year_month_date)
+```
+
+Let's now look into the correlation between cat_precip and cat_temp
+```{r correlation cat precip cat temp}
+library(vcd)
+# Assuming your variables are cat_precip and cat_temp
+table_data <- table(meteo_monthly$temp_cat, meteo_monthly$precip_cat)
+dimnames(table_data) <- list(
+  "Temperature Category" = levels(meteo_monthly$temp_cat),
+  "Precipitation Category" = levels(meteo_monthly$precip_cat)
+)
+
+png(file.path(save_images_to,"temp_precip_mosaic_plot.png"), width = 1200, height = 600)
+
+mosaic(
+  table_data,
+  shade = TRUE,
+  legend = TRUE,
+  main = "Association between Precipitation and Temperature Categories"
+)
+dev.off()
+```
+
+```{r plot temp x precip categories with original values}
+meteo_monthly$year_month_date <- as.Date(paste0(meteo_monthly$year_month, "_01"), format = "%Y_%m_%d")
+# Combine plots with patchwork
+library(patchwork)
+png(file.path(save_images_to,"temp_precip_patchwork.png"), width = 1200, height = 600)
+
+p_temp / p_precip_with_cat
+dev.off()
+```
+
 
 **Temporal variables** 
   - temperature -> month (2016-01 -> 2019-12)

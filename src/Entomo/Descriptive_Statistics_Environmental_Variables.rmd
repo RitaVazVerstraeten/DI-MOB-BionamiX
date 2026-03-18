@@ -103,7 +103,8 @@ Temporal variables that vary over time and are measured consistently across all 
 ### Overall Summary Statistics
 
 ```{r temporal_overall_summary}
-temporal_vars <- c("WS2M", "avg_temp", "total_precip", "precip_max_day", "consec_rainy_days", "rel_hum")
+# temporal_vars <- c("WS2M", "avg_temp", "total_precip", "precip_max_day", "consec_rainy_days", "rel_hum")
+temporal_vars <- c("WS2M", "avg_temp", "total_precip", "precip_max_day", "consec_rainy_days", "total_rainy_days", "rel_hum", "avg_VPD")
 
 temporal_data <- env_all %>%
   select(all_of(temporal_vars)) %>%
@@ -193,27 +194,59 @@ meteo_to_plot <- env_all %>%
 
 # Plot 1: avg_temp with 95% CI
 p1 <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
-  geom_line(aes(y = max_temp), color = "red") +
-  geom_point(aes(y = max_temp), color = "red") +
-  geom_ribbon(aes(ymin = max_temp - 1.96 * se_max_temp, ymax = max_temp + 1.96 * se_max_temp), fill = "red", alpha = 0.2) +
-  
-  geom_line(aes(y = avg_temp), color = "orange") +
-  geom_point(aes(y = avg_temp), color = "orange") +
-  geom_ribbon(aes(ymin = avg_temp - 1.96 * se_avg_temp, ymax = avg_temp + 1.96 * se_avg_temp), fill = "orange", alpha = 0.2) +
+  geom_line(aes(y = max_temp, color = "Max Temp")) +
+  geom_point(aes(y = max_temp, color = "Max Temp")) +
+  geom_ribbon(aes(ymin = max_temp - 1.96 * se_max_temp, ymax = max_temp + 1.96 * se_max_temp, fill = "Max Temp"), alpha = 0.2, show.legend=FALSE) +
 
-  geom_line(aes(y = min_temp), color = "blue") +
-  geom_point(aes(y = min_temp), color = "blue") +
-  geom_ribbon(aes(ymin = min_temp - 1.96 * se_min_temp, ymax = min_temp + 1.96 * se_min_temp), fill = "blue", alpha = 0.2) +
+  geom_line(aes(y = avg_temp, color = "Med Temp")) +
+  geom_point(aes(y = avg_temp, color = "Med Temp")) +
+  geom_ribbon(aes(ymin = avg_temp - 1.96 * se_avg_temp, ymax = avg_temp + 1.96 * se_avg_temp, fill = "Med Temp"), alpha = 0.2, show.legend=FALSE) +
+
+  geom_line(aes(y = min_temp, color = "Min Temp")) +
+  geom_point(aes(y = min_temp, color = "Min Temp")) +
+  geom_ribbon(aes(ymin = min_temp - 1.96 * se_min_temp, ymax = min_temp + 1.96 * se_min_temp, fill = "Min Temp"), alpha = 0.2, show.legend=FALSE) +
+
+  scale_color_manual(
+    name = NULL,
+    values = c(
+      "Max Temp" = "red",
+      "Med Temp" = "orange",
+      "Min Temp" = "blue"
+    )
+  ) +
+  scale_fill_manual(
+    name = NULL,
+    values = c(
+      "Max Temp" = "red",
+      "Med Temp" = "orange",
+      "Min Temp" = "blue"
+    )
+  ) +
   labs(title = "Average Temperature (95% CI)", x = "Month", y = "Avg Temp") +
-  theme_minimal()
+  theme_minimal()+
+  theme(legend.position = "top", legend.justification = c(1, 1))
 
+  # Calculate scaling factor for VPD
+vpd_scale <- max(meteo_to_plot$rel_hum, na.rm = TRUE) / max(meteo_to_plot$avg_VPD, na.rm = TRUE)
 # Plot 2: rel_hum with 95% CI
-p2 <- ggplot(meteo_to_plot, aes(x = year_month_date, y = rel_hum)) +
-  geom_line(color = "green") +
-  geom_point(color = "green") +
+p2 <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
+  # Relative humidity line and ribbon
   geom_ribbon(aes(ymin = rel_hum - 1.96 * se_hum, ymax = rel_hum + 1.96 * se_hum), fill = "green", alpha = 0.2) +
-  labs(title = "Relative Humidity (95% CI)", x = "Month", y = "Rel Humidity") +
-  theme_minimal()
+  geom_line(aes(y = rel_hum, color = "Relative Humidity"), size = 1) +
+  geom_point(aes(y = rel_hum, color = "Relative Humidity")) +
+  # VPD line and ribbon, scaled to left axis
+  geom_ribbon(aes(ymin = avg_VPD * vpd_scale - 1.96 * se_VPD * vpd_scale,
+                  ymax = avg_VPD * vpd_scale + 1.96 * se_VPD * vpd_scale), fill = "orange", alpha = 0.2) +
+  geom_line(aes(y = avg_VPD * vpd_scale, color = "VPD"), size = 1) +
+  geom_point(aes(y = avg_VPD * vpd_scale, color = "VPD")) +
+  scale_y_continuous(
+    name = "Relative Humidity (%)",
+    sec.axis = sec_axis(~ . / vpd_scale, name = "VPD")
+  ) +
+  scale_color_manual(values = c("Relative Humidity" = "green", "VPD" = "orange")) +
+  labs(title = "Relative Humidity and Vapor Pressure Deficit", x = "Month", y = "Rel Humidity") +
+  theme_minimal()+
+  theme(legend.position = "top", legend.justification = c(1, 1))
 
 # Plot 3: WS2M (wind speed)
 p3 <- ggplot(meteo_to_plot, aes(x = year_month_date, y = WS2M)) +
@@ -232,13 +265,15 @@ p4 <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
   geom_point(aes(y = precip_max_day, color = "Max Daily Precip")) +
   geom_point(aes(y = consec_rainy_days * scale_factor, color = "Consec Rainy Days")) +
   geom_line(aes(y = consec_rainy_days * scale_factor, color = "Consec Rainy Days")) +
-
+  geom_point(aes(y = total_rainy_days * scale_factor, color = "Total Rainy Days")) +
+  geom_line(aes(y = total_rainy_days * scale_factor, color = "Total Rainy Days")) +
   scale_color_manual(
-    name = "Legend",
+    name = NULL,
     values = c(
       "Total Precip" = "darkblue",
       "Max Daily Precip" = "lightblue",
-      "Consec Rainy Days" = "orange"
+      "Consec Rainy Days" = "orange",
+      "Total Rainy Days" = "green"
     )
   ) +
   scale_y_continuous(
@@ -799,6 +834,9 @@ pairs(
   main = "Pairwise Scatterplot Matrix - Numeric Environmental Variables"
 )
 ```
+
+
+
 ### Correlation Among Binary Spatial Variables
 
 ```{r spatial_categorical_correlation}
