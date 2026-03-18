@@ -407,7 +407,7 @@ This reasoning would imply that at the height of entomological surveillance (201
   \frametitle{Categorical temperature x precipitation}
     \centering
     \vspace{0.2cm}
-    \includegraphics[height=0.95\textheight]{temp_precip_patchwork.png}
+    \includegraphics[height=0.95\textheight]{temp_precip_patchwork_threecats.png}
 \end{frame}
 
 \begin{frame}
@@ -421,22 +421,53 @@ This reasoning would imply that at the height of entomological surveillance (201
   \frametitle{Categorical temperature x precipitation}
     \centering
     \vspace{0.2cm}
-    \includegraphics[height=1.0\textheight]{temp_precip_mosaic_plot.png}
+    \includegraphics[height=1.0\textheight]{temp_precip_patchwork_twocats.png}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Categorical temperature x precipitation}
+  \vspace{0.3cm}
+  \begin{columns}
+    \begin{column}{0.48\textwidth}
+      \centering
+      \includegraphics[width=\linewidth]{temp_precip_mosaic_plot_threecats.png}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \centering
+      \includegraphics[width=\linewidth]{temp_precip_mosaic_plot_twocats.png}
+    \end{column}
+  \end{columns}
 \end{frame}
 
 \section{GLMM Model attempts}
 \begin{frame}
-  \frametitle{original model}
-$$ $$
-  
+  \frametitle{original model}  
 
 \end{frame}
 
 \begin{frame}
-  \frametitle{simplified model}
+  \frametitle{GLMM model specification}
+  \begin{semiverbatim}
+\footnotesize
+cbind(y\_bt, n\_trials - y\_bt) \textasciitilde
 
+  \textit{Lagged covariates ($\ell$ = 0, 1, 2):}
+  avg\_temp\_lag\{0,1,2\}  +  total\_precip\_lag\{0,1,2\}  +
+  mean\_ndvi\_lag\{0,1,2\}  +  precip\_max\_day\_resid\_lag\{0,1,2\}  +
   
+\medskip
+  \textit{Static covariates:}
+  is\_urban  +  landcover  +  has\_aljibes  +  nr\_aljibes  + is\_WI  +  is\_WUI  +  water\_shortage  +  water\_containers  +
+  reactive\_shift  +
+\medskip
 
+  \textit{Random effects:}
+  % (1 | block)  +
+  ar1(year\_month\_ar1 + 0 | ar1\_group) 
+  % + exp(xy + 0 | spatial, range = 400)
+  \end{semiverbatim}
+  \vspace{-0.5em}
+  \footnotesize Family: \texttt{binomial(link = "logit")}
 \end{frame}
 
 
