@@ -292,8 +292,8 @@ unique(setdiff(shapefile_mz_names, data_mz_names))  # "A4CPBVMzAERO"   "A4CPSLMz
 
 # check which manzanas ARE in the data, but not in the shapefiles
 cat("\nManzanas in data but not in shapefile: \n")
-unique(setdiff(data_mz_names, shapefile_mz_names))  #  "A8APGuMzFcPSOL" "DD" 
-length(unique(setdiff(data_mz_names, shapefile_mz_names)))  # should be 0 -> is now 2
+unique(setdiff(data_mz_names, shapefile_mz_names))  #   "A8APGuMzFcPSOL" "A8APSMMzFcSAMA" "DD"     
+length(unique(setdiff(data_mz_names, shapefile_mz_names)))  # should be 0 -> is now 3
 
 ```
 
@@ -301,8 +301,8 @@ Let's filter out the data-points in the 2 manzanas that are not in the shapefile
 ```{r filter out datapoint that do not have a valid location}
 cat("Number of rows before filtering: ", nrow(ento_epi_data), "\n") #50760 -> 84600 
 ento_epi_data <- ento_epi_data %>%
-  filter(!CODIGO_DIMOB %in% c("A7CNAMzPPESC", "DD"))
-cat("Number of rows after filtering: ", nrow(ento_epi_data), "\n") # 50688 -> 84480 -> 120 removed
+  filter(!CODIGO_DIMOB %in% c("A8APGuMzFcPSOL", "A8APSMMzFcSAMA", "DD" ))
+cat("Number of rows after filtering: ", nrow(ento_epi_data), "\n") # 50688 -> 84420 
 ```
 
 
