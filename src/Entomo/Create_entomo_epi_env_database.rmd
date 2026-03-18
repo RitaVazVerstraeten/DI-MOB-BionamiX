@@ -904,13 +904,15 @@ temp_viable_range <- c(17,35) # not necessary because avg_temp is always between
 # Calculate the percentiles
 q <- quantile(meteo_monthly$avg_temp, probs = c(0, 0.3, 0.6, 1), na.rm = TRUE)
 
+# switch to 2 categories instead of 3
+q <- quantile(meteo_monthly$avg_temp, probs = c(0, 0.6, 1), na.rm = TRUE)
 # Create the categorical variable
 meteo_monthly <- meteo_monthly %>%
   mutate(
     temp_cat = cut(
       avg_temp,
       breaks = q,
-      labels = c("cold", "med", "warm"),
+      labels = c("mild", "warm"),
       include.lowest = TRUE,
       right = FALSE
     )
@@ -964,6 +966,7 @@ p_temp <- ggplot(plot_long, aes(x = year_month_date, y = Value, color = Type, gr
     alpha = 0.3
   ) +
   geom_line(size = 1) +
+  geom_point(size = 1.5) +
   geom_ribbon(
     aes(ymin = Value - 1.96 * SE, ymax = Value + 1.96 * SE, fill = Type),
     alpha = 0.2,
@@ -976,7 +979,8 @@ p_temp <- ggplot(plot_long, aes(x = year_month_date, y = Value, color = Type, gr
   ) +
   scale_fill_manual(
     name = "Temp Category",
-    values = c("cold" = "skyblue", "med" = "khaki", "warm" = "tomato"),
+    # values = c("cold" = "skyblue", "med" = "khaki", "warm" = "tomato"),
+    values = c("mild" = "skyblue", "warm" = "tomato"),
     guide = "legend"
   ) +
   theme_minimal() + 
@@ -1044,13 +1048,14 @@ print(p_precip)
 # divide precipitation into 3 categories based on percentiles
 q <- quantile(meteo_monthly$total_precip, probs = c(0, 0.3, 0.6, 1), na.rm = TRUE)
 
+q <- quantile(meteo_monthly$total_precip, probs = c(0, 0.6, 1), na.rm = TRUE)
 # Create the categorical variable
 meteo_monthly <- meteo_monthly %>%
   mutate(
     precip_cat = cut(
       total_precip,
       breaks = q,
-      labels = c("dry", "med", "wett"),
+      labels = c("dry", "wett"),
       include.lowest = TRUE,
       right = FALSE
     )
@@ -1087,10 +1092,10 @@ p_precip_with_cat <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
     alpha = 0.2,
     inherit.aes = FALSE
   ) +
-  geom_line(aes(y = total_precip, linetype = "Total Precip"), size = 1) +
-  geom_point(aes(y = total_precip)) +
-  geom_line(aes(y = consec_rainy_days * scale_factor, linetype = "Consec Rainy Days"), size = 1) +
-  geom_point(aes(y = consec_rainy_days * scale_factor)) +
+  geom_line(aes(y = total_precip, linetype = "Total Precip")) +
+  geom_point(aes(y = total_precip), size=1.5) +
+  geom_line(aes(y = consec_rainy_days * scale_factor, linetype = "Consec Rainy Days")) +
+  geom_point(aes(y = consec_rainy_days * scale_factor), size = 1.5) +
   scale_linetype_manual(
     name = NULL,
     values = c(
@@ -1106,7 +1111,8 @@ p_precip_with_cat <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
     title = "Precipitation categories",
     x = "Month"
   ) +
-  scale_fill_manual(values = c("dry" = "red", "med" = "yellow", "wett" = "skyblue")) +
+  # scale_fill_manual(values = c("dry" = "red", "med" = "yellow", "wett" = "skyblue")) +
+  scale_fill_manual(values = c("dry" = "red", "wett" = "skyblue")) +
   theme_minimal() +
   theme(legend.position = "right", legend.justification = c(1, 1))
 print(p_precip_with_cat)
