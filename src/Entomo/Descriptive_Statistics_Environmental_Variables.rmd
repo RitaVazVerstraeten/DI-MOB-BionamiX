@@ -694,6 +694,7 @@ corrplot(corr_matrix,
 ```
 
 
+
 ```{r pairwise_plot_numeric_vars, fig.cap="Pairwise scatterplot matrix of numeric explanatory variables"}
 # Reuse numeric variables from previous chunk; build fresh complete-case dataset
 pairwise_data <- env_all %>%
@@ -754,8 +755,70 @@ cor(env_all$total_precip, env_all$precip_max_day_resid, use = "complete.obs")
 
 ### Correct correlation between avg_temp and total_precip 
 
+Let's create a plot of temp_cat and precip_cat to check the time-series for wett-warm, wett-cold, etc. categories 
+
+```{r}
+library(ggpattern)
+env_all_temp <- env_all %>%
+  mutate(cat_combo = interaction(temp_cat, precip_cat, sep = "-"), 
+  year_month_date = as.Date(paste0(gsub("_", "-", env_all$year_month), "-01"), format = "%Y-%m-%d"))
+
+scale_factor <- max(env_all_temp$avg_temp, na.rm = TRUE) / max(env_all_temp$total_precip, na.rm = TRUE)
+
+rects_fast <- env_all_temp %>%
+  arrange(year_month_date) %>%
+  mutate(group = cumsum(cat_combo != lag(cat_combo, default = first(cat_combo)))) %>%
+  group_by(group, temp_cat, precip_cat) %>%
+  summarise(
+    xmin = min(year_month_date),
+    xmax = max(year_month_date) + 30,
+    .groups = "drop"
+  )
 
 
+temp_precip_cats <- ggplot(env_all_temp, aes(x=year_month_date)) +
+  geom_rect_pattern(
+    data = rects_fast,
+    aes(
+      xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf,
+      fill = temp_cat,
+      pattern = precip_cat
+    ),
+    inherit.aes = FALSE,
+    alpha = 0.2,
+    pattern_density = 0.1,      # Lower values = more pattern elements
+    pattern_spacing = 0.02,     # Lower values = smaller pattern elements
+    pattern_size = 0.03          # Lower values = thinner lines/shapes
+  ) +
+  geom_line(aes(y=avg_temp, color = factor("Temperature")), size = 1) + 
+  geom_line(aes(y=total_precip * scale_factor ,color= factor("Precipitation")), size =1) + 
+  scale_y_continuous(
+    name = "Temperature",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Precipitation")
+  ) +
+  scale_fill_manual(
+    name = "Temp categories",
+    values = c("cold" = "skyblue", "med" = "khaki", "warm" = "tomato"),
+    guide = guide_legend(
+    override.aes = list(pattern = "none")
+    )
+  ) +
+  scale_pattern_manual(
+    name = "Precip categories",
+    values = c("dry" = "none", "med" = "stripe", "wett" = "crosshatch")
+  ) +
+  scale_color_manual(
+    name = "Line",
+    values = c("Temperature" = "red", "Precipitation" = "blue")
+  ) +
+  labs(
+    x = "Year-Month") +
+  theme_minimal()
+
+print(temp_precip_cats)
+
+ggsave(file.path(output_dir, "cat_temp_precip.png"), plot = temp_precip_cats, width = 20, height = 10, dpi = 300)
+```
 
 
 
@@ -764,7 +827,7 @@ Re-check the correlation plot with the new variable.
 all_numeric <- c(all_numeric, "precip_max_day_resid")
 
 # remove the original variables causing issues with collinearity 
-all_numeric_no_colin <- all_numeric[!all_numeric %in% c("precip_max_day", "mean_ndmi", "mean_ndwi", "WS2M")]
+all_numeric_no_colin <- all_numeric[!all_numeric %in% c("precip_max_day", "mean_ndmi", "mean_ndwi", "WS2M", "rel_hum")]
 
 correlation_data <- env_all %>%
   select(all_of(all_numeric_no_colin)) %>%
@@ -917,6 +980,8 @@ for (var in binary_vars) {
   print(p)
 }
 ```
+
+
 ---
 
 # Descriptive Statistics - Entomological Indicators

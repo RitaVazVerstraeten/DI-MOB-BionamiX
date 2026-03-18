@@ -20,6 +20,7 @@
 \usepackage{tabularx}
 \usepackage{enumitem}
 \usepackage{diagbox}
+\usepackage{amsmath}
 
 % For absolute positioning of logos
 \usepackage[absolute,overlay]{textpos}
@@ -28,6 +29,7 @@
   \includegraphics[height=1.5cm]{shared/classes/ugent-beamer/fwo_kleur.png}\hspace{1cm}
   % \includegraphics[height=1.5cm]{images/your-logo2.png}
 }
+
 \title{Data checks prior to mosquito modelling}
 \author{Rita Verstraeten}
 \date{\today}
@@ -88,6 +90,7 @@
 }
 \setbeamerfont{author}{size=\Large}
 
+\setbeamertemplate{items}{∙}
 
 \begin{document}
 
@@ -116,20 +119,18 @@ Estimate latent mosquito presence probability $p_{bt}$ at block-month resolution
 & \textbf{Non-Temporal} & \textbf{Temporal} \\ \hline
 \textbf{Spatial} & 
   \begin{itemize}[itemsep=0.1pt, topsep = 0pt, label=$\bullet$]
-    \item WUI
-    \item WI
+    \item Wild Land Urban Interface (WUI)
+    \item Water Interface (WI)
     \item urbanization
     \item water provision frequency (1/x days)
     \item average nr. of water deposits per household
     \item aljibes
-    \item human density?
+    \item \textit{human density?}
   \end{itemize} 
   & \begin{itemize}[itemsep=0.1pt, topsep = 0pt, label=$\bullet$]
     \item NDVI
     \item NDWI
     \item NDMI
-    \item water provision frequency (1/x days) ?
-    \item average nr. of water deposits per household ?
   \end{itemize}  \\ \hline
 \textbf{Non-Spatial} & & 
   \begin{itemize}[itemsep=0.1pt, topsep = 0pt, label=$\bullet$]
@@ -163,8 +164,10 @@ This reasoning would imply that at the height of entomological surveillance (201
 \begin{frame}
 \frametitle{Missing Values Environmental data}
 \centering
-\vspace{0.1cm}
-\includegraphics[width=1.0\textwidth]{missing_env_data_heatmap.png}
+  \vspace{0.1cm}
+  \includegraphics[width=1.0\textwidth]{missing_env_data_heatmap.png}
+\raggedright
+  \textbf{Imputation} for timepoint $t$ done by \textbf{interpolation} per block when both $t-1$ and $t+1$ were available, otherwise \textbf{monthly average} for block.
 \end{frame}
 
 \begin{frame}
@@ -265,6 +268,40 @@ This reasoning would imply that at the height of entomological surveillance (201
     \end{column}
   \end{columns}
 \end{frame}
+
+\begin{frame}
+  \frametitle{Dealing with collinearity}
+  \begin{itemize}[label=$\bullet$]
+    \item Average Temperature \textasciitilde Total Precipitation ($\rho$ = 0.65)
+    \begin{itemize}[label=$\rightarrow$]
+      \item Categorization of temperature and precipitation
+    \end{itemize}
+
+    \item Average Temperature \textasciitilde  Wind speed ($\rho$ = -0.61)
+    \begin{itemize}[label=$\rightarrow$]
+      \item removal of WS2M   
+    \end{itemize}
+
+    \item Total Precipitation \textasciitilde  Max Daily Precipitation ($\rho$ = 0.77)
+    \begin{itemize}[label=$\rightarrow$]
+      \item Re-write max\_daily\_precip = $f(total\_precip)$ and keep only the residuals 
+    \end{itemize}
+
+    \item Total Precipitation \textasciitilde Relative Humidity ($\rho$ = 0.58)
+    \begin{itemize}[label=$\rightarrow$]
+      \item Use Vapor Pressure Deficit (VPD) instead of RH  
+      \item VPD = $|e_s - e_a|$ where RH = $\frac{e_a}{e_s}$
+    \end{itemize}
+
+    \item NDVI \textasciitilde NDWI \textasciitilde NDMI ($|\rho|$ > 0.8) 
+    \begin{itemize}[label=$\rightarrow$]
+      \item remove NDMI and NDWI
+    \end{itemize}
+
+  \end{itemize}  
+
+\end{frame}
+
 
 \begin{frame}
   \frametitle{Correlations environmental covariates}
@@ -377,8 +414,39 @@ This reasoning would imply that at the height of entomological surveillance (201
   \frametitle{Categorical temperature x precipitation}
     \centering
     \vspace{0.2cm}
+    \includegraphics[height=0.95\textheight]{cat_temp_precip.png}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Categorical temperature x precipitation}
+    \centering
+    \vspace{0.2cm}
     \includegraphics[height=1.0\textheight]{temp_precip_mosaic_plot.png}
 \end{frame}
+
+\section{GLMM Model attempts}
+\begin{frame}
+  \frametitle{original model}
+$$ $$
+  
+
+\end{frame}
+
+\begin{frame}
+  \frametitle{simplified model}
+
+  
+
+\end{frame}
+
+
+
+
+
+
+
+
+
 \finalframe
 
 \end{document}
