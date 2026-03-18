@@ -2032,7 +2032,7 @@ write_csv(final_dataset, file.path(final_epi_entomo_env_data_path_2, "env_epi_en
 env_epi_ento <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_manzana_2016_01_to_2019_12.csv")
 
 # na.exclude pads residuals with NA for missing rows so lengths match the dataframe
-resid_fit <- lm(precip_max_day ~ total_precip, data = env_epi_ento, na.action = na.exclude)
+resid_fit <- lm(precip_max_day ~ precip_cat, data = env_epi_ento, na.action = na.exclude)
 
 env_epi_ento <- env_epi_ento %>%
   mutate(precip_max_day_resid = resid(resid_fit))
