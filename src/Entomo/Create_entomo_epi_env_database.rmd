@@ -902,23 +902,24 @@ temp_viable_range <- c(17,35) # not necessary because avg_temp is always between
 
 # based on the temperature percentiles, create "cold" "med" "warm" climate categories 
 # Calculate the percentiles
-q <- quantile(meteo_monthly$avg_temp, probs = c(0, 0.3, 0.6, 1), na.rm = TRUE)
+q_temp <- quantile(meteo_monthly$avg_temp, probs = c(0, 0.3, 0.6, 1), na.rm = TRUE)
 
 # switch to 2 categories instead of 3
-q <- quantile(meteo_monthly$avg_temp, probs = c(0, 0.6, 1), na.rm = TRUE)
+q_temp <- quantile(meteo_monthly$avg_temp, probs = c(0, 0.6, 1), na.rm = TRUE)
 # Create the categorical variable
 meteo_monthly <- meteo_monthly %>%
   mutate(
     temp_cat = cut(
       avg_temp,
-      breaks = q,
+      breaks = q_temp,
+      # labels = c("cold", "mild", "warm"),
       labels = c("mild", "warm"),
       include.lowest = TRUE,
       right = FALSE
     )
   )
-# based on the total_precipitaion percentiles, create "wet" and "dry" climate categories
 
+print(q_temp)
 ```
 
 ```{r plot categorical temp over time}
@@ -1048,19 +1049,19 @@ print(p_precip)
 # divide precipitation into 3 categories based on percentiles
 q <- quantile(meteo_monthly$total_precip, probs = c(0, 0.3, 0.6, 1), na.rm = TRUE)
 
-q <- quantile(meteo_monthly$total_precip, probs = c(0, 0.6, 1), na.rm = TRUE)
+q_precip <- quantile(meteo_monthly$total_precip, probs = c(0, 0.6, 1), na.rm = TRUE)
 # Create the categorical variable
 meteo_monthly <- meteo_monthly %>%
   mutate(
     precip_cat = cut(
       total_precip,
-      breaks = q,
+      breaks = q_precip,
       labels = c("dry", "wett"),
       include.lowest = TRUE,
       right = FALSE
     )
   )
-print(q)
+print(q_precip)
 ```
 
 In summary, by using the 30th and 60th quantile, we set the limits at: 
@@ -1130,6 +1131,40 @@ ggsave(
 
 meteo_monthly <- meteo_monthly %>%
  select(-year_month_date)
+```
+
+```{r create total rainy days categories}
+# divide precipitation into 3 categories based on percentiles
+q <- quantile(meteo_monthly$total_rainy_days, probs = c(0, 0.3, 0.6, 1), na.rm = TRUE)
+
+q_rainy_days <- quantile(meteo_monthly$total_rainy_days, probs = c(0, 0.6, 1), na.rm = TRUE)
+# Create the categorical variable
+meteo_monthly <- meteo_monthly %>%
+  mutate(
+    precip_cat = cut(
+      total_precip,
+      breaks = q_precip,
+      labels = c("dry", "wett"),
+      include.lowest = TRUE,
+      right = FALSE
+    )
+  )
+print(q_precip)
+```
+
+```{r add rainy days category to data}
+meteo_monthly <- meteo_monthly %>%
+  mutate(
+    rainy_days_cat = if_else(total_rainy_days >= 10, "frequent", "infrequent"),
+    rainy_days_cat = factor(rainy_days_cat, levels = c("infrequent", "frequent"))
+  )
+# Check cell counts and balance
+table(meteo_monthly$rainy_days_cat)
+
+# And critically — check the temp/rainy_days cross-tabulation
+# to confirm the empty cell problem is resolved
+meteo_monthly %>%
+  count(rainy_days_cat, temp_cat)  # using your existing warm/mild temp categories
 ```
 
 Let's now look into the correlation between cat_precip and cat_temp

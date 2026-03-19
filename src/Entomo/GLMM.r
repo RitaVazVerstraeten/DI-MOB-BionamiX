@@ -21,7 +21,7 @@ conflicted::conflict_prefer("lag", "dplyr")
 cfg <- list(
   # Random effects to include
   include_block_re = FALSE,      # Random intercept for block (spatial)
-  include_time_re = FALSE,      # Random intercept for time (temporal)
+  include_time_re = TRUE,      # Random intercept for time (temporal)
   include_ar1_temporal = TRUE, # AR(1) temporal autocorrelation (within group)
   ar1_group = "block",         # "block" (within-block AR1) or "global"
   include_spatial_ar = FALSE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
@@ -34,15 +34,15 @@ cfg <- list(
   # unlagged_vars: variables entered directly without lag
   # numeric_vars : continuous variables to z-score standardize
   #                (exclude factors, binary 0/1, and already-factored variables)
-  lag_vars      = c("temp_cat", "precip_cat", "mean_ndvi", "avg_VPD", "precip_max_day_resid"),
-  unlagged_vars = c("is_urban", "has_aljibes", "water_shortage", "water_containers"),
-  numeric_vars  = c("mean_ndvi", "avg_VPD", "water_containers"),
+  lag_vars      = c("rainy_days_cat", "avg_VPD", "precip_max_day"),
+  unlagged_vars = c("is_urban", "water_containers"),
+  numeric_vars  = c("precip_max_day", "avg_VPD", "water_containers"),
 
   # Interaction terms (NULL = none)
   # Each element is a character vector of exactly 2 variable names (column names
   # after lag expansion, e.g. "temp_cat_lag1", or unlagged names e.g. "is_urban")
   # Example: interactions = list(c("temp_cat_lag1", "avg_VPD_lag1"), c("is_urban", "water_containers"))
-  interactions  = list(c("temp_cat_lag0", "precip_cat_lag0"), c("temp_cat_lag1", "precip_cat_lag1")),
+  interactions  = NULL,
 
   # Spatial coordinates from shapefile (used when include_spatial_ar = TRUE)
   shapefile_path = if (Sys.info()["nodename"] == "frietjes") {
@@ -242,17 +242,21 @@ for (var in numeric_vars) {
 # =========================
 L <- cfg$max_lag
 for (var in lag_vars) {
-  is_factor_var <- is.factor(df[[var]])
+  is_factor_var <- is.factor(df[[var]]) | is.character(df[[var]])  # catch both
+  
   for (l in 0:L) {
     lag_col <- paste0(var, "_lag", l)
     df <- df %>%
       group_by(block) %>%
       arrange(year_month_date, .by_group = TRUE) %>%
-      mutate(!!lag_col := lag(.data[[var]], n = l, default = if (is_factor_var) NA else 0)) %>%
+      mutate(!!lag_col := lag(
+        .data[[var]], 
+        n = l, 
+        default = if (is_factor_var) NA_character_ else NA_real_  # explicit NA types
+      )) %>%
       ungroup()
   }
 }
-
 lagged_cols <- unlist(lapply(lag_vars, function(v) paste0(v, "_lag", 0:L)))
 
 # Check for NAs in lagged columns
