@@ -24,11 +24,25 @@ cfg <- list(
   include_time_re = FALSE,      # Random intercept for time (temporal)
   include_ar1_temporal = TRUE, # AR(1) temporal autocorrelation (within group)
   ar1_group = "block",         # "block" (within-block AR1) or "global"
-  include_spatial_ar = TRUE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
+  include_spatial_ar = FALSE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
   # include_spatial_ar = TRUE,  # Matérn spatial autocorrelation: mat(xy + 0 | spatial)
 
   # Link function for binomial GLMM
-  link_function = "cloglog",     # Options: "logit", "probit", "cloglog", "cauchit"
+  link_function = "logit",     # Options: "logit", "probit", "cloglog", "cauchit"
+  # Predictors
+  # lag_vars     : variables for which distributed lags are created
+  # unlagged_vars: variables entered directly without lag
+  # numeric_vars : continuous variables to z-score standardize
+  #                (exclude factors, binary 0/1, and already-factored variables)
+  lag_vars      = c("temp_cat", "precip_cat", "mean_ndvi", "avg_VPD", "precip_max_day_resid"),
+  unlagged_vars = c("is_urban", "has_aljibes", "water_shortage", "water_containers"),
+  numeric_vars  = c("mean_ndvi", "avg_VPD", "water_containers"),
+
+  # Interaction terms (NULL = none)
+  # Each element is a character vector of exactly 2 variable names (column names
+  # after lag expansion, e.g. "temp_cat_lag1", or unlagged names e.g. "is_urban")
+  # Example: interactions = list(c("temp_cat_lag1", "avg_VPD_lag1"), c("is_urban", "water_containers"))
+  interactions  = list(c("temp_cat_lag0", "precip_cat_lag0"), c("temp_cat_lag1", "precip_cat_lag1")),
 
   # Spatial coordinates from shapefile (used when include_spatial_ar = TRUE)
   shapefile_path = if (Sys.info()["nodename"] == "frietjes") {
@@ -38,14 +52,14 @@ cfg <- list(
     },
   sf_block_col = "CODIGO_",
   spatial_crs = NA,             # Optional projected CRS (e.g., 32719). NA = keep CRS unless lon/lat (then use EPSG:3857)
-  
-  # Data
 
+  # Data
   data_file = if (Sys.info()["nodename"] == "frietjes") {
     "/home/rita/data/Entomo/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv"
   } else {
     "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv"
   },
+
   # Lag settings
   max_lag = 2,
   kappa = 2,  # multiplier for cases in n_bt calculation
@@ -72,11 +86,11 @@ ar1_suffix <- ifelse(
   "noAR1"
 )
 
-# Run suffix is now just the date (model spec is in parent folder)
+# Run suffix is the date
 run_suffix <- date_suffix
 
 # Output structure:
-# <output_dir>/<model_spec>/<run_suffix>/
+# <output_dir>/<predictor_spec>/<model_spec>/<run_suffix>/plots/
 time_ar_spec <- ifelse(cfg$include_ar1_temporal, paste0("AR1-", cfg$ar1_group), "noAR1")
 space_ar_spec <- ifelse(cfg$include_spatial_ar, "AR-EXP", "noAR")
 # space_ar_spec <- ifelse(cfg$include_spatial_ar, "AR-Mat", "noAR")
@@ -91,9 +105,20 @@ model_spec <- paste0(
   "_link-", cfg$link_function
 )
 
-model_output_dir <- file.path(cfg$output_dir, model_spec)
-run_output_dir <- file.path(model_output_dir, run_suffix)
-dir.create(run_output_dir, recursive = TRUE, showWarnings = FALSE)
+# Encode predictor sets in folder name so each combination gets its own directory
+predictor_spec <- paste0(
+  "lag-", paste(cfg$lag_vars, collapse = "-"),
+  "_unlag-", paste(cfg$unlagged_vars, collapse = "-"),
+  if (!is.null(cfg$interactions) && length(cfg$interactions) > 0)
+    paste0("_ix-", paste(sapply(cfg$interactions, function(p) paste(p, collapse = "x")), collapse = "_"))
+  else ""
+)
+
+model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
+run_output_dir    <- file.path(model_output_dir, run_suffix)
+plots_output_dir  <- file.path(run_output_dir, "plots")
+dir.create(run_output_dir,   recursive = TRUE, showWarnings = FALSE)
+dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # =========================
 # 1. LOAD DATA
@@ -112,7 +137,7 @@ df <- df %>%
 
 # create landcover as factor variable 
 df <- df %>%
-  mutate(landcover = factor(landcover))
+  mutate(landcover = factor(landcover), temp_cat = factor(temp_cat), precip_cat = factor(precip_cat))
 
 # Optional: add spatial coordinates by matching block names to shapefile IDs
 
@@ -202,11 +227,9 @@ if (identical(cfg$ar1_group, "global")) {
 # =========================
 # 2. STANDARDIZE NUMERIC COVARIATES
 # =========================
-lag_vars <- c("avg_temp",  "total_precip", "mean_ndvi", "precip_max_day_resid") # ndmi and ndwi removed due to collinearity
-unlagged_vars <- c("is_urban", "landcover", "has_aljibes", "nr_aljibes", "is_WI", "is_WUI", "water_shortage", "water_containers")
-
-# Numeric variables to standardize (z-score)
-numeric_vars <- c(lag_vars, "nr_aljibes", "water_containers")
+lag_vars      <- cfg$lag_vars
+unlagged_vars <- cfg$unlagged_vars
+numeric_vars  <- cfg$numeric_vars
 
 for (var in numeric_vars) {
   if (var %in% names(df)) {
@@ -219,12 +242,13 @@ for (var in numeric_vars) {
 # =========================
 L <- cfg$max_lag
 for (var in lag_vars) {
+  is_factor_var <- is.factor(df[[var]])
   for (l in 0:L) {
     lag_col <- paste0(var, "_lag", l)
     df <- df %>%
       group_by(block) %>%
       arrange(year_month_date, .by_group = TRUE) %>%
-      mutate(!!lag_col := lag(.data[[var]], n = l, default = 0)) %>%
+      mutate(!!lag_col := lag(.data[[var]], n = l, default = if (is_factor_var) NA else 0)) %>%
       ungroup()
   }
 }
@@ -303,8 +327,19 @@ cat("=== End diagnostic ===\n\n")
 # =========================
 # 5. BUILD GLMM FORMULA
 # =========================
-# Fixed effects
-fixed_effects <- c(lagged_cols, unlagged_vars, "reactive_shift")
+# Interaction terms (added as var1:var2 — main effects already listed above)
+interaction_terms <- c()
+if (!is.null(cfg$interactions) && length(cfg$interactions) > 0) {
+  for (pair in cfg$interactions) {
+    if (length(pair) != 2) stop("Each interaction must be exactly 2 variable names, got: ", paste(pair, collapse = ", "))
+    missing_vars <- setdiff(pair, names(df_expanded))
+    if (length(missing_vars) > 0) stop("Interaction variable(s) not found in data: ", paste(missing_vars, collapse = ", "))
+    interaction_terms <- c(interaction_terms, paste(pair[1], pair[2], sep = ":"))
+  }
+}
+
+# Fixed effects: main effects + interactions
+fixed_effects <- c(lagged_cols, unlagged_vars, "reactive_shift", interaction_terms)
 formula_str <- paste(
   "cbind(y_bt, n_trials - y_bt) ~", # y_bt successes (positives), n_trails - y_bt failures (zeros)
   paste(fixed_effects, collapse = " + ")
@@ -341,8 +376,11 @@ formula <- as.formula(formula_str)
 
 # glmmTMB drops rows with missing values in model terms.
 # Build complete-case mask explicitly (without model.frame on random effects).
+# Use individual column names (not formula terms like "var1:var2") for NA checking
 required_cols <- unique(c(
-  "y_bt", "n_trials", fixed_effects,
+  "y_bt", "n_trials",
+  lagged_cols, unlagged_vars, "reactive_shift",
+  unlist(cfg$interactions),  # individual vars from interaction pairs (already in lagged/unlagged but explicit)
   if (cfg$include_block_re) "block" else NULL,
   if (cfg$include_time_re) "year_month" else NULL,
   if (cfg$include_ar1_temporal) c("year_month_ar1", "ar1_group") else NULL,
@@ -486,14 +524,16 @@ write_csv(df_summary, summary_pred_file)
 saveRDS(cfg, cfg_file)
 
 cat("\nSaved outputs:\n")
-cat("  Model spec folder: ", model_output_dir, "\n", sep = "")
-cat("  Run folder: ", run_output_dir, "\n", sep = "")
-cat("  Model RDS: ", model_file, "\n", sep = "")
-cat("  Summary TXT: ", summary_file, "\n", sep = "")
-cat("  Fixed effects OR CSV: ", coef_table_file, "\n", sep = "")
-cat("  Expanded predictions CSV: ", expanded_file, "\n", sep = "")
-cat("  Aggregated predictions CSV: ", summary_pred_file, "\n", sep = "")
-cat("  Config RDS: ", cfg_file, "\n", sep = "")
+cat("  Predictor set:             ", predictor_spec, "\n", sep = "")
+cat("  Model spec folder:         ", model_output_dir, "\n", sep = "")
+cat("  Run folder:                ", run_output_dir, "\n", sep = "")
+cat("  Plots folder:              ", plots_output_dir, "\n", sep = "")
+cat("  Model RDS:                 ", model_file, "\n", sep = "")
+cat("  Summary TXT:               ", summary_file, "\n", sep = "")
+cat("  Fixed effects OR CSV:      ", coef_table_file, "\n", sep = "")
+cat("  Expanded predictions CSV:  ", expanded_file, "\n", sep = "")
+cat("  Aggregated predictions CSV:", summary_pred_file, "\n", sep = "")
+cat("  Config RDS:                ", cfg_file, "\n", sep = "")
 
 # =========================
 # 10. PLOT p_bt_fitted, p_R_fitted, p_bt_observed
@@ -511,7 +551,7 @@ df_observed <- df %>%
 save_glmm_prob_timeseries_plot(
   df_summary = df_summary,
   df_observed = df_observed,
-  output_dir = run_output_dir,
+  output_dir = plots_output_dir,
   run_suffix = run_suffix,
   cfg = cfg
 )
@@ -524,19 +564,19 @@ df_summary_weighted <- df_summary %>%
       p_bt_fitted,
       (1 - omega) * p_bt_fitted + omega * p_R_fitted
     )
-  ) 
+  )
 
 save_glmm_prob_timeseries_plot_random_blocks(
     df_summary = df_summary,
-    df_observed = df_observed, 
-    output_dir = run_output_dir,
+    df_observed = df_observed,
+    output_dir = plots_output_dir,
     run_suffix = run_suffix,
     cfg = cfg,
     n_blocks = 10)
 
 save_glmm_prob_timeseries_plot_weighted(
   df_summary = df_summary_weighted,
-  output_dir = run_output_dir,
+  output_dir = plots_output_dir,
   run_suffix = run_suffix,
   cfg = cfg
 )
@@ -544,27 +584,27 @@ save_glmm_prob_timeseries_plot_weighted(
 # QQ plot of observed vs expected (fitted) probabilities (aggregated over time)
 save_glmm_qqplot_observed_vs_expected(
   df_summary = df_summary,
-  df_observed = df_observed,  
-  output_dir = run_output_dir,
+  df_observed = df_observed,
+  output_dir = plots_output_dir,
   run_suffix = run_suffix
 )
 
 # QQ plot of observed vs weighted average fitted probability
 save_glmm_qqplot_weighted_avg(
   df = df_summary_weighted,
-  output_dir = run_output_dir,
+  output_dir = plots_output_dir,
   run_suffix = run_suffix
 )
 
 # =========================
 # 11. PLOT MODEL RESIDUALS (using plot_functions)
 # =========================
-save_glmm_residuals_plot(model, run_output_dir, run_suffix)
+save_glmm_residuals_plot(model, plots_output_dir, run_suffix)
 
 # =========================
 # 12. PLOT RANDOM EFFECTS (using plot_functions)
 # =========================
-save_glmm_random_effects_plot(model, run_output_dir, run_suffix)
+save_glmm_random_effects_plot(model, plots_output_dir, run_suffix)
 
 # # =========================
 # # 13. SPATIAL AUTOCORRELATION (MORAN'S I)
