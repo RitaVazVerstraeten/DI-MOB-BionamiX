@@ -194,186 +194,186 @@ We test the modeling approach using R stan. In this framework, $\delta_0$ and $\
 
 When including lagged coefficients for the same variables, we must correct for temporal association. One option is to constrain the trajectory of coefficients (for a given environmental variable) using a polynomial function; see the ARBOALVO publication for this approach. Additionally, we may consider a hurdle Poisson model, which separately models the probability of zero and the distribution of non-zero values. Such models are well-suited when data contain excess zeros not sufficiently captured by standard models.
 
-\section{Alternative Approach: Household-Level Model}
+% \section{Alternative Approach: Household-Level Model}
 
-\subsection{Motivation}
+% \subsection{Motivation}
 
-Since data generation starts at the household level, we can model the process mechanistically at that level and aggregate upward.
+% Since data generation starts at the household level, we can model the process mechanistically at that level and aggregate upward.
 
-\subsection{Latent State Variables}
+% \subsection{Latent State Variables}
 
-We define two latent state variables at the household level: $z_{ib,t} \in \{0,1\}$ indicating whether household $i$ in block $b$ has mosquito larvae at time $t$, and $v_{ib,t} \in \{0,1\}$ indicating whether the household was visited between time $t-1$ and $t$. The application of active control (removal) is defined deterministically as:
-\begin{equation}
-c_{ib,t} = v_{ib,t} \cdot z_{ib,t}.
-\end{equation}
+% We define two latent state variables at the household level: $z_{ib,t} \in \{0,1\}$ indicating whether household $i$ in block $b$ has mosquito larvae at time $t$, and $v_{ib,t} \in \{0,1\}$ indicating whether the household was visited between time $t-1$ and $t$. The application of active control (removal) is defined deterministically as:
+% \begin{equation}
+% c_{ib,t} = v_{ib,t} \cdot z_{ib,t}.
+% \end{equation}
 
-\subsection{Ecological Transitions}
+% \subsection{Ecological Transitions}
 
-The probability of colonization (larvae appearing in a previously uninfested household) and persistence (larvae remaining despite control) are given by:
-\begin{equation}
-P(z_{ib,t} = 1 \mid z_{ib,t-1} = 0) = \text{Logit}^{-1}(\gamma_{bt})
-\end{equation}
-\begin{equation}
-P(z_{ib,t} = 1 \mid z_{ib,t-1} = 1) = \text{Logit}^{-1}(\phi_{bt} - \theta c_{ib,t-1}).
-\end{equation}
-The state $z_{ib,t}$ advances as:
-\begin{equation}
-z_{ib,t} \mid z_{ib,t-1}, v_{ib,t-1} \sim \text{Bernoulli}\left(\text{Logit}^{-1}(\phi_{bt} - \theta c_{ib,t-1})z_{ib,t-1} + \text{Logit}^{-1}(\gamma_{bt})(1 - z_{ib,t-1})\right).
-\end{equation}
+% The probability of colonization (larvae appearing in a previously uninfested household) and persistence (larvae remaining despite control) are given by:
+% \begin{equation}
+% P(z_{ib,t} = 1 \mid z_{ib,t-1} = 0) = \text{Logit}^{-1}(\gamma_{bt})
+% \end{equation}
+% \begin{equation}
+% P(z_{ib,t} = 1 \mid z_{ib,t-1} = 1) = \text{Logit}^{-1}(\phi_{bt} - \theta c_{ib,t-1}).
+% \end{equation}
+% The state $z_{ib,t}$ advances as:
+% \begin{equation}
+% z_{ib,t} \mid z_{ib,t-1}, v_{ib,t-1} \sim \text{Bernoulli}\left(\text{Logit}^{-1}(\phi_{bt} - \theta c_{ib,t-1})z_{ib,t-1} + \text{Logit}^{-1}(\gamma_{bt})(1 - z_{ib,t-1})\right).
+% \end{equation}
 
-\subsection{Visit Process}
+% \subsection{Visit Process}
 
-The probability of a new visit (systematic + reactive) and revisit are given by:
-\begin{equation}
-P(v_{ib,t} = 1 \mid v_{ib,t-1} = 0) = \text{Logit}^{-1}(\alpha_0 + \alpha_1 C_{bt})
-\end{equation}
-\begin{equation}
-P(v_{ib,t} = 1 \mid v_{ib,t-1} = 1) = \text{Logit}^{-1}(\alpha_0 + \alpha_1 C_{bt} + \alpha_2 v_{ib,t-1}),
-\end{equation}
-which yields:
-\begin{equation}
-v_{ib,t} \mid v_{ib,t-1} \sim \text{Bernoulli}\left(\text{Logit}^{-1}(\alpha_0 + \alpha_1 C_{bt} + \alpha_2 v_{ib,t-1})\right).
-\end{equation}
+% The probability of a new visit (systematic + reactive) and revisit are given by:
+% \begin{equation}
+% P(v_{ib,t} = 1 \mid v_{ib,t-1} = 0) = \text{Logit}^{-1}(\alpha_0 + \alpha_1 C_{bt})
+% \end{equation}
+% \begin{equation}
+% P(v_{ib,t} = 1 \mid v_{ib,t-1} = 1) = \text{Logit}^{-1}(\alpha_0 + \alpha_1 C_{bt} + \alpha_2 v_{ib,t-1}),
+% \end{equation}
+% which yields:
+% \begin{equation}
+% v_{ib,t} \mid v_{ib,t-1} \sim \text{Bernoulli}\left(\text{Logit}^{-1}(\alpha_0 + \alpha_1 C_{bt} + \alpha_2 v_{ib,t-1})\right).
+% \end{equation}
 
-\subsection{Environmental Drivers}
+% \subsection{Environmental Drivers}
 
-Larvae colonization and persistence are modeled as purely driven by ecological covariates with spatio-temporal smoothing:
-\begin{align}
-\gamma_{bt} &= \alpha_0^\gamma + \mathbf{x}_{bt}^T \boldsymbol{\alpha}_{\gamma\phi} + s_b + u_t \\
-\phi_{bt} &= \alpha_0^\phi + \mathbf{x}_{bt}^T \boldsymbol{\alpha}_{\gamma\phi} + s_b + u_t
-\end{align}
-Note that we use different intercepts (persistence easier than colonization?) but shared ecological drivers and shared random effects as a deliberate design choice.
+% Larvae colonization and persistence are modeled as purely driven by ecological covariates with spatio-temporal smoothing:
+% \begin{align}
+% \gamma_{bt} &= \alpha_0^\gamma + \mathbf{x}_{bt}^T \boldsymbol{\alpha}_{\gamma\phi} + s_b + u_t \\
+% \phi_{bt} &= \alpha_0^\phi + \mathbf{x}_{bt}^T \boldsymbol{\alpha}_{\gamma\phi} + s_b + u_t
+% \end{align}
+% Note that we use different intercepts (persistence easier than colonization?) but shared ecological drivers and shared random effects as a deliberate design choice.
 
-\subsection{Distributed Lag Covariates (Household Model)}
+% \subsection{Distributed Lag Covariates (Household Model)}
 
-As in the original model, we separate covariates that require temporal lagging (e.g., rainfall, temperature) from those that do not (e.g., static land cover, urban form). Let $K_L$ index lagged covariates and $K_U$ index unlagged covariates. Then:
-\begin{align}
-\gamma_{bt} &= \alpha_0^\gamma + \sum_{k\in K_L}\sum_{\ell=0}^{L} w_{k\ell}^{\gamma}\,X_{k,b,t-\ell} + \sum_{k\in K_U} w_{k}^{\gamma}\,X_{k,b} + s_b + u_t, \\
-\phi_{bt} &= \alpha_0^\phi + \sum_{k\in K_L}\sum_{\ell=0}^{L} w_{k\ell}^{\phi}\,X_{k,b,t-\ell} + \sum_{k\in K_U} w_{k}^{\phi}\,X_{k,b} + s_b + u_t.
-\end{align}
-This mirrors the original distributed lag model, but is applied separately to colonization and persistence. Lag weights $w_{k\ell}$ can be regularized (e.g., polynomial or smoothness constraints) to avoid identifiability issues across lags.
+% As in the original model, we separate covariates that require temporal lagging (e.g., rainfall, temperature) from those that do not (e.g., static land cover, urban form). Let $K_L$ index lagged covariates and $K_U$ index unlagged covariates. Then:
+% \begin{align}
+% \gamma_{bt} &= \alpha_0^\gamma + \sum_{k\in K_L}\sum_{\ell=0}^{L} w_{k\ell}^{\gamma}\,X_{k,b,t-\ell} + \sum_{k\in K_U} w_{k}^{\gamma}\,X_{k,b} + s_b + u_t, \\
+% \phi_{bt} &= \alpha_0^\phi + \sum_{k\in K_L}\sum_{\ell=0}^{L} w_{k\ell}^{\phi}\,X_{k,b,t-\ell} + \sum_{k\in K_U} w_{k}^{\phi}\,X_{k,b} + s_b + u_t.
+% \end{align}
+% This mirrors the original distributed lag model, but is applied separately to colonization and persistence. Lag weights $w_{k\ell}$ can be regularized (e.g., polynomial or smoothness constraints) to avoid identifiability issues across lags.
 
-\subsection{Observation and Aggregation}
+% \subsection{Observation and Aggregation}
 
-We define an observation variable at the household level:
-\begin{equation}
-y_{ib,t} = \mathbb{1}\{z_{ib,t} = 1, v_{ib,t} = 1\}.
-\end{equation}
-We observe the sum over households per block:
-\begin{equation}
-Y_{bt}^* = \sum_{i=1}^{N_b} y_{ib,t}.
-\end{equation}
-The latent variable of interest is the fraction of households with larvae (regardless of observation):
-\begin{equation}
-p_{bt} = \frac{\sum_{i=1}^{N_b} z_{ib,t}}{N_b}.
-\end{equation}
+% We define an observation variable at the household level:
+% \begin{equation}
+% y_{ib,t} = \mathbb{1}\{z_{ib,t} = 1, v_{ib,t} = 1\}.
+% \end{equation}
+% We observe the sum over households per block:
+% \begin{equation}
+% Y_{bt}^* = \sum_{i=1}^{N_b} y_{ib,t}.
+% \end{equation}
+% The latent variable of interest is the fraction of households with larvae (regardless of observation):
+% \begin{equation}
+% p_{bt} = \frac{\sum_{i=1}^{N_b} z_{ib,t}}{N_b}.
+% \end{equation}
 
-\subsection{Implementation Challenge}
+% \subsection{Implementation Challenge}
 
-Either build a POMP model (but this may be infeasible for hundreds of blocks with hundreds of households) or integrate over households analytically:
-\begin{equation}
-P(z_{ib,t} = 1, v_{ib,t} = 1) = P(z_{ib,t} = 1) \cdot P(v_{ib,t} = 1 \mid z_{ib,t} = 1).
-\end{equation}
+% Either build a POMP model (but this may be infeasible for hundreds of blocks with hundreds of households) or integrate over households analytically:
+% \begin{equation}
+% P(z_{ib,t} = 1, v_{ib,t} = 1) = P(z_{ib,t} = 1) \cdot P(v_{ib,t} = 1 \mid z_{ib,t} = 1).
+% \end{equation}
 
-\subsection{Take Expectations per Block (Mean-Field Closure)}
+% \subsection{Take Expectations per Block (Mean-Field Closure)}
 
-Define the block-level expectations over households:
-\begin{align}
-p_{bt} &= \mathbb{E}[z_{ib,t}] = \Pr(z_{ib,t}=1) = \frac{1}{N_b}\sum_{i=1}^{N_b} z_{ib,t}, \\
-q_{bt} &= \mathbb{E}[v_{ib,t}] = \Pr(v_{ib,t}=1) = \frac{1}{N_b}\sum_{i=1}^{N_b} v_{ib,t}, \\
-r_{bt} &= \mathbb{E}[c_{ib,t}] = \Pr(c_{ib,t}=1) = \mathbb{E}[z_{ib,t}v_{ib,t}] = \frac{1}{N_b}\sum_{i=1}^{N_b} z_{ib,t}v_{ib,t}.
-\end{align}
-Since $r_{bt}$ is the expected value of a product of two Bernoulli variables, we need a closure:
-\begin{itemize}
-\item \textbf{Independence:} $r_{bt} \approx p_{bt}q_{bt}$.
-\item \textbf{Dependent (approx.):} $r_{bt} \approx p_{bt}q_{bt} + \rho\,p_{bt}(1-p_{bt})q_{bt}(1-q_{bt})$, using $\mathrm{Cov}(X,Y)=\rho\,\mathrm{Var}(X)\,\mathrm{Var}(Y)$ and $\mathrm{Var}(X)=p(1-p)$.
-\end{itemize}
+% Define the block-level expectations over households:
+% \begin{align}
+% p_{bt} &= \mathbb{E}[z_{ib,t}] = \Pr(z_{ib,t}=1) = \frac{1}{N_b}\sum_{i=1}^{N_b} z_{ib,t}, \\
+% q_{bt} &= \mathbb{E}[v_{ib,t}] = \Pr(v_{ib,t}=1) = \frac{1}{N_b}\sum_{i=1}^{N_b} v_{ib,t}, \\
+% r_{bt} &= \mathbb{E}[c_{ib,t}] = \Pr(c_{ib,t}=1) = \mathbb{E}[z_{ib,t}v_{ib,t}] = \frac{1}{N_b}\sum_{i=1}^{N_b} z_{ib,t}v_{ib,t}.
+% \end{align}
+% Since $r_{bt}$ is the expected value of a product of two Bernoulli variables, we need a closure:
+% \begin{itemize}
+% \item \textbf{Independence:} $r_{bt} \approx p_{bt}q_{bt}$.
+% \item \textbf{Dependent (approx.):} $r_{bt} \approx p_{bt}q_{bt} + \rho\,p_{bt}(1-p_{bt})q_{bt}(1-q_{bt})$, using $\mathrm{Cov}(X,Y)=\rho\,\mathrm{Var}(X)\,\mathrm{Var}(Y)$ and $\mathrm{Var}(X)=p(1-p)$.
+% \end{itemize}
 
-\subsection{Expectations for Visit Dynamics}
+% \subsection{Expectations for Visit Dynamics}
 
-By the law of total expectation,
-\begin{align}
-q_{bt} &= \mathbb{E}[v_{ib,t}] = \sum_{y\in\{0,1\}} \mathbb{E}[v_{ib,t}\mid v_{ib,t-1}=y]\,\Pr(v_{ib,t-1}=y) \\
-&= \text{Logit}^{-1}(\alpha_0+\alpha_1 C_{bt})\,(1-q_{bt-1}) + \text{Logit}^{-1}(\alpha_0+\alpha_1 C_{bt}+\alpha_2)\,q_{bt-1}.
-\end{align}
-This is a weighted average of transition probabilities for previously unvisited vs. previously visited households.
+% By the law of total expectation,
+% \begin{align}
+% q_{bt} &= \mathbb{E}[v_{ib,t}] = \sum_{y\in\{0,1\}} \mathbb{E}[v_{ib,t}\mid v_{ib,t-1}=y]\,\Pr(v_{ib,t-1}=y) \\
+% &= \text{Logit}^{-1}(\alpha_0+\alpha_1 C_{bt})\,(1-q_{bt-1}) + \text{Logit}^{-1}(\alpha_0+\alpha_1 C_{bt}+\alpha_2)\,q_{bt-1}.
+% \end{align}
+% This is a weighted average of transition probabilities for previously unvisited vs. previously visited households.
 
-\subsection{Expectations for Larvae Dynamics}
+% \subsection{Expectations for Larvae Dynamics}
 
-Similarly,
-\begin{align}
-p_{bt} &= \mathbb{E}[z_{ib,t}] = \text{Logit}^{-1}(\gamma_{bt})\,(1-p_{bt-1}) 
- + \mathbb{E}\big[\text{Logit}^{-1}(\phi_{bt}-\theta v_{ib,t-1}) \mid z_{ib,t-1}=1\big] p_{bt-1}.
-\end{align}
-Since $v_{ib,t-1}\in\{0,1\}$ and $v$ does not explicitly depend on $z$, we can split:
-\begin{equation}
-\mathbb{E}\big[\text{Logit}^{-1}(\phi_{bt}-\theta v_{ib,t-1})\big] = (1-q_{bt-1})\,\text{Logit}^{-1}(\phi_{bt}) + q_{bt-1}\,\text{Logit}^{-1}(\phi_{bt}-\theta).
-\end{equation}
-Therefore,
-\begin{align}
-p_{bt} &= \text{Logit}^{-1}(\gamma_{bt})\,(1-p_{bt-1}) \\
-&\quad + p_{bt-1}\Big[(1-q_{bt-1})\,\text{Logit}^{-1}(\phi_{bt}) + q_{bt-1}\,\text{Logit}^{-1}(\phi_{bt}-\theta)\Big].
-\end{align}
+% Similarly,
+% \begin{align}
+% p_{bt} &= \mathbb{E}[z_{ib,t}] = \text{Logit}^{-1}(\gamma_{bt})\,(1-p_{bt-1}) 
+%  + \mathbb{E}\big[\text{Logit}^{-1}(\phi_{bt}-\theta v_{ib,t-1}) \mid z_{ib,t-1}=1\big] p_{bt-1}.
+% \end{align}
+% Since $v_{ib,t-1}\in\{0,1\}$ and $v$ does not explicitly depend on $z$, we can split:
+% \begin{equation}
+% \mathbb{E}\big[\text{Logit}^{-1}(\phi_{bt}-\theta v_{ib,t-1})\big] = (1-q_{bt-1})\,\text{Logit}^{-1}(\phi_{bt}) + q_{bt-1}\,\text{Logit}^{-1}(\phi_{bt}-\theta).
+% \end{equation}
+% Therefore,
+% \begin{align}
+% p_{bt} &= \text{Logit}^{-1}(\gamma_{bt})\,(1-p_{bt-1}) \\
+% &\quad + p_{bt-1}\Big[(1-q_{bt-1})\,\text{Logit}^{-1}(\phi_{bt}) + q_{bt-1}\,\text{Logit}^{-1}(\phi_{bt}-\theta)\Big].
+% \end{align}
 
-\subsection{Observation and Simulation Equations}
+% \subsection{Observation and Simulation Equations}
 
-Under the independence closure $r_{bt}=p_{bt}q_{bt}$:
-\begin{align}
-q_{bt} &= (1-q_{bt-1})\,\text{Logit}^{-1}(\alpha_0+\alpha_1 C_{bt}) + q_{bt-1}\,\text{Logit}^{-1}(\alpha_0+\alpha_1 C_{bt}+\alpha_2), \\
-p_{bt} &= \text{Logit}^{-1}(\gamma_{bt})\,(1-p_{bt-1}) + p_{bt-1}\Big[(1-q_{bt-1})\,\text{Logit}^{-1}(\phi_{bt}) + q_{bt-1}\,\text{Logit}^{-1}(\phi_{bt}-\theta)\Big], \\
-r_{bt} &= p_{bt}q_{bt}, \\
-\gamma_{bt} &= \alpha_0^\gamma + \mathbf{x}_{bt}^T \boldsymbol{\alpha}_{\gamma\phi} + s_b + u_t, \\
-\phi_{bt} &= \alpha_0^\phi + \mathbf{x}_{bt}^T \boldsymbol{\alpha}_{\gamma\phi} + s_b + u_t.
-\end{align}
-The observation model is then
-\begin{equation}
-Y_{bt} \sim \text{Binomial}(N_b, r_{bt}).
-\end{equation}
-\textit{Note:} We do not observe the number of visits per block, so the Markov chain for $q_{bt}$ may be weakly identifiable.
+% Under the independence closure $r_{bt}=p_{bt}q_{bt}$:
+% \begin{align}
+% q_{bt} &= (1-q_{bt-1})\,\text{Logit}^{-1}(\alpha_0+\alpha_1 C_{bt}) + q_{bt-1}\,\text{Logit}^{-1}(\alpha_0+\alpha_1 C_{bt}+\alpha_2), \\
+% p_{bt} &= \text{Logit}^{-1}(\gamma_{bt})\,(1-p_{bt-1}) + p_{bt-1}\Big[(1-q_{bt-1})\,\text{Logit}^{-1}(\phi_{bt}) + q_{bt-1}\,\text{Logit}^{-1}(\phi_{bt}-\theta)\Big], \\
+% r_{bt} &= p_{bt}q_{bt}, \\
+% \gamma_{bt} &= \alpha_0^\gamma + \mathbf{x}_{bt}^T \boldsymbol{\alpha}_{\gamma\phi} + s_b + u_t, \\
+% \phi_{bt} &= \alpha_0^\phi + \mathbf{x}_{bt}^T \boldsymbol{\alpha}_{\gamma\phi} + s_b + u_t.
+% \end{align}
+% The observation model is then
+% \begin{equation}
+% Y_{bt} \sim \text{Binomial}(N_b, r_{bt}).
+% \end{equation}
+% \textit{Note:} We do not observe the number of visits per block, so the Markov chain for $q_{bt}$ may be weakly identifiable.
 
-\subsection{Special Case: No Revisiting}
+% \subsection{Special Case: No Revisiting}
 
-If revisits are negligible ($\alpha_2=0$ and no dependence on $v_{ib,t-1}$), then
-\begin{align}
-q_{bt} &= \text{Logit}^{-1}(\alpha_0+\alpha_1 C_{bt}), \\
-p_{bt} &= \text{Logit}^{-1}(\gamma_{bt})\,(1-p_{bt-1}) + p_{bt-1}\Big[(1-q_{bt-1})\,\text{Logit}^{-1}(\phi_{bt}) + q_{bt-1}\,\text{Logit}^{-1}(\phi_{bt}-\theta)\Big], \\
-r_{bt} &= p_{bt}q_{bt}.
-\end{align}
+% If revisits are negligible ($\alpha_2=0$ and no dependence on $v_{ib,t-1}$), then
+% \begin{align}
+% q_{bt} &= \text{Logit}^{-1}(\alpha_0+\alpha_1 C_{bt}), \\
+% p_{bt} &= \text{Logit}^{-1}(\gamma_{bt})\,(1-p_{bt-1}) + p_{bt-1}\Big[(1-q_{bt-1})\,\text{Logit}^{-1}(\phi_{bt}) + q_{bt-1}\,\text{Logit}^{-1}(\phi_{bt}-\theta)\Big], \\
+% r_{bt} &= p_{bt}q_{bt}.
+% \end{align}
 
-\subsection{Model Assumptions}
+% \subsection{Model Assumptions}
 
-\begin{itemize}
-\item Households are interchangeable within a block.
-\item Visits are exogenous (scheduled or externally driven); detection is perfect if visited.
-\item Binomial thinning: each household can be visited at most once per month.
-\item Within a month, $z_{ib,t}$ and $v_{ib,t}$ are independent (otherwise use a bivariate Bernoulli).
-\item Between months, $z_{ib,t}$ depends on $v_{ib,t-1}$ through control, but $v_{ib,t}$ does not depend on $z_{ib,t-1}$. In reality, larvae $\rightarrow$ dengue $\rightarrow$ higher visit probability, so this assumption may be violated.
-\end{itemize}
+% \begin{itemize}
+% \item Households are interchangeable within a block.
+% \item Visits are exogenous (scheduled or externally driven); detection is perfect if visited.
+% \item Binomial thinning: each household can be visited at most once per month.
+% \item Within a month, $z_{ib,t}$ and $v_{ib,t}$ are independent (otherwise use a bivariate Bernoulli).
+% \item Between months, $z_{ib,t}$ depends on $v_{ib,t-1}$ through control, but $v_{ib,t}$ does not depend on $z_{ib,t-1}$. In reality, larvae $\rightarrow$ dengue $\rightarrow$ higher visit probability, so this assumption may be violated.
+% \end{itemize}
 
-\subsection{Model Comparison}
+% \subsection{Model Comparison}
 
-\begin{table}[h]
-\centering
-\small
-\begin{tabular}{@{}p{2.5cm}p{5.5cm}p{5.5cm}@{}}
-\toprule
-\textbf{Aspect} & \textbf{Original Model} & \textbf{Tijs' New Model} \\ 
-\midrule
-Level of modelling & Block-time, households integrated out implicitly & Household-level, explicit aggregation to blocks \\
-\midrule
-Latent state & $p_{bt}$ = Pr(larvae present at household) & 1. Ecological: $z_{ib,t} \in \{0,1\}$ (larvae present)\newline 2. Visit: $v_{ib,t} \in \{0,1\}$ (household visit) \\
-\midrule
-Dynamics & No explicit colonization/extinction\newline Temporal structure via random effects\newline Ecology drives $p_{bt}$ & Colonization: $P(z_{ib,t}=1|z_{ib,t-1}=0)$\newline Persistence with control: $P(z_{ib,t}=1|z_{ib,t-1}=1)$\newline Visit probability depends on dengue burden and previous visits \\
-\midrule
-Observation & Observation bias via systematic/reactive inspections\newline Dengue cases affect observation, not ecology & Define: $y_{ib,t} = \mathbb{1}\{z_{ib,t}=1, v_{ib,t}=1\}$\newline Observe: $Y_{bt}^* = \sum y_{ib,t}$\newline True hidden Markov model + partial observation \\
-\midrule
-Benefits & 1. Computation manageable\newline 2. Identifiability issues avoided\newline 3. Best for estimating $p_{bt}$ robustly\newline 4. Scaling\newline 5. Inference (not simulation) & 1. Understanding revisits \& removal\newline 2. Understanding control effectiveness in entomology \\
-\midrule
-Risks & 1. No distinction in why $p_{bt}$ changes\newline 2. Intervention effects absorbed into observation bias\newline 3. Need good non-dengue period & 1. Computation: $\sim$2,000,000 latent states\newline 2. Identifiability: never observe $z_{ib,t}=0, v_{ib,t}=1$ or $z_{ib,t}=1, v_{ib,t}=0$ \\
-\bottomrule
-\end{tabular}
-\caption{Comparison of modeling approaches}
-\end{table}
+% \begin{table}[h]
+% \centering
+% \small
+% \begin{tabular}{@{}p{2.5cm}p{5.5cm}p{5.5cm}@{}}
+% \toprule
+% \textbf{Aspect} & \textbf{Original Model} & \textbf{Tijs' New Model} \\ 
+% \midrule
+% Level of modelling & Block-time, households integrated out implicitly & Household-level, explicit aggregation to blocks \\
+% \midrule
+% Latent state & $p_{bt}$ = Pr(larvae present at household) & 1. Ecological: $z_{ib,t} \in \{0,1\}$ (larvae present)\newline 2. Visit: $v_{ib,t} \in \{0,1\}$ (household visit) \\
+% \midrule
+% Dynamics & No explicit colonization/extinction\newline Temporal structure via random effects\newline Ecology drives $p_{bt}$ & Colonization: $P(z_{ib,t}=1|z_{ib,t-1}=0)$\newline Persistence with control: $P(z_{ib,t}=1|z_{ib,t-1}=1)$\newline Visit probability depends on dengue burden and previous visits \\
+% \midrule
+% Observation & Observation bias via systematic/reactive inspections\newline Dengue cases affect observation, not ecology & Define: $y_{ib,t} = \mathbb{1}\{z_{ib,t}=1, v_{ib,t}=1\}$\newline Observe: $Y_{bt}^* = \sum y_{ib,t}$\newline True hidden Markov model + partial observation \\
+% \midrule
+% Benefits & 1. Computation manageable\newline 2. Identifiability issues avoided\newline 3. Best for estimating $p_{bt}$ robustly\newline 4. Scaling\newline 5. Inference (not simulation) & 1. Understanding revisits \& removal\newline 2. Understanding control effectiveness in entomology \\
+% \midrule
+% Risks & 1. No distinction in why $p_{bt}$ changes\newline 2. Intervention effects absorbed into observation bias\newline 3. Need good non-dengue period & 1. Computation: $\sim$2,000,000 latent states\newline 2. Identifiability: never observe $z_{ib,t}=0, v_{ib,t}=1$ or $z_{ib,t}=1, v_{ib,t}=0$ \\
+% \bottomrule
+% \end{tabular}
+% \caption{Comparison of modeling approaches}
+% \end{table}
 
 \section{Discussion and Limitations}
 
@@ -385,64 +385,89 @@ A key question remains: are we overdoing it by modeling household persistence, v
 
 
 
-\section{Penalized GLMM with Block Random Effects}
+\section{GLMM for Mosquito Immature Stages Presence}
 
-This section describes the maximum-likelihood GLMM implemented in \texttt{Penalized\_GLMM.r}. The model is estimated at block--month level using \texttt{glmmTMB} in R.
+This section describes the maximum-likelihood GLMM implemented in \texttt{GLMM.r}. The model is estimated at block--month level using \texttt{glmmTMB} in R.
 
 \subsection{Data Structure and Covariates}
 
 For each observation (block $b$, month $t$), the model uses:
 \begin{itemize}
 \item $y_{bt}$: positive houses (\texttt{Houses\_pos\_IS}),
-\item $N_b^{HH}$: inspected houses (\texttt{Inspected\_houses}),
-\item $C_{bt}$: dengue cases (\texttt{cases}),
-\item \textbf{lagged environmental covariates} (lags 0 to $L=1$): temperature, humidity, precipitation, NDVI,
-\item \textbf{unlagged block covariates}: urban status, water infrastructure indicators, water shortage.
+\item $n_{bt} = N_b^{HH} + \kappa C_{bt}$: total inspection events, where $N_b^{HH}$ is the number of inspected houses (\texttt{Inspected\_houses}), $C_{bt}$ are dengue cases, and $\kappa$ is a scaling factor (see Section~\ref{sec:expansion}),
+\item \textbf{lagged environmental covariates} (lags $\ell = 0, 1, 2$, i.e.\ $L = 2$):
+  \begin{itemize}
+    \item \texttt{rainy\_days\_cat}: number of rainy days per month, entered as an ordered categorical factor (not standardized),
+    \item \texttt{avg\_VPD}: average vapour pressure deficit (continuous, z-standardized before lagging),
+    \item \texttt{precip\_max\_day}: maximum daily precipitation in the month (continuous, z-standardized before lagging),
+  \end{itemize}
+\item \textbf{unlagged covariates}:
+  \begin{itemize}
+    \item \texttt{is\_urban}: binary indicator of urban block (not standardized),
+    \item \texttt{water\_containers}: count of water containers (continuous, z-standardized),
+  \end{itemize}
+\item \texttt{reactive\_shift}: outbreak-intensity covariate added to reactive rows (see Section~\ref{sec:expansion}).
 \end{itemize}
 
-All numeric covariates (both lagged and unlagged) are standardized (z-score).
-Therefore, fixed-effect coefficients for numeric predictors are interpreted on a one-standard-deviation scale (change in log-odds for a +1 SD increase in the predictor).
+Only continuous numeric variables (\texttt{avg\_VPD}, \texttt{precip\_max\_day}, \texttt{water\_containers}) are z-score standardized prior to lag creation.
+Categorical variables (\texttt{rainy\_days\_cat}) and binary indicators (\texttt{is\_urban}) are not standardized.
+Fixed-effect coefficients for z-standardized predictors are interpreted on a one-standard-deviation scale (change in log-odds for a $+1$ SD increase).
 
 \subsection{Data Expansion: Baseline and Reactive Splits}
+\label{sec:expansion}
 
-Rather than fitting the mixture directly, the data are expanded into two rows per (block, month) pair when cases \(>\) 0:
-
-\textbf{Baseline (systematic surveillance):}
+Rather than fitting the surveillance mixture directly, the code expands each original (block, month) observation into separate baseline and reactive rows based on the reactive fraction $\omega_{bt}$:
 \begin{equation}
-n_{bt}^{(base)} = \lfloor (1 - \omega_{bt}) n_{bt} \rfloor, \quad y_{bt}^{(base)} = \lfloor y_{bt}(1-\omega_{bt}) \rfloor,
+\omega_{bt} = \min\!\left(\frac{\kappa\, C_{bt}}{N_b^{HH} + \kappa\, C_{bt}},\; 1\right),
 \end{equation}
-where $\omega_{bt} = \frac{\kappa C_{bt}}{N_b^{HH} + \kappa C_{bt}}$ is the proportion of visits that are reactive.
+which is the proportion of total inspection events attributable to reactive (case-triggered) surveillance.
 
-\textbf{Reactive (additional inspections):}
+\noindent\textbf{Baseline row (systematic surveillance):}
 \begin{equation}
-n_{bt}^{(react)} = \lfloor \omega_{bt} n_{bt} \rfloor, \quad y_{bt}^{(react)} = \lfloor y_{bt} \omega_{bt} \rfloor, \quad \text{with reactive\_shift} = \log(1 + C_{bt}).
-\end{equation}
-
-The \texttt{reactive\_shift} variable is a covariate added to reactive rows that captures the intensity of the outbreak, allowing the model to estimate whether positivity increases with dengue case load beyond what is expected from systematic surveillance alone.  
-\\
-For months with no cases ($C_{bt}=0$), only a baseline row is created. For rows where cases \(>\) 0, one baseline row and one reactive surveillance row are created.  
-\\
-
-Example: if the original dataset was $n_{bt}$ = 100 and $C_{bt}$ = 5, with $\kappa$ set to 2, this would become baseline = 90 and reactive = 10 visits. 
-
-\subsubsection{Surveillance-Mixture Representation}
-
-This data expansion encodes a \textbf{latent two-process data-generating mechanism}: each original observation is decomposed into a baseline component (routine inspections) and a reactive component (case-triggered inspections). Both components are then treated as separate binomial contributions within the same GLMM, effectively representing:
-\begin{equation}
-\text{original signal} \approx \text{baseline part} + \text{reactive part}.
+n_{bt}^{(base)} = \lfloor (1 - \omega_{bt})\, n_{bt} \rfloor, \quad y_{bt}^{(base)} = \lfloor y_{bt}(1-\omega_{bt}) \rfloor, \quad \texttt{reactive\_shift} = 0.
 \end{equation}
 
-\textbf{Practical implications:}
+\noindent\textbf{Reactive row (case-triggered inspections, created only when $C_{bt} > 0$):}
+\begin{equation}
+n_{bt}^{(react)} = \lfloor \omega_{bt}\, n_{bt} \rfloor, \quad y_{bt}^{(react)} = \lfloor y_{bt}\, \omega_{bt} \rfloor, \quad \texttt{reactive\_shift} = \log(1 + C_{bt}).
+\end{equation}
+
+The \texttt{reactive\_shift} covariate enters the linear predictor only for reactive rows, allowing the model to estimate the systematic log-odds difference between surveillance regimes.
+Rows with $n_{bt}^{(base)} = 0$ or $n_{bt}^{(react)} = 0$ (after flooring) are dropped, given that it's implausible to find mosquitoes when there are no houses to survey. 
+
+\subsubsection{Example Configuration: $\kappa = 2$}
+
+With $\kappa = 2$, each dengue case is assumed to trigger on average 2 additional household inspections.
+The total trial count becomes $n_{bt} = N_b^{HH} + 2C_{bt}$, and the reactive fraction is:
+\begin{equation}
+\omega_{bt} = \frac{2\,C_{bt}}{N_b^{HH} + 2\,C_{bt}}.
+\end{equation}
+
+For months with $C_{bt} > 0$, each (block, month) observation is split into two rows.
+For months with $C_{bt} = 0$, $\omega_{bt} = 0$ and only a baseline row is produced (the expansion is inactive).
+
+\noindent\textbf{Concrete example:} suppose $N_b^{HH} = 100$ inspected houses and $C_{bt} = 5$ cases. Then:
+\begin{align*}
+n_{bt} &= 100 + 2 \times 5 = 110, \\
+\omega_{bt} &= 10/110 \approx 0.091, \\
+n_{bt}^{(base)} &= \lfloor 0.909 \times 110 \rfloor = 100, \quad y_{bt}^{(base)} = \lfloor y_{bt} \times 0.909 \rfloor, \\
+n_{bt}^{(react)} &= \lfloor 0.091 \times 110 \rfloor = 10, \quad y_{bt}^{(react)} = \lfloor y_{bt} \times 0.091 \rfloor, \quad \texttt{reactive\_shift} = \log(6) \approx 1.79.
+\end{align*}
+The baseline row retains the original household universe ($N_b^{HH}$) as its trial count, and the 10 reactive inspections form a separate row with a non-zero \texttt{reactive\_shift}.
+The coefficient $\delta$ on \texttt{reactive\_shift} then estimates the log-odds difference between reactive and systematic surveillance, conditional on all other covariates.
+
+\subsubsection{Surveillance-Mixture Representation (when $\kappa > 0$)}
+
+When $\kappa > 0$, the data expansion encodes a \textbf{latent two-process data-generating mechanism}: each observation with $C_{bt} > 0$ is decomposed into a baseline component (routine inspections) and a reactive component (case-triggered inspections), both modeled as separate binomial contributions within the same GLMM.
+After prediction, the model yields two fitted probabilities per original (block, month) unit:
 \begin{itemize}
-\item \textbf{Bias adjustment:} Reactive surveillance is not random. The decomposition allows \texttt{reactive\_shift} to capture extra detection pressure due to outbreaks, reducing surveillance-induced confounding.
-\item \textbf{Increased rows, weighted by trials:} Rebinding baseline and reactive rows increases sample size, but each row retains its own $n_{trials}$; likelihood weight is still driven by trial counts.
-\item \textbf{Two fitted probabilities per block--month:} After prediction, the model produces both baseline fitted probability $\hat{p}_{bt}$ and reactive fitted probability $\hat{p}_{bt}^R$ for each original unit.
-\item \textbf{Conditional interpretation:} Model coefficients describe effects conditional on this surveillance-mixture decomposition, with $\delta$ representing the systematic log-odds change linked to reactive surveillance intensity.
+\item $\hat{p}_{bt}$: baseline (ecological) fitted probability,
+\item $\hat{p}_{bt}^R$: reactive fitted probability (inflated by targeting bias).
 \end{itemize}
 
 \subsection{Critical Assumption: Proportional Allocation of Positives}
 
-\textbf{Flawed Assumption:} The data expansion above assumes that observed positives are split proportionately to the fraction of reactive inspections:
+The data expansion assumes that observed positives are split proportionately to the reactive fraction:
 \begin{equation}
 \frac{y_{bt}^{(base)}}{n_{bt}^{(base)}} = \frac{y_{bt}^{(react)}}{n_{bt}^{(react)}} = \frac{y_{bt}}{n_{bt}}.
 \end{equation}
@@ -450,79 +475,139 @@ This data expansion encodes a \textbf{latent two-process data-generating mechani
 This is a \textbf{strong and problematic} assumption because:
 
 \begin{enumerate}
-\item \textbf{Reactive inspections are targeted.} Cases $C_{bt}$ are concentrated in specific households or neighborhoods. Reactive inspections focus on these high-risk locations, making them mechanically more likely to detect positive houses than random systematic inspections.
+\item \textbf{Reactive inspections may be targeted.} The model assumes each case originates from a distinct household, so reactive inspections are spread across $\kappa C_{bt}$ different locations within the block. If cases instead cluster in the same household or a small set of high-risk households --- which is plausible given the spatial aggregation of dengue transmission --- reactive inspections would be concentrated there and their positivity rate could be \textit{higher} than the block-wide average assumed by proportional allocation. The extent of this bias depends on how spatially concentrated cases are within a block.
 
-\item \textbf{Positivity rates likely differ by inspection type.} The true positivity rate in reactively inspected households is almost certainly \textit{higher} than in systematically inspected ones. Proportional allocation ignores this heterogeneity, leading to underestimation of $p_{bt}^R$ (the reactive detection probability) and potential bias in the reactive shift term $\delta$.
+\item \textbf{Non-independence of effort and detection.} The number of reactive inspections is driven by observed cases $C_{bt}$, which are themselves outputs of the underlying positivity $p_{bt}$. This confounds effort allocation with the ecological signal.
 
-\item \textbf{Non-independence of effort and detection.} The number of reactive inspections is determined by observed cases $C_{bt}$, which are themselves outputs of the (unobserved) underlying positivity $p_{bt}$. This creates a confounding between effort allocation and the ecological signal we seek to estimate.
-
-\item \textbf{Invalid synthetic data split.} Splitting observed positives in proportion to effort assumes the data-generating process respects effort proportionality. In reality, reactive inspections are specifically triggered \textit{because} cases occurred, suggesting higher local mosquito prevalence. The proportional split introduces artificial noise and can bias estimates of both $p_{bt}$ and $\delta$.
+\item \textbf{Distortion of the reactive shift.} Proportional allocation artificially constrains $p_{bt}^R = p_{bt}$, so the \texttt{reactive\_shift} coefficient $\delta$ captures only the residual difference after this artificial equalization. The magnitude and sign of $\delta$ may therefore be unreliable.
 \end{enumerate}
 
-\textbf{Implications:} The magnitude and even the sign of the reactive shift parameter $\delta$ may be unreliable. If reactive inspections genuinely find more positives per inspection, then $\delta$ should capture this; but the proportional allocation may obscure or distort this signal. A more principled approach would model the selection process explicitly (e.g., a Heckman selection model) or use sensitivity analysis to test how results change under alternative allocation schemes.
-
-For now, this limitation should be acknowledged when interpreting the reactive shift, and future work should prioritize obtaining data on which inspections were systematic vs.\ reactive to enable more rigorous estimation.
+For now, this limitation should be acknowledged when interpreting the reactive shift. Future work should prioritize obtaining data that labels inspections by type (systematic vs.\ reactive) to enable more rigorous estimation.
 
 \subsection{Linear Predictor and GLMM Model}
 
 For each row $i$ (baseline or reactive), the linear predictor is:
-\begin{equation}
-\eta_i = \alpha + \sum_{\ell=0}^{L} \mathbf{w}_\ell \mathbf{x}^{(lag)}_\ell + \mathbf{w}_u \mathbf{x}^{(unlag)} + \delta \cdot \text{reactive\_shift}_i + u_{b(i)},
-\end{equation}
+\begin{align}
+\eta_i &= \alpha
+  + \sum_{k \in \mathcal{L}} \sum_{\ell=0}^{L} \beta_{k\ell}\, x_{k,b(i),t(i)-\ell}
+  + \sum_{k \in \mathcal{U}} \beta_k\, x_{k,b(i)}
+  + \delta \cdot \text{reactive\_shift}_i \notag \\
+&\quad + v_{t(i)} + \phi_{b(i),t(i)},
+\end{align}
 where:
 \begin{itemize}
-\item $\mathbf{w}_\ell$ = lag-specific coefficient vectors for lagged covariates,
-\item $\mathbf{w}_u$ = coefficient vector for unlagged covariates,
-\item $\delta$ = coefficient for reactive shift (log of cases + 1),
-\item $u_b \sim \text{Normal}(0, \sigma_u)$ = random intercept for block $b$ (optional),
-\item $v_t \sim \text{Normal}(0, \sigma_v)$ = random intercept for time $t$ (optional).
+\item $\mathcal{L} = \{\texttt{rainy\_days\_cat},\; \texttt{avg\_VPD},\; \texttt{precip\_max\_day}\}$ are the lagged covariates (lags $\ell = 0, 1, 2$),
+\item $\mathcal{U} = \{\texttt{is\_urban},\; \texttt{water\_containers}\}$ are the unlagged covariates,
+\item $\delta$ = coefficient for \texttt{reactive\_shift} $= \log(1 + C_{bt})$,
+\item $v_t \sim \text{Normal}(0, \sigma_v)$ = i.i.d.\ random intercept for month $t$ (\texttt{year\_month}), capturing shared temporal shocks not explained by covariates,
+\item $\phi_{b,t}$ = AR(1) temporal random effect \emph{within} block $b$, modeled as:
+  \begin{equation}
+    \phi_{b,t} = \rho\, \phi_{b,t-1} + \varepsilon_{b,t}, \quad \varepsilon_{b,t} \sim \text{Normal}(0, \sigma_\phi),
+  \end{equation}
+  where $\rho \in (-1, 1)$ is the autoregressive parameter estimated jointly for all blocks. This is specified in \texttt{glmmTMB} as \texttt{ar1(year\_month\_ar1 + 0 | block)}: the \texttt{+ 0} suppresses a redundant random intercept within the AR(1) term (the global temporal mean is already captured by $v_t$).
 \end{itemize}
+
+\subsubsection{Random Effects: Structure and Options}
+
+The model supports four optional random effects components, each targeting a different source of dependency in the data.
+Table~\ref{tab:re_options} summarizes them; the current defaults are marked.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3.5cm} p{2cm} p{3cm} p{5.5cm}}
+\toprule
+\textbf{Component} & \textbf{Default} & \textbf{glmmTMB term} & \textbf{Correlation structure} \\
+\midrule
+Block random intercept & \textbf{OFF} & \texttt{(1 | block)} & i.i.d.\ Normal; captures stable between-block differences in baseline positivity \\
+\addlinespace
+Month random intercept & \textbf{ON} & \texttt{(1 | year\_month)} & i.i.d.\ Normal; captures shared temporal shocks (e.g.\ city-wide weather anomalies) not explained by fixed covariates \\
+\addlinespace
+Temporal AR(1) & \textbf{ON} & \texttt{ar1(year\_month\_ar1 + 0 | group)} & First-order autoregression in time within each group; $\text{Corr}(\phi_{b,t},\phi_{b,t+k}) = \rho^k$. The \texttt{+ 0} suppresses a redundant intercept (already captured by the month RE above). Group is either \texttt{block} (separate AR(1) per block, same $\rho$) or \texttt{"all"} (single global AR(1)) \\
+\addlinespace
+Spatial AR & \textbf{OFF} & \texttt{exp(xy + 0 | spatial)} & Exponential decay with distance: $\text{Corr}(s_b, s_{b'}) = \exp(-d_{bb'}/r)$, where $d_{bb'}$ is Euclidean distance (m) and $r$ is the estimated range. Requires projected coordinates from shapefile. Alternative: Mat\'{e}rn covariance (\texttt{mat(\ldots)}) \\
+\bottomrule
+\end{tabular}
+\caption{Available random effects components and their correlation structures. Current defaults shown in the Default column.}
+\label{tab:re_options}
+\end{table}
+
+The general linear predictor including all four components is:
+\begin{equation}
+\eta_i = \alpha + \sum_{k \in \mathcal{L}} \sum_{\ell=0}^{L} \beta_{k\ell}\, x_{k,b,t-\ell} + \sum_{k \in \mathcal{U}} \beta_k x_{k,b} + \delta \cdot \text{reactive\_shift}_i + u_b + v_t + \phi_{b,t} + \psi_b,
+\end{equation}
+where $u_b \sim \mathcal{N}(0,\sigma_u)$ (block intercept), $v_t \sim \mathcal{N}(0,\sigma_v)$ (month intercept), $\phi_{b,t}$ (within-block AR(1)), and $\psi_b$ (spatial effect) are each optional.
+In the current configuration only $v_t$ and $\phi_{b,t}$ are active.
+
+In R/\texttt{glmmTMB} notation, the current formula is:
+\begin{verbatim}
+cbind(y_bt, n_trials - y_bt) ~
+  rainy_days_cat_lag0 + rainy_days_cat_lag1 + rainy_days_cat_lag2 +
+  avg_VPD_lag0 + avg_VPD_lag1 + avg_VPD_lag2 +
+  precip_max_day_lag0 + precip_max_day_lag1 + precip_max_day_lag2 +
+  is_urban + water_containers + reactive_shift +
+  (1 | year_month) +
+  ar1(year_month_ar1 + 0 | block)
+\end{verbatim}
 
 \subsection{Observation Model}
 
-The likelihood for each row is:
+The likelihood for each row $i$ is:
 \begin{equation}
-y_i \sim \text{Binomial}(n_i, \pi_i), \quad \text{where} \quad \pi_i = \text{logit}^{-1}(\eta_i).
+y_i \sim \text{Binomial}(n_i,\; \pi_i), \quad \text{where} \quad \pi_i = \text{logit}^{-1}(\eta_i).
 \end{equation}
-
-In \texttt{glmmTMB}, this is specified as \texttt{cbind(y\_i, n\_i - y\_i) \textasciitilde{} \ldots}, which creates success/failure counts.
+In \texttt{glmmTMB}, this is specified as \texttt{cbind(y\_i, n\_i - y\_i) \textasciitilde{} \ldots}, passing successes (positive houses) and failures (negative houses) separately.
+The response therefore weights observations by trial count: a block with 5/50 positive houses contributes more information than one with 5/10, even though the observed proportion is the same.
 
 \subsection{Estimation via glmmTMB}
 
 The model is fit using:
 \begin{itemize}
-\item \textbf{Optimizer:} \texttt{nlminb} (via TMB backend),
-\item \textbf{Likelihood:} Binomial with logit link,
-\item \textbf{Random effects:} Block intercept $u_b$ and/or time intercept $v_t$ (configurable),
-\item \textbf{Regularization:} None explicit; standard frequentist inference with MLE.
+\item \textbf{Optimizer:} \texttt{nlminb} (via TMB backend), with \texttt{iter.max = eval.max = 10\,000},
+\item \textbf{Likelihood:} Binomial with configurable link function (default: \texttt{logit}),
+\item \textbf{Random effects:} Month i.i.d.\ intercept $v_t$ and within-block AR(1) $\phi_{b,t}$ (both currently enabled); block random intercept currently disabled,
+\item \textbf{Regularization:} None explicit; standard frequentist inference with MLE via the Laplace approximation in TMB.
 \end{itemize}
 
 \subsection{Model Outputs}
 
 The script produces:
 \begin{itemize}
-\item Fitted ecological probabilities $\hat{p}_{bt}$ (baseline rows),
-\item Fitted reactive probabilities $\hat{p}_{bt}^R$ (reactive rows),
-\item Block random effect estimates $\hat{u}_b$ and $\hat{\sigma}_u$,
-\item Aggregated predictions at original (block, month) resolution,
-\item Diagnostic plot comparing observed vs.\ fitted probabilities over time.
+\item Fitted ecological probabilities $\hat{p}_{bt}$ (from baseline rows),
+\item Fitted reactive probabilities $\hat{p}_{bt}^R$ (from reactive rows, when $\kappa > 0$),
+\item A weighted-average fitted probability $\hat{\pi}_{bt} = (1 - \omega_{bt})\hat{p}_{bt} + \omega_{bt}\hat{p}_{bt}^R$ at the original (block, month) level,
+\item Fixed-effect coefficient table with odds ratios,
+\item Diagnostic plots: time-series of fitted vs.\ observed probabilities, random effect estimates, QQ plots.
 \end{itemize}
 
 \subsection{Model Flexibility}
 
-The configuration allows easy modification via the \texttt{cfg} list:
+All key choices are controlled via the \texttt{cfg} list in \texttt{GLMM.r}.
+Current defaults and available options:
 \begin{itemize}
-\item \texttt{include\_block\_re}: Toggle block random intercept,
-\item \texttt{include\_time\_re}: Toggle time random intercept,
-\item \texttt{max\_lag}: Maximum lag for environmental covariates (default: 1),
-\item \texttt{kappa}: Scaling factor for reactive inspections per case (default: 2),
-\item \texttt{iter\_max, eval\_max}: Optimization convergence criteria.
+\item \texttt{include\_block\_re = FALSE}: toggle block-level i.i.d.\ random intercept $(1 \mid \text{block})$,
+\item \texttt{include\_time\_re = TRUE}: toggle month-level i.i.d.\ random intercept $(1 \mid \text{year\_month})$,
+\item \texttt{include\_ar1\_temporal = TRUE}: toggle temporal AR(1) within groups; correlation decays as $\rho^k$ over $k$ months,
+\item \texttt{ar1\_group = "block"}: grouping for AR(1); \texttt{"block"} = separate AR(1) per block (same $\rho$), \texttt{"global"} = single AR(1) across all observations,
+\item \texttt{include\_spatial\_ar = FALSE}: toggle exponential spatial covariance $\exp(-d/r)$ across blocks (requires shapefile with block coordinates); alternative Mat\'{e}rn covariance is available in the code but commented out,
+\item \texttt{lag\_vars}: variables for which distributed lags are created (default: \texttt{rainy\_days\_cat}, \texttt{avg\_VPD}, \texttt{precip\_max\_day}),
+\item \texttt{unlagged\_vars}: variables entered without lagging (default: \texttt{is\_urban}, \texttt{water\_containers}),
+\item \texttt{numeric\_vars}: variables to z-standardize (default: \texttt{precip\_max\_day}, \texttt{avg\_VPD}, \texttt{water\_containers}),
+\item \texttt{max\_lag = 2}: maximum lag $L$ for all lagged covariates,
+\item \texttt{kappa = 0}: reactive inspection scaling; $\kappa = 0$ disables the baseline/reactive split,
+\item \texttt{link\_function = "logit"}: link function for binomial family (\texttt{"logit"}, \texttt{"probit"}, \texttt{"cloglog"}, \texttt{"cauchit"}),
+\item \texttt{interactions = NULL}: optional list of two-variable interaction pairs,
+\item \texttt{iter\_max, eval\_max}: optimizer convergence criteria (default: $10^4$ each).
 \end{itemize}
 
-This approach bridges the hierarchical conceptual model (Section~\ref{sec:framework}) with practical frequentist estimation, offering computational efficiency and straightforward interpretation of fixed and random effects.
+This approach offers computational efficiency and straightforward interpretation of fixed and random effects under a frequentist MLE framework.
 
 \appendix
 \section{Appendix: Example GLMM Results and Interpretation}
+
+\textbf{Note:} The results below are from an \emph{older} model configuration (block RE enabled, time RE enabled, no AR(1), lags 0--1, covariates: temperature, humidity, precipitation, NDVI, relative humidity, windspeed).
+They do not reflect the current default configuration described in the main text ($\kappa = 0$, max lag $= 2$, covariates: \texttt{rainy\_days\_cat}, \texttt{avg\_VPD}, \texttt{precip\_max\_day}).
+This appendix is retained for reference only and will be updated when new results are available.
 
 \subsection{Fixed Effects (Odds-Ratio Interpretation)}
 
