@@ -1077,7 +1077,7 @@ rects <- meteo_monthly %>%
     xmin = year_month_date - 15, # half a month before
     xmax = year_month_date + 15  # half a month after
   )
-scale_factor <- max(meteo_to_plot$total_precip, na.rm = TRUE) / max(meteo_to_plot$consec_rainy_days, na.rm = TRUE)
+scale_factor <- max(meteo_to_plot$total_precip, na.rm = TRUE) / max(meteo_to_plot$total_rainy_days, na.rm = TRUE)
 
 p_precip_with_cat <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
   geom_rect(
@@ -1096,11 +1096,14 @@ p_precip_with_cat <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
   geom_point(aes(y = total_precip), size=1.5) +
   geom_line(aes(y = consec_rainy_days * scale_factor, linetype = "Consec Rainy Days")) +
   geom_point(aes(y = consec_rainy_days * scale_factor), size = 1.5) +
+  geom_line(aes(y = total_rainy_days * scale_factor, linetype = "Total Rainy Days")) +
+  geom_point(aes(y = total_rainy_days * scale_factor), size = 1.5) +
   scale_linetype_manual(
     name = NULL,
     values = c(
       "Total Precip" = "solid",
-      "Consec Rainy Days" = "dotdash"
+      "Consec Rainy Days" = "dotdash",
+      "Total Rainy Days" = "dashed"
     )
   ) +
   scale_y_continuous(
