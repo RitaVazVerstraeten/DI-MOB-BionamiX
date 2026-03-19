@@ -21,7 +21,7 @@ conflicted::conflict_prefer("lag", "dplyr")
 cfg <- list(
   # Random effects to include
   include_block_re = FALSE,      # Random intercept for block (spatial)
-  include_time_re = TRUE,      # Random intercept for time (temporal)
+  include_time_re = FALSE,      # Random intercept for time (temporal)
   include_ar1_temporal = TRUE, # AR(1) temporal autocorrelation (within group)
   ar1_group = "block",         # "block" (within-block AR1) or "global"
   include_spatial_ar = FALSE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
@@ -62,7 +62,7 @@ cfg <- list(
 
   # Lag settings
   max_lag = 2,
-  kappa = 2,  # multiplier for cases in n_bt calculation
+  kappa = 0,  # multiplier for cases in n_bt calculation
 
   # Output
   output_dir = if (Sys.info()["nodename"] == "frietjes") {
@@ -506,7 +506,17 @@ df_summary <- df_expanded %>%
     names_from = type, # splits fitted_prob into p_bt and p_R
     values_from = c(fitted_prob, fitted_prob_se, fitted_prob_lower, fitted_prob_upper),
     values_fill = NA
-  ) %>%
+  )
+
+# When kappa = 0 there are no reactive rows, so pivot_wider won't create
+# the reactive columns — add them as NA so the rename below always works.
+reactive_cols <- c("fitted_prob_reactive", "fitted_prob_se_reactive",
+                   "fitted_prob_lower_reactive", "fitted_prob_upper_reactive")
+for (col in reactive_cols) {
+  if (!col %in% names(df_summary)) df_summary[[col]] <- NA_real_
+}
+
+df_summary <- df_summary %>%
   rename(
     p_bt_fitted = fitted_prob_baseline,
     p_R_fitted = fitted_prob_reactive,
