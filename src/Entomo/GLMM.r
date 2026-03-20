@@ -410,6 +410,14 @@ if (sum(keep_rows) == 0) {
 
 df_model <- df_expanded[keep_rows, , drop = FALSE]
 
+# Early-exit hook: allows sourcing scripts to stop here after data prep
+# without running the model fit. Set .glmm_data_prep_only <- TRUE before
+# source("GLMM.r") to use this.
+if (exists(".glmm_data_prep_only") && isTRUE(.glmm_data_prep_only)) {
+  cat("Data prep complete — stopping before model fit (.glmm_data_prep_only = TRUE)\n")
+  stop(".glmm_data_prep_only")
+}
+
 cat("\nStarting model fit...\n")
 cat("Formula: ", formula_str, "\n")
 cat("Observations: ", nrow(df_model), "\n\n")
@@ -633,6 +641,7 @@ pearson_resid <- residuals(model, type = "pearson")
 
 df_resid_diag <- df_model %>%
   mutate(
+    fitted_prob     = fitted(model),
     pearson_resid   = pearson_resid,
     p_observed      = ifelse(n_trials > 0, y_bt / n_trials, NA_real_),
     abs_resid       = abs(pearson_resid)
@@ -728,3 +737,142 @@ block_resid_file <- file.path(resid_output_dir,
                                paste0("glmm_block_resid_summary_", run_suffix, ".csv"))
 write_csv(block_resid_summary, block_resid_file)
 cat("Block residual summary saved to:", block_resid_file, "\n")
+
+# =========================
+# 14. AR(1) TEMPORAL VARIANCE DIAGNOSTICS
+# =========================
+# These plots use ALL model rows (not just large residuals) to diagnose
+# whether the AR(1) term is absorbing genuine temporal signal or
+# inflating due to block heterogeneity / unmeasured temporal confounding.
+
+df_re_plot <- df_model %>%
+  mutate(
+    fitted_prob   = fitted(model),
+    pearson_resid = pearson_resid  # reuse vector computed in section 13
+  )
+
+monthly_resid <- df_re_plot %>%
+  group_by(year_month_date) %>%
+  summarise(
+    mean_resid    = mean(pearson_resid, na.rm = TRUE),
+    median_resid  = median(pearson_resid, na.rm = TRUE),
+    mean_fitted   = mean(fitted_prob, na.rm = TRUE),
+    mean_observed = mean(ifelse(n_trials > 0, y_bt / n_trials, NA_real_),
+                         na.rm = TRUE),
+    n             = n(),
+    .groups       = "drop"
+  )
+
+# Plot 1: Mean Pearson residual over time (all rows, not just flagged)
+# A systematic pattern here means an unmeasured temporal signal the AR(1)
+# is absorbing — which inflates its variance estimate.
+p_resid_time <- ggplot(monthly_resid, aes(x = year_month_date)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "red") +
+  geom_line(aes(y = mean_resid), colour = "steelblue") +
+  geom_point(aes(y = mean_resid, size = n), colour = "steelblue", show.legend = FALSE) +
+  labs(
+    title    = "Mean Pearson residual over time (all rows)",
+    subtitle = "Systematic pattern = unmeasured temporal signal absorbed by AR(1)",
+    x = "Month", y = "Mean Pearson residual"
+  ) +
+  theme_minimal()
+
+ggsave(
+  file.path(resid_output_dir, paste0("ar1_resid_over_time_", run_suffix, ".png")),
+  p_resid_time, width = 10, height = 5, dpi = 150
+)
+
+# Plot 2: Observed vs fitted positivity rate over time (city-wide mean)
+# A persistent gap between lines is residual temporal variance the model
+# failed to explain — even after the AR(1).
+p_obs_vs_fit <- ggplot(monthly_resid, aes(x = year_month_date)) +
+  geom_line(aes(y = mean_observed, colour = "Observed")) +
+  geom_line(aes(y = mean_fitted,   colour = "Fitted")) +
+  geom_point(aes(y = mean_observed, colour = "Observed"), size = 1.5) +
+  geom_point(aes(y = mean_fitted,   colour = "Fitted"),   size = 1.5) +
+  scale_colour_manual(values = c("Observed" = "black", "Fitted" = "steelblue")) +
+  labs(
+    title    = "Observed vs fitted positivity rate over time",
+    subtitle = "Persistent gap = temporal variance not captured by the model",
+    x = "Month", y = "Mean positivity rate", colour = NULL
+  ) +
+  theme_minimal()
+
+ggsave(
+  file.path(resid_output_dir, paste0("ar1_obs_vs_fitted_time_", run_suffix, ".png")),
+  p_obs_vs_fit, width = 10, height = 5, dpi = 150
+)
+
+# Plot 3: Fitted trajectories for 50 random blocks vs city-wide mean
+# If the spread of block lines is large relative to the city mean, the
+# AR(1) variance is driven by block heterogeneity rather than a shared
+# temporal trend — consider a block-level AR(1) or random intercept.
+block_monthly <- df_re_plot %>%
+  group_by(block, year_month_date) %>%
+  summarise(
+    mean_fitted   = mean(fitted_prob, na.rm = TRUE),
+    mean_observed = mean(ifelse(n_trials > 0, y_bt / n_trials, NA_real_),
+                         na.rm = TRUE),
+    .groups = "drop"
+  )
+
+set.seed(42)
+sample_blocks <- sample(unique(block_monthly$block), min(50, n_distinct(block_monthly$block)))
+
+p_block_traj <- ggplot(
+  filter(block_monthly, block %in% sample_blocks),
+  aes(x = year_month_date, y = mean_fitted, group = block)
+) +
+  geom_line(alpha = 0.2, colour = "steelblue") +
+  geom_line(
+    data      = monthly_resid,
+    aes(x = year_month_date, y = mean_fitted, group = NULL),
+    colour    = "red", linewidth = 1.2
+  ) +
+  labs(
+    title    = "Fitted trajectories for 50 random blocks",
+    subtitle = "Red = city-wide mean fitted. Spread = block heterogeneity in AR(1)",
+    x = "Month", y = "Fitted positivity rate"
+  ) +
+  theme_minimal()
+
+ggsave(
+  file.path(resid_output_dir, paste0("ar1_block_trajectories_", run_suffix, ".png")),
+  p_block_traj, width = 10, height = 6, dpi = 150
+)
+
+# Plot 4: ACF of city-wide mean Pearson residuals over time
+# Directly tests whether the AR(1) removed temporal autocorrelation.
+# Significant spikes at lag > 0 mean the AR(1) did not fully account
+# for the temporal structure — the true order may be higher, or a
+# global time trend is needed.
+resid_ts <- monthly_resid %>%
+  arrange(year_month_date) %>%
+  pull(mean_resid)
+
+acf_vals <- acf(resid_ts, lag.max = 24, plot = FALSE, na.action = na.pass)
+acf_df   <- data.frame(
+  lag  = as.numeric(acf_vals$lag),
+  acf  = as.numeric(acf_vals$acf)
+)
+ci_bound <- qnorm(0.975) / sqrt(length(resid_ts))
+
+p_acf <- ggplot(acf_df, aes(x = lag, y = acf)) +
+  geom_hline(yintercept = 0) +
+  geom_hline(yintercept = c(-ci_bound, ci_bound),
+             linetype = "dashed", colour = "blue") +
+  geom_segment(aes(x = lag, xend = lag, y = 0, yend = acf)) +
+  geom_point(size = 2) +
+  labs(
+    title    = "ACF of city-wide mean Pearson residuals",
+    subtitle = "Significant spikes = AR(1) did not fully remove temporal autocorrelation",
+    x = "Lag (months)", y = "Autocorrelation"
+  ) +
+  theme_minimal()
+
+ggsave(
+  file.path(resid_output_dir, paste0("ar1_acf_mean_resid_", run_suffix, ".png")),
+  p_acf, width = 8, height = 5, dpi = 150
+)
+
+cat("\nAR(1) temporal diagnostics saved to:", resid_output_dir, "\n")
