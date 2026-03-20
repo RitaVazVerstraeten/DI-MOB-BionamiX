@@ -48,6 +48,10 @@ cfg <- list(
   # Use the fully expanded column name, e.g. "avg_VPD_lag1", "is_urban"
   exclude_predictors = c("avg_VPD_lag1"),
 
+  # Add sin/cos annual Fourier terms as fixed effects (2-parameter seasonal cycle).
+  # Tests whether residual seasonality is independent of the climate covariates.
+  include_fourier = TRUE,
+
   # Spatial coordinates from shapefile (used when include_spatial_ar = TRUE)
   shapefile_path = if (Sys.info()["nodename"] == "frietjes") {
     "/home/rita/data/Entomo/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp"
@@ -137,7 +141,9 @@ df <- df %>%
     year_month = factor(year_month),  # For time RE
     block = factor(manzana), # for space RE
     n_bt = Inspected_houses + cfg$kappa * cases, # fixed number observations = universe + extra observations for cases
-    y_bt = Houses_pos_IS
+    y_bt = Houses_pos_IS,
+    sin_annual = sin(2 * pi * as.integer(format(year_month_date, "%m")) / 12),
+    cos_annual = cos(2 * pi * as.integer(format(year_month_date, "%m")) / 12)
   ) %>%
   select(-c(CMF, CP, AREA))
 
@@ -350,6 +356,10 @@ if (!is.null(cfg$interactions) && length(cfg$interactions) > 0) {
 
 # Fixed effects: main effects + interactions, minus any explicitly excluded predictors
 fixed_effects <- c(lagged_cols, unlagged_vars, "reactive_shift", interaction_terms)
+if (isTRUE(cfg$include_fourier)) {
+  fixed_effects <- c(fixed_effects, "sin_annual", "cos_annual")
+  cat("Fourier terms added: sin_annual, cos_annual\n")
+}
 if (!is.null(cfg$exclude_predictors) && length(cfg$exclude_predictors) > 0) {
   unknown <- setdiff(cfg$exclude_predictors, fixed_effects)
   if (length(unknown) > 0)
