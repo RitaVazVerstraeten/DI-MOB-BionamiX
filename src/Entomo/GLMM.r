@@ -117,8 +117,10 @@ predictor_spec <- paste0(
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
 run_output_dir    <- file.path(model_output_dir, run_suffix)
 plots_output_dir  <- file.path(run_output_dir, "plots")
+resid_output_dir  <- file.path(run_output_dir, "residuals_check")
 dir.create(run_output_dir,   recursive = TRUE, showWarnings = FALSE)
 dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(resid_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # =========================
 # 1. LOAD DATA
@@ -542,6 +544,7 @@ cat("  Predictor set:             ", predictor_spec, "\n", sep = "")
 cat("  Model spec folder:         ", model_output_dir, "\n", sep = "")
 cat("  Run folder:                ", run_output_dir, "\n", sep = "")
 cat("  Plots folder:              ", plots_output_dir, "\n", sep = "")
+cat("  Residuals folder:          ", resid_output_dir, "\n", sep = "")
 cat("  Model RDS:                 ", model_file, "\n", sep = "")
 cat("  Summary TXT:               ", summary_file, "\n", sep = "")
 cat("  Fixed effects OR CSV:      ", coef_table_file, "\n", sep = "")
@@ -613,91 +616,15 @@ save_glmm_qqplot_weighted_avg(
 # =========================
 # 11. PLOT MODEL RESIDUALS (using plot_functions)
 # =========================
-save_glmm_residuals_plot(model, plots_output_dir, run_suffix)
+save_glmm_residuals_plot(model, resid_output_dir, run_suffix)
 
 # =========================
 # 12. PLOT RANDOM EFFECTS (using plot_functions)
 # =========================
 save_glmm_random_effects_plot(model, plots_output_dir, run_suffix)
 
-# # =========================
-# # 13. SPATIAL AUTOCORRELATION (MORAN'S I)
-# # =========================
-# # Calculate block-level mean Pearson residuals and join coordinates
-
-# # Calculate block-level mean Pearson residuals and join coordinates
-# block_resid <- df_model %>%
-#   group_by(block) %>%
-#   summarise(
-#     mean_pearson = mean(residuals(model, type = "pearson"), na.rm = TRUE),
-#     n_obs = n(),
-#     .groups = "drop"
-#   )
-
-# coords_df <- sf_blocks %>%
-#   st_drop_geometry() %>%
-#   mutate(
-#     block = as.character(.data[[cfg$sf_block_col]]),
-#     x = as.numeric(st_coordinates(st_point_on_surface(sf_blocks))[, 1]),
-#     y = as.numeric(st_coordinates(st_point_on_surface(sf_blocks))[, 2])
-#   ) %>%
-#   select(block, x, y) %>%
-#   distinct(block, .keep_all = TRUE)
-# block_resid <- block_resid %>% left_join(coords_df, by = "block")
-
-# # Precompute spatial weights matrix for all blocks
-# all_blocks <- coords_df$block
-# coords_all <- as.matrix(coords_df[, c("x", "y")])
-# dist_mat_all <- as.matrix(dist(coords_all))
-# diag(dist_mat_all) <- NA_real_
-# # Set weights to 0 for pairs > 400m, otherwise 1/distance
-# w_mat_all <- matrix(0, nrow = length(all_blocks), ncol = length(all_blocks))
-# rownames(w_mat_all) <- all_blocks
-# colnames(w_mat_all) <- all_blocks
-# within_400 <- dist_mat_all <= 400 & !is.na(dist_mat_all)
-# w_mat_all[within_400] <- 1 / pmax(dist_mat_all[within_400], 1e-6)
-# diag(w_mat_all) <- 0
-
-# # Calculate monthly Moran's I using precomputed weights
-# monthly_moran <- tibble()
-# if ("year_month_date" %in% names(df_model)) {
-#   tmp <- df_model %>%
-#     filter(!is.na(year_month_date)) %>%
-#     group_by(year_month_date, block) %>%
-#     summarise(mean_pearson = mean(residuals(model, type = "pearson"), na.rm = TRUE), .groups = "drop") %>%
-#     left_join(coords_df, by = "block")
-#   months <- sort(unique(tmp$year_month_date))
-#   monthly_list <- vector("list", length(months))
-#   for (i in seq_along(months)) {
-#     m <- months[i]
-#     dfm <- tmp %>% filter(year_month_date == m)
-#     if (nrow(dfm) < 3) {
-#       monthly_list[[i]] <- tibble(
-#         year_month_date = m,
-#         moran_I = NA_real_,
-#         p_value = NA_real_
-#       )
-#       next
-#     }
-#     # Subset precomputed weights matrix to blocks present in this month
-#     blocks_month <- dfm$block
-#     w_mat_sub <- w_mat_all[blocks_month, blocks_month, drop = FALSE]
-#     lw <- spdep::mat2listw(w_mat_sub, style = "W")
-#     mt <- spdep::moran.test(dfm$mean_pearson, lw, zero.policy = TRUE)
-#     monthly_list[[i]] <- tibble(
-#       year_month_date = m,
-#       moran_I = unname(mt$estimate[["Moran I statistic"]]),
-#       p_value = mt$p.value
-#     )
-#   }
-#   monthly_moran <- bind_rows(monthly_list)
-# }
-
-# # Save and plot
-# save_glmm_moransI_plot(monthly_moran, run_output_dir, run_suffix)
-
 # =========================
-# 14. LARGE-RESIDUAL DIAGNOSTICS
+# 13. LARGE-RESIDUAL DIAGNOSTICS
 # =========================
 # Pearson residuals are computed on df_model rows only.
 # Threshold: |pearson_resid| > 2 (roughly 2 SD from expectation under the model).
@@ -726,7 +653,7 @@ df_resid_diag <- df_model %>%
   ) %>%
   arrange(desc(abs_resid))
 
-resid_diag_file <- file.path(run_output_dir, paste0("glmm_large_residuals_", run_suffix, ".csv"))
+resid_diag_file <- file.path(resid_output_dir, paste0("glmm_large_residuals_", run_suffix, ".csv"))
 write_csv(df_resid_diag, resid_diag_file)
 
 cat("\nLarge-residual rows (|Pearson resid| > 2):", nrow(df_resid_diag),
@@ -797,7 +724,7 @@ df_resid_diag %>%
   count(n_trials_cat, name = "n_large_resid") %>%
   mutate(pct = round(100 * n_large_resid / sum(n_large_resid), 1))
 
-block_resid_file <- file.path(run_output_dir, 
+block_resid_file <- file.path(resid_output_dir,
                                paste0("glmm_block_resid_summary_", run_suffix, ".csv"))
 write_csv(block_resid_summary, block_resid_file)
 cat("Block residual summary saved to:", block_resid_file, "\n")
