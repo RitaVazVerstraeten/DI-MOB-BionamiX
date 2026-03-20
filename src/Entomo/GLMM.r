@@ -62,7 +62,7 @@ cfg <- list(
 
   # Lag settings
   max_lag = 2,
-  kappa = 0,  # multiplier for cases in n_bt calculation
+  kappa = 2,  # multiplier for cases in n_bt calculation
 
   # Output
   output_dir = if (Sys.info()["nodename"] == "frietjes") {
@@ -695,3 +695,109 @@ save_glmm_random_effects_plot(model, plots_output_dir, run_suffix)
 
 # # Save and plot
 # save_glmm_moransI_plot(monthly_moran, run_output_dir, run_suffix)
+
+# =========================
+# 14. LARGE-RESIDUAL DIAGNOSTICS
+# =========================
+# Pearson residuals are computed on df_model rows only.
+# Threshold: |pearson_resid| > 2 (roughly 2 SD from expectation under the model).
+
+pearson_resid <- residuals(model, type = "pearson")
+
+df_resid_diag <- df_model %>%
+  mutate(
+    pearson_resid   = pearson_resid,
+    p_observed      = ifelse(n_trials > 0, y_bt / n_trials, NA_real_),
+    abs_resid       = abs(pearson_resid)
+  ) %>%
+  filter(abs_resid > 2) %>%
+  select(
+    block,
+    year_month_date,
+    type,
+    y_bt,
+    n_trials,
+    n_bt,
+    omega,
+    p_observed,
+    fitted_prob,
+    pearson_resid,
+    abs_resid
+  ) %>%
+  arrange(desc(abs_resid))
+
+resid_diag_file <- file.path(run_output_dir, paste0("glmm_large_residuals_", run_suffix, ".csv"))
+write_csv(df_resid_diag, resid_diag_file)
+
+cat("\nLarge-residual rows (|Pearson resid| > 2):", nrow(df_resid_diag),
+    "out of", nrow(df_model), "model rows\n")
+cat("  Saved to:", resid_diag_file, "\n")
+
+# How many times does each block appear in large residuals?
+block_resid_summary <- df_resid_diag %>%
+  group_by(block) %>%
+  summarise(
+    n_large_resid     = n(),
+    mean_pearson      = mean(pearson_resid),
+    max_pearson       = max(abs_resid),
+    mean_p_observed   = mean(p_observed, na.rm = TRUE),
+    mean_fitted       = mean(fitted_prob, na.rm = TRUE),
+    pct_positive_bias = mean(pearson_resid > 0)  # 1 = always underestimated
+  ) %>%
+  arrange(desc(n_large_resid))
+
+# Flag "chronic" blocks — appear in large residuals in >30% of their time points
+total_timepoints <- df_model %>% count(block, name = "n_months")
+
+block_resid_summary <- block_resid_summary %>%
+  left_join(total_timepoints, by = "block") %>%
+  mutate(pct_months_flagged = n_large_resid / n_months) %>%
+  arrange(desc(pct_months_flagged))
+
+cat("\nBlocks with large residuals in >30% of months:\n")
+print(filter(block_resid_summary, pct_months_flagged > 0.30))
+
+
+# Are large residuals concentrated in specific time periods?
+temporal_resid_summary <- df_resid_diag %>%
+  group_by(year_month_date) %>%
+  summarise(
+    n_large_resid  = n(),
+    mean_pearson   = mean(pearson_resid),
+    pct_positive   = mean(pearson_resid > 0)
+  ) %>%
+  arrange(desc(n_large_resid))
+
+cat("\nMonths with most large residuals:\n")
+print(head(temporal_resid_summary, 10))
+
+# Compare omega distribution in large vs normal residuals
+df_model %>%
+  mutate(
+    pearson_resid = pearson_resid,
+    large_resid   = abs(pearson_resid) > 2
+  ) %>%
+  group_by(large_resid) %>%
+  summarise(
+    mean_omega      = mean(omega, na.rm = TRUE),
+    median_omega    = median(omega, na.rm = TRUE),
+    pct_reactive    = mean(omega > 0, na.rm = TRUE),
+    mean_n_trials   = mean(n_trials),
+    mean_p_observed = mean(ifelse(n_trials > 0, y_bt/n_trials, NA), 
+                          na.rm = TRUE)
+  )
+
+
+
+  # Distribution of n_trials among large residual rows
+df_resid_diag %>%
+  mutate(n_trials_cat = cut(n_trials, 
+                             breaks = c(0, 1, 2, 5, 10, 20, Inf),
+                             labels = c("1", "2", "3-5", "6-10", "11-20", ">20"))) %>%
+  count(n_trials_cat, name = "n_large_resid") %>%
+  mutate(pct = round(100 * n_large_resid / sum(n_large_resid), 1))
+
+block_resid_file <- file.path(run_output_dir, 
+                               paste0("glmm_block_resid_summary_", run_suffix, ".csv"))
+write_csv(block_resid_summary, block_resid_file)
+cat("Block residual summary saved to:", block_resid_file, "\n")
