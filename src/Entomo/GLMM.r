@@ -44,6 +44,10 @@ cfg <- list(
   # Example: interactions = list(c("temp_cat_lag1", "avg_VPD_lag1"), c("is_urban", "water_containers"))
   interactions  = NULL,
 
+  # Predictors to drop after lag expansion (NULL = keep all)
+  # Use the fully expanded column name, e.g. "avg_VPD_lag1", "is_urban"
+  exclude_predictors = c("avg_VPD_lag1"),
+
   # Spatial coordinates from shapefile (used when include_spatial_ar = TRUE)
   shapefile_path = if (Sys.info()["nodename"] == "frietjes") {
     "/home/rita/data/Entomo/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp"
@@ -344,8 +348,16 @@ if (!is.null(cfg$interactions) && length(cfg$interactions) > 0) {
   }
 }
 
-# Fixed effects: main effects + interactions
+# Fixed effects: main effects + interactions, minus any explicitly excluded predictors
 fixed_effects <- c(lagged_cols, unlagged_vars, "reactive_shift", interaction_terms)
+if (!is.null(cfg$exclude_predictors) && length(cfg$exclude_predictors) > 0) {
+  unknown <- setdiff(cfg$exclude_predictors, fixed_effects)
+  if (length(unknown) > 0)
+    warning("exclude_predictors contains names not found in fixed_effects: ",
+            paste(unknown, collapse = ", "))
+  fixed_effects <- setdiff(fixed_effects, cfg$exclude_predictors)
+  cat("Excluded predictors:", paste(cfg$exclude_predictors, collapse = ", "), "\n")
+}
 formula_str <- paste(
   "cbind(y_bt, n_trials - y_bt) ~", # y_bt successes (positives), n_trails - y_bt failures (zeros)
   paste(fixed_effects, collapse = " + ")
