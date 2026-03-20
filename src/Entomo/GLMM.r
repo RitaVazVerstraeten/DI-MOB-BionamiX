@@ -119,7 +119,8 @@ predictor_spec <- paste0(
   "_unlag-", paste(cfg$unlagged_vars, collapse = "-"),
   if (!is.null(cfg$interactions) && length(cfg$interactions) > 0)
     paste0("_ix-", paste(sapply(cfg$interactions, function(p) paste(p, collapse = "x")), collapse = "_"))
-  else ""
+  else "",
+  if (isTRUE(cfg$include_fourier)) "_fourier" else ""
 )
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
