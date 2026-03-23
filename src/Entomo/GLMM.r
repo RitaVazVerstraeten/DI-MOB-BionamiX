@@ -20,9 +20,9 @@ conflicted::conflict_prefer("lag", "dplyr")
 # =========================
 cfg <- list(
   # Random effects to include
-  include_block_re = TRUE,      # Random intercept for block (spatial)
-  include_time_re = TRUE,      # Random intercept for time (temporal)
-  include_ar1_temporal = FALSE, # AR(1) temporal autocorrelation (within group)
+  include_block_re = FALSE,      # Random intercept for block (spatial)
+  include_time_re = FALSE,      # Random intercept for time (temporal)
+  include_ar1_temporal = TRUE, # AR(1) temporal autocorrelation (within group)
   ar1_group = "block",         # "block" (within-block AR1) or "global"
   include_spatial_ar = FALSE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
   # include_spatial_ar = TRUE,  # Matérn spatial autocorrelation: mat(xy + 0 | spatial)
@@ -34,9 +34,9 @@ cfg <- list(
   # unlagged_vars: variables entered directly without lag
   # numeric_vars : continuous variables to z-score standardize
   #                (exclude factors, binary 0/1, and already-factored variables)
-  lag_vars      = c("consec_rainy_days", "avg_VPD", "precip_max_day"),
-  unlagged_vars = c("is_urban", "water_containers"),
-  numeric_vars  = c("consec_rainy_days", "precip_max_day", "avg_VPD", "water_containers"),
+  lag_vars      = c("total_rainy_days", "avg_VPD", "precip_max_day"),
+  unlagged_vars = c("is_urban"),
+  numeric_vars  = c("total_rainy_days", "precip_max_day", "avg_VPD"),
 
   # Interaction terms (NULL = none)
   # Each element is a character vector of exactly 2 variable names (column names
@@ -46,8 +46,8 @@ cfg <- list(
 
   # Predictors to drop after lag expansion (NULL = keep all)
   # Use the fully expanded column name, e.g. "avg_VPD_lag1", "is_urban"
-  # exclude_predictors = c("avg_VPD_lag1"),
-  exclude_predictors = NULL,
+  exclude_predictors = c("total_rainy_days_lag1"),
+  # exclude_predictors = NULL,
 
   # Add sin/cos annual Fourier terms as fixed effects (2-parameter seasonal cycle).
   # Tests whether residual seasonality is independent of the climate covariates.
