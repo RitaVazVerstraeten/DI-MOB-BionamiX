@@ -38,7 +38,7 @@ This document provides descriptive statistics for environmental variables used i
 |has_aljibes | Binary | TRUE/FALSE value for whether/not there are underground cisternas within a 20m radius of the manzana |
 |nr_aljibes | Numeric | Number of underground water cisternas within 20m of the manzana |
 |water_shortage | Binary | TRUE/FALSE value for whether/not manzanas have reduced water provision (more days between water provision cycles) |
-|water_containers | Count | Nnumber of water containers available per manzana |
+|water_containers | Count | Nnumber of water containers available per person (at CP level) |
 |avg_temp | Numeric | average temperature (°C) for that manzana-month |
 |total_precip | Numeric | cummulative precipitation (mm) for that manzana-month | max_precip_daily
 |precip_max_day | Numeric | cummulative precipitation (mm/24h) for the day in that manzana-month with the highest precipitation | 

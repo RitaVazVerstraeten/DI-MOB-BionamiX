@@ -345,20 +345,20 @@ allocation_info <- mz_allocation %>%
 # Join allocation info to ento_epi_data
 ento_epi_data <- ento_epi_data %>%
   left_join(allocation_info, by = "CODIGO_DIMOB") %>%
-  left_join(dimob_manzanas %>% select(CODIGO_, Vivinds)%>% st_drop_geometry(), by = c("CODIGO_DIMOB" = "CODIGO_"))
+  left_join(dimob_manzanas %>% select(CODIGO_, vivinds)%>% st_drop_geometry(), by = c("CODIGO_DIMOB" = "CODIGO_"))
 
 head(ento_epi_data)
 ```
 
 Let's check whether the new maznana shapefile has the same universe as the mz_allocation file 
 ```{r universe check allocation file vs shapefile}
-comparison <- dimob_manzanas %>%
-  select(CODIGO_, Vivinds) %>%
-  left_join(mz_allocation %>% select(CODIGO_DIMOB, UNIVERSE), by = c("CODIGO_" = "CODIGO_DIMOB")) %>%
-  mutate(match = Vivinds == UNIVERSE)
-comparison %>% filter(!match)
-library(writexl)
-write_xlsx(comparison, "comparison_universe_shapefile_mzZllocationFile.xlsx")
+# comparison <- dimob_manzanas %>%
+#   select(CODIGO_, vivinds) %>%
+#   left_join(mz_allocation %>% select(CODIGO_DIMOB, UNIVERSE), by = c("CODIGO_" = "CODIGO_DIMOB")) %>%
+#   mutate(match = vivinds == UNIVERSE)
+# comparison %>% filter(!match)
+# library(writexl)
+# write_xlsx(comparison, "comparison_universe_shapefile_mzZllocationFile.xlsx")
 ```
 
 ### Validate Inspected_houses vs UNIVERSE
@@ -399,14 +399,14 @@ if (all(c("Inspected_houses", "UNIVERSE") %in% colnames(ento_epi_data))) {
 message("Mismatches alway occurring for same manzana, ",print(unique(mismatches$CODIGO_DIMOB))) #  A5Mz0 A8APSMMzFcSAMA
 ```
 
-### Validate Inspected_houses vs VIVINDS
+### Validate Inspected_houses vs vivinds
 ```{r}
 if (all(c("Inspected_houses", "UNIVERSE") %in% colnames(ento_epi_data))) {
   # Compare Inspected_houses with UNIVERSE
   ento_epi_check <- ento_epi_data %>%
     mutate(
-      diff = Inspected_houses - Vivinds,
-      match = Inspected_houses == Vivinds
+      diff = Inspected_houses - vivinds,
+      match = Inspected_houses == vivinds
     )
 
   # Summary of matches/mismatches
@@ -422,7 +422,7 @@ if (all(c("Inspected_houses", "UNIVERSE") %in% colnames(ento_epi_data))) {
   # Show mismatching rows
   mismatches <- ento_epi_check %>%
     filter(!match) %>%
-    select(CODIGO_DIMOB, Inspected_houses, Vivinds, diff)
+    select(CODIGO_DIMOB, Inspected_houses, vivinds, diff)
   if (nrow(mismatches) > 0) {
     print(head(mismatches, 50))
   } else {
@@ -440,15 +440,15 @@ message("Mismatches alway occurring for same manzanas, ",cat(unique(mismatches$C
 ```{r substitute Inspected_houses by UNIVERSE}
 ento_epi_data <- ento_epi_data %>%
   mutate(Inspected_houses = UNIVERSE) %>%
-  select(-UNIVERSE, -Vivinds)
+  select(-UNIVERSE, -vivinds)
 ```
 
-### Use SHAPEFILE VIVINDS as household count
+### Use SHAPEFILE vivinds as household count
 
-```{r substitute Inspected_houses by Vivinds}
+```{r substitute Inspected_houses by vivinds}
 # ento_epi_data <- ento_epi_data %>%
-#   mutate(Inspected_houses = Vivinds) %>%
-#   select(-UNIVERSE, Vivinds)
+#   mutate(Inspected_houses = vivinds) %>%
+#   select(-UNIVERSE, vivinds)
 ```
 
 ```{r check manzanas with zero universe}
@@ -459,7 +459,7 @@ write_xlsx(manzanas_without_houses,
            "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Entomological_Data/manzanas_without_houses.xlsx")
 
 # check this against dimob_manzanas
-dimob_manzanas_nohouses <- subset(dimob_manzanas, dimob_manzanas$Vivinds == 0)
+dimob_manzanas_nohouses <- subset(dimob_manzanas, dimob_manzanas$vivinds == 0)
 dimob_manzanas_nohouses <- dimob_manzanas_nohouses %>% 
   filter(MZ != 'TB') %>%
   filter(!CODIGO_ %in% c("A7CNAMzPPESC", "DD", "A8APSMMzFcSAMA", ""))
@@ -782,7 +782,8 @@ water_shortage <- water_shortage %>%
 
 water_containers <- water_containers %>%
   rename(manzana_id = CODIGO_DIMOB) %>%
-  select(manzana_id, water_containers)
+  select(manzana_id, water_containers_per_person) %>%
+  rename(water_containers = water_containers_per_person)
 ```
 
 ```{r keep relevant columns for landcover}
