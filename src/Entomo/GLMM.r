@@ -35,8 +35,8 @@ cfg <- list(
   # numeric_vars : continuous variables to z-score standardize
   #                (exclude factors, binary 0/1, and already-factored variables)
   lag_vars      = c("total_rainy_days", "avg_VPD", "precip_max_day"),
-  unlagged_vars = c("is_urban", "water_containers"),
-  numeric_vars  = c("precip_max_day", "avg_VPD"),
+  unlagged_vars = c("is_urban"),
+  numeric_vars  = c("total_rainy_days", "precip_max_day", "avg_VPD"),
 
   # Interaction terms (NULL = none)
   # Each element is a character vector of exactly 2 variable names (column names
