@@ -47,7 +47,7 @@ cfg <- list(
   # Predictors to drop after lag expansion (NULL = keep all)
   # Use the fully expanded column name, e.g. "avg_VPD_lag1", "is_urban"
   # exclude_predictors = c("total_rainy_days_lag1", "total_rainy_days_lag0"),
-  exclude_predictors = c("consec_rainy_days_lag1"),
+  exclude_predictors = c("consec_rainy_days_lag1", "consec_rainy_days_lag2"),
 
   # Add sin/cos annual Fourier terms as fixed effects (2-parameter seasonal cycle).
   # Tests whether residual seasonality is independent of the climate covariates.
