@@ -34,9 +34,9 @@ cfg <- list(
   # unlagged_vars: variables entered directly without lag
   # numeric_vars : continuous variables to z-score standardize
   #                (exclude factors, binary 0/1, and already-factored variables)
-  lag_vars      = c("total_rainy_days", "avg_VPD", "precip_max_day"),
-  unlagged_vars = c("is_urban"),
-  numeric_vars  = c("total_rainy_days", "precip_max_day", "avg_VPD"),
+  lag_vars      = c("consec_rainy_days", "avg_VPD", "precip_max_day"),
+  unlagged_vars = c("is_urban", "water_containers"),
+  numeric_vars  = c("consec_rainy_days", "precip_max_day", "avg_VPD", "water_containers"),
 
   # Interaction terms (NULL = none)
   # Each element is a character vector of exactly 2 variable names (column names
@@ -46,8 +46,8 @@ cfg <- list(
 
   # Predictors to drop after lag expansion (NULL = keep all)
   # Use the fully expanded column name, e.g. "avg_VPD_lag1", "is_urban"
-  exclude_predictors = c("total_rainy_days_lag1", "total_rainy_days_lag0"),
-  # exclude_predictors = NULL,
+  # exclude_predictors = c("total_rainy_days_lag1", "total_rainy_days_lag0"),
+  exclude_predictors = c("consec_rainy_days_lag1"),
 
   # Add sin/cos annual Fourier terms as fixed effects (2-parameter seasonal cycle).
   # Tests whether residual seasonality is independent of the climate covariates.
@@ -120,6 +120,9 @@ predictor_spec <- paste0(
   "_unlag-", paste(cfg$unlagged_vars, collapse = "-"),
   if (!is.null(cfg$interactions) && length(cfg$interactions) > 0)
     paste0("_ix-", paste(sapply(cfg$interactions, function(p) paste(p, collapse = "x")), collapse = "_"))
+  else "",
+  if (!is.null(cfg$exclude_predictors) && length(cfg$exclude_predictors) > 0)
+    paste0("_excl-", paste(cfg$exclude_predictors, collapse = "-"))
   else "",
   if (isTRUE(cfg$include_fourier)) "_fourier" else ""
 )
