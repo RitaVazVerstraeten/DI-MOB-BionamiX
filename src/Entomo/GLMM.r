@@ -20,9 +20,9 @@ conflicted::conflict_prefer("lag", "dplyr")
 # =========================
 cfg <- list(
   # Random effects to include
-  include_block_re = FALSE,      # Random intercept for block (spatial)
-  include_time_re = FALSE,      # Random intercept for time (temporal)
-  include_ar1_temporal = TRUE, # AR(1) temporal autocorrelation (within group)
+  include_block_re = TRUE,      # Random intercept for block (spatial)
+  include_time_re = TRUE,      # Random intercept for time (temporal)
+  include_ar1_temporal = FALSE, # AR(1) temporal autocorrelation (within group)
   ar1_group = "block",         # "block" (within-block AR1) or "global"
   include_spatial_ar = FALSE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
   # include_spatial_ar = TRUE,  # Matérn spatial autocorrelation: mat(xy + 0 | spatial)
@@ -35,7 +35,7 @@ cfg <- list(
   # numeric_vars : continuous variables to z-score standardize
   #                (exclude factors, binary 0/1, and already-factored variables)
   lag_vars      = c("total_rainy_days", "avg_VPD", "precip_max_day"),
-  unlagged_vars = c("is_urban", "water_containers"),
+  unlagged_vars = c("is_urban", "water_containers", "has_aljibes", "nr_aljibes"),
   numeric_vars  = c("precip_max_day", "avg_VPD", "water_containers"),
 
   # Interaction terms (NULL = none)
@@ -46,8 +46,8 @@ cfg <- list(
 
   # Predictors to drop after lag expansion (NULL = keep all)
   # Use the fully expanded column name, e.g. "avg_VPD_lag1", "is_urban"
-  exclude_predictors = c("avg_VPD_lag1"),
-  # exclude_predictors = NULL,
+  # exclude_predictors = c("avg_VPD_lag1"),
+  exclude_predictors = NULL,
 
   # Add sin/cos annual Fourier terms as fixed effects (2-parameter seasonal cycle).
   # Tests whether residual seasonality is independent of the climate covariates.
