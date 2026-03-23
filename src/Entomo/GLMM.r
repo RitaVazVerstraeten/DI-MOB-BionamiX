@@ -34,7 +34,7 @@ cfg <- list(
   # unlagged_vars: variables entered directly without lag
   # numeric_vars : continuous variables to z-score standardize
   #                (exclude factors, binary 0/1, and already-factored variables)
-  lag_vars      = c("total_rainy_days", "avg_VPD", "precip_max_day"),
+  lag_vars      = c("rainy_days_cat", "avg_VPD", "precip_max_day"),
   unlagged_vars = c("is_urban", "water_containers"),
   numeric_vars  = c("precip_max_day", "avg_VPD", "water_containers"),
 

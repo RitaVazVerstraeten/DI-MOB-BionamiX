@@ -14,7 +14,7 @@
 # ---------------------------------------------------------------------------
 # SWEEP SETTINGS — adjust these as needed
 # ---------------------------------------------------------------------------
-kappa_values      <- seq(0, 5, by = 1)   # e.g. 0, 1, 2, 3, 4, 5
+kappa_values      <- seq(0, 5, by = 0.5)   # e.g. 0, 1, 2, 3, 4, 5
                                           # Use seq(0, 5, by = 0.5) for finer steps
 kappa_sweep_subdir <- "kappa_tests"       # subdirectory appended to cfg$output_dir
 
