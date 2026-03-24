@@ -73,6 +73,9 @@ cfg <- list(
   max_treedepth = 12,
   parallel_chains = if (hostname == "frietjes") 2 else 1,
 
+  # phi: set fix_phi = TRUE to pass phi as data (fixed); FALSE to estimate it
+  fix_phi = TRUE,
+  phi_fixed = 8.0,   # beta-binomial concentration -> later replace with gamma(2, 0.25)
   # prior predictive check (set TRUE before first real fit)
   run_prior_predictive = FALSE,
 
@@ -151,6 +154,7 @@ prep <- build_stan_data(cfg)
 stan_data <- prep$stan_data
 df <- prep$df
 
+
 # =========================
 # 2b) SPATIAL DISTANCE MATRIX
 # =========================
@@ -174,6 +178,108 @@ coords_sf  <- sf_blocks %>%
 dist_mat <- as.matrix(dist(coords_sf[, c("x", "y")]))
 stan_data$dist_block <- dist_mat
 cat(sprintf("Distance matrix: %d × %d blocks\n", nrow(dist_mat), ncol(dist_mat)))
+
+
+#####################################
+# Checking for overdispersion in my data
+#####################################
+disp_df <- df %>%
+  mutate(
+    n_bt   = stan_data$n_bt,
+    y_bt   = stan_data$y
+  ) %>%
+  filter(n_bt > 0) %>%
+  mutate(
+    y_rate  = y_bt / n_bt,
+    C_group = cut(C_bt,
+                  breaks = c(-Inf, 0, 2, 5, Inf),
+                  labels = c("0", "1-2", "3-5", ">5"),
+                  right  = TRUE)
+  )
+
+zero_case <- disp_df %>%
+  filter(C_bt == 0, n_bt > 0) %>%
+  mutate(y_rate = y_bt / n_bt)
+
+p_bar    <- mean(zero_case$y_rate)
+var_obs  <- var(zero_case$y_rate)
+n_rep    <- median(zero_case$n_bt)
+var_binom <- p_bar * (1 - p_bar) / n_rep
+
+disp_ratio <- var_obs / var_binom
+phi_pooled <- (n_rep - disp_ratio) / (disp_ratio - 1)
+
+cat("n cells:          ", nrow(zero_case), "\n")
+cat("median n_bt:      ", n_rep, "\n")
+cat("mean y_rate:      ", round(p_bar, 4), "\n")
+cat("dispersion ratio: ", round(disp_ratio, 2), "\n")
+cat("implied phi:      ", round(phi_pooled, 2), "\n")
+
+disp_df %>%
+  filter(n_bt > 0) %>%
+  mutate(y_rate = y_bt / n_bt) %>%
+  group_by(n_bt) %>%
+  filter(n() >= 30)  %>%  # only bins with enough cells to estimate variance
+  summarise(
+    n_cells      = n(),
+    p_bar        = mean(y_rate),
+    var_observed = var(y_rate),
+    var_binomial = p_bar * (1 - p_bar) / first(n_bt),  # expected under binomial
+    dispersion_ratio = var_observed / var_binomial,
+    phi_implied      = (first(n_bt) - dispersion_ratio) / (dispersion_ratio - 1)
+  ) %>%
+  filter(dispersion_ratio > 1, phi_implied > 0) %>%  # only valid estimates
+  summarise(
+    phi_median   = median(phi_implied),
+    phi_mean     = mean(phi_implied),
+    phi_weighted = weighted.mean(phi_implied, w = n_cells)  # weight by cell count
+  )
+
+disp_df %>%
+  filter(n_bt > 0) %>%
+  mutate(y_rate = y_bt / n_bt) %>%
+  group_by(n_bt) %>%
+  filter(n() >= 30) %>%
+  summarise(
+    p_bar        = mean(y_rate),
+    var_observed = var(y_rate),
+    var_binomial = p_bar * (1 - p_bar) / first(n_bt)
+  ) %>%
+  ggplot(aes(x = n_bt)) +
+  geom_point(aes(y = var_observed), colour = "steelblue") +
+  geom_line(aes(y = var_binomial), colour = "red") +
+  scale_y_log10() +
+  labs(x = "n_bt", y = "variance of y/n_bt (log scale)",
+       title = "Observed variance vs binomial expectation",
+       subtitle = "Blue dots above red line = overdispersion")
+
+# # Does overdispersion vary with dengue case load?
+# disp_df %>%
+#   group_by(C_group) %>%
+#   summarise(
+#     n            = n(),
+#     p_bar        = mean(y_rate),
+#     var_observed = var(y_rate),
+#     var_binomial = p_bar * (1 - p_bar) / mean(n_bt),
+#     dispersion   = var_observed / var_binomial,
+#     .groups      = "drop"
+#   ) %>%
+#   ggplot(aes(x = C_group, y = dispersion)) +
+#   geom_col(fill = "steelblue") +
+#   geom_hline(yintercept = 1, linetype = "dashed", colour = "red") +
+#   geom_text(aes(label = paste0("n=", n)), vjust = -0.4, size = 3) +
+#   labs(x = "Dengue cases (C_bt)", y = "Dispersion ratio (obs / binomial)",
+#        title = "Overdispersion by dengue case load",
+#        subtitle = "Ratio > 1 = overdispersed; red dashed = binomial baseline")
+
+       
+# Pass phi as fixed data when fix_phi = TRUE
+if (isTRUE(cfg$fix_phi)) {
+  stan_data$phi <- cfg$phi_fixed
+  cat(sprintf("phi fixed at %.1f (not estimated)\n", cfg$phi_fixed))
+}
+
+
 
 mod <- cmdstan_model(cfg$stan_file)
 
@@ -237,7 +343,8 @@ fit <- mod$sample(
 # Save .rds and .txt to run_output_dir (not plots dir)
 fit$save_object(file.path(run_output_dir, paste0("fit_", run_suffix, ".rds")))
 
-summary_vars <- c("alpha", "sigma_gp", "rho_gp", "phi", "delta0", "delta1", "w")
+summary_vars <- c("alpha", "sigma_gp", "rho_gp", "delta0", "delta1", "w")
+if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
 if (cfg$use_temporal_re) summary_vars <- c(summary_vars, "sigma_v", "rho")
 
 writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", run_suffix, ".txt")))
@@ -291,11 +398,14 @@ if (cfg$plot_traceplots) {
   cat("Generating trace plots...\n")
   # Get available parameter names
   available_params <- fit$summary()$variable
-  # Main parameters to try to plot
-  params_main <- c("alpha", "sigma_u", "delta0", "delta1", "sigma_v", "rho")
-  params_main <- params_main[params_main %in% available_params]
+  # Exclude weights and high-dimensional outputs
+  exclude_patterns <- c("^w\\[", "^w_unlagged\\[", "^p_bt_out\\[", "^p_R_out\\[", "^u_block_out\\[", "^v_time_out\\[", "^y_pred\\[", "^log_lik\\[", "^lp__$")
+  is_scalar_param <- function(param) {
+    !any(sapply(exclude_patterns, function(pat) grepl(pat, param)))
+  }
+  scalar_params <- available_params[sapply(available_params, is_scalar_param)]
   # Only plot if at least one param is present
-  if (length(params_main) > 0) {
+  if (length(scalar_params) > 0) {
     if (!requireNamespace("bayesplot", quietly = TRUE)) {
       cat("bayesplot package not installed; skipping trace plots.\n")
     } else {
@@ -303,11 +413,11 @@ if (cfg$plot_traceplots) {
       draws_array <- fit$draws(format = "array")
       ggsave(
         file.path(plots_output_dir, paste0("traceplot_params_", run_suffix, ".png")),
-        mcmc_trace(draws_array, pars = params_main), width = 10, height = 8
+        mcmc_trace(draws_array, pars = scalar_params), width = 10, height = 8
       )
     }
   } else {
-    cat("No main parameters found for traceplot.\n")
+    cat("No scalar parameters found for traceplot.\n")
   }
   # Plot lagged weights if present
   w_params <- available_params[grepl("^w\\[", available_params)]

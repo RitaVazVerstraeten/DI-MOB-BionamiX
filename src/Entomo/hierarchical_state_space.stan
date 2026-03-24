@@ -13,6 +13,7 @@ data {
   array[N] int<lower=1,upper=T> time;   // time index for each observation
   array[N] int<lower=0> C_bt;    // number of dengue cases per block-time
   matrix[B, B] dist_block;       // pairwise distances between block centroids (metres)
+  real<lower=0> phi;             // beta-binomial concentration (fixed); set cfg$fix_phi=FALSE to estimate
 }
 
 transformed data {
@@ -29,7 +30,7 @@ parameters {
   real<lower=-1,upper=1> rho; // temporal autoregression parameter (shared)
   real delta0;             // baseline targeting bias (reactive surveillance)
   real delta1;             // log-linear increase with outbreak intensity
-  real<lower=0> phi;       // beta-binomial concentration (phi→∞ = binomial)
+  // phi is fixed (passed via data); remove this block to re-estimate it
   real<lower=0> sigma_gp;  // GP marginal SD (spatial)
   real<lower=0> rho_gp;    // GP length scale (metres); exp kernel: corr = exp(-d/rho_gp)
   vector[B] z_gp;          // non-centred GP weights ~ normal(0,1)
@@ -126,8 +127,7 @@ model {
   rho ~ normal(0.4, 0.2);          // recentred toward positive autocorrelation
   delta0 ~ normal(0.3, 0.4);      // slightly reduced baseline targeting bias
   delta1 ~ normal(0, 0.2);        // reduced log-linear increase to stabilize init
-  phi    ~ gamma(2, 0.1);         // concentration: mean=20, allows moderate overdispersion
-                                   // phi→∞ recovers binomial; small phi = heavy overdispersion
+  // phi is fixed (no prior needed)
   z_gp      ~ normal(0, 1);       // non-centred GP weights
   sigma_gp  ~ normal(0, 1);       // GP marginal SD (half-normal)
   rho_gp    ~ inv_gamma(3, 150);  // mode at 75m, matching observed residual spatial peak
