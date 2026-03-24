@@ -156,7 +156,6 @@ build_stan_data <- function(cfg) {
     stan_data = list(
       N = nrow(unl$df),
       y = unl$df$y_bt,
-      N_HH = unl$df$N_HH,
       K = lag$K,
       Lp1 = lag$Lp1,
       X_lag_flat = standardize_matrix(lag$X_lag_flat),
