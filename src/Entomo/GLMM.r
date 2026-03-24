@@ -34,9 +34,9 @@ cfg <- list(
   # unlagged_vars: variables entered directly without lag
   # numeric_vars : continuous variables to z-score standardize
   #                (exclude factors, binary 0/1, and already-factored variables)
-  lag_vars      = c("consec_rainy_days", "avg_VPD", "precip_max_day"),
+  lag_vars      = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
   unlagged_vars = c("is_urban", "is_WUI"),
-  numeric_vars  = c("consec_rainy_days", "precip_max_day", "avg_VPD"),
+  numeric_vars  = c("total_rainy_days", "precip_max_day", "avg_VPD", "mean_ndvi"),
 
   # Interaction terms (NULL = none)
   # Each element is a character vector of exactly 2 variable names (column names
@@ -47,8 +47,7 @@ cfg <- list(
   # Predictors to drop after lag expansion (NULL = keep all)
   # Use the fully expanded column name, e.g. "avg_VPD_lag1", "is_urban"
   # exclude_predictors = c("total_rainy_days_lag1", "total_rainy_days_lag0"),
-  exclude_predictors = c("consec_rainy_days_lag1", "consec_rainy_days_lag2"),
-
+  exclude_predictors = c("mean_ndvi_lag0", "mean_ndvi_lag1", "total_rainy_dayslag1", "total_rainy_days_lag0"),
   # Add sin/cos annual Fourier terms as fixed effects (2-parameter seasonal cycle).
   # Tests whether residual seasonality is independent of the climate covariates.
   include_fourier = FALSE,
@@ -903,3 +902,215 @@ ggsave(
 )
 
 cat("\nAR(1) temporal diagnostics saved to:", resid_output_dir, "\n")
+
+# =========================
+# 15. SPATIAL AUTOCORRELATION OF RESIDUALS (MORAN'S I)
+# =========================
+# Tests whether spatial signal remains in residuals after conditioning on
+# all covariates. Uses the same exponential-weighted annuli approach as the
+# descriptive statistics notebook.
+# Requires: spdep package
+
+if (!requireNamespace("spdep", quietly = TRUE)) {
+  cat("Skipping Moran's I: package 'spdep' not installed.\n")
+} else {
+
+  # --- 15a. Block-level mean Pearson residual (averaged over time) ---
+  block_mean_resid <- df_re_plot %>%
+    group_by(block) %>%
+    summarise(mean_resid = mean(pearson_resid, na.rm = TRUE), .groups = "drop") %>%
+    mutate(block_chr = as.character(block))
+
+  # --- 15b. Block centroids from shapefile (project to metres) ---
+  pts_resid <- suppressWarnings(sf::st_point_on_surface(sf_blocks))
+  if (isTRUE(sf::st_is_longlat(pts_resid))) {
+    pts_resid <- sf::st_transform(pts_resid, 3857)
+  } else if (!is.na(cfg$spatial_crs)) {
+    pts_resid <- sf::st_transform(pts_resid, cfg$spatial_crs)
+  }
+
+  coords_resid <- sf_blocks %>%
+    sf::st_drop_geometry() %>%
+    mutate(
+      block_chr = as.character(.data[[cfg$sf_block_col]]),
+      x = sf::st_coordinates(pts_resid)[, 1],
+      y = sf::st_coordinates(pts_resid)[, 2]
+    ) %>%
+    select(block_chr, x, y) %>%
+    distinct(block_chr, .keep_all = TRUE)
+
+  resid_spatial <- block_mean_resid %>%
+    left_join(coords_resid, by = "block_chr") %>%
+    filter(!is.na(x), !is.na(y), !is.na(mean_resid))
+
+  cat(sprintf("\nMoran's I: %d blocks with residuals and coordinates\n",
+              nrow(resid_spatial)))
+
+  # --- 15c. Pairwise distance matrix ---
+  coords_mat  <- as.matrix(resid_spatial[, c("x", "y")])
+  dist_mat    <- as.matrix(dist(coords_mat))
+  diag(dist_mat) <- NA_real_
+
+  # --- 15d. Correlogram: Moran's I per 50m annulus up to 2000m ---
+  distance_breaks <- seq(0, 2000, by = 50)
+  moran_results   <- vector("list", length(distance_breaks) - 1)
+
+  for (i in seq_len(length(distance_breaks) - 1)) {
+    d_low  <- distance_breaks[i]
+    d_high <- distance_breaks[i + 1]
+
+    w <- matrix(0, nrow = nrow(dist_mat), ncol = ncol(dist_mat))
+    in_band <- !is.na(dist_mat) & dist_mat > d_low & dist_mat <= d_high
+    w[in_band] <- 1
+
+    if (sum(w) == 0) {
+      moran_results[[i]] <- data.frame(
+        d_low = d_low, d_high = d_high, d_mid = (d_low + d_high) / 2,
+        morans_I = NA_real_, p_value = NA_real_, significant = NA
+      )
+      next
+    }
+
+    lw <- spdep::mat2listw(w, style = "W", zero.policy = TRUE)
+    mt <- spdep::moran.test(resid_spatial$mean_resid, lw, zero.policy = TRUE)
+
+    moran_results[[i]] <- data.frame(
+      d_low    = d_low,
+      d_high   = d_high,
+      d_mid    = (d_low + d_high) / 2,
+      morans_I = unname(mt$estimate[["Moran I statistic"]]),
+      p_value  = mt$p.value,
+      significant = mt$p.value < 0.05
+    )
+  }
+
+  moran_df <- do.call(rbind, moran_results) %>%
+    filter(!is.na(morans_I))
+
+  # --- 15e. Plot correlogram ---
+  p_moran <- ggplot(moran_df, aes(x = d_mid, y = morans_I)) +
+    geom_hline(yintercept = 0, linetype = "dashed", colour = "gray50") +
+    geom_line(colour = "steelblue", linewidth = 0.8) +
+    geom_point(aes(colour = significant, shape = significant), size = 2.5) +
+    scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "gray60"),
+                        labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05")) +
+    scale_shape_manual(values  = c("TRUE" = 16,    "FALSE" = 1),
+                       labels  = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05")) +
+    scale_x_continuous(breaks = seq(0, 2000, by = 200)) +
+    labs(
+      title    = "Moran's I correlogram of block-level mean Pearson residuals",
+      subtitle = "Significant values = residual spatial signal not captured by covariates",
+      x        = "Distance band midpoint (m)",
+      y        = "Moran's I",
+      colour   = NULL, shape = NULL
+    ) +
+    theme_minimal()
+
+  ggsave(
+    file.path(resid_output_dir, paste0("moransI_correlogram_", run_suffix, ".png")),
+    p_moran, width = 10, height = 5, dpi = 150
+  )
+
+  # --- 15f. Save table and print summary ---
+  moran_file <- file.path(resid_output_dir,
+                          paste0("moransI_by_distance_", run_suffix, ".csv"))
+  write_csv(moran_df, moran_file)
+
+  n_sig <- sum(moran_df$significant, na.rm = TRUE)
+  first_sig <- moran_df %>% filter(significant) %>% slice(1)
+
+  cat(sprintf("Distance bands tested: %d (50m annuli, 0–2000m)\n", nrow(moran_df)))
+  cat(sprintf("Significant bands (p<0.05): %d\n", n_sig))
+  if (nrow(first_sig) > 0)
+    cat(sprintf("First significant band: %d–%dm (I=%.3f, p=%.4f)\n",
+                first_sig$d_low, first_sig$d_high,
+                first_sig$morans_I, first_sig$p_value))
+  cat("Moran's I correlogram saved to:", moran_file, "\n")
+
+  # --- 15g. Correlogram split by year ---
+  # Same annuli approach but residuals are averaged within each year × block,
+  # so you can see whether spatial autocorrelation changes across years.
+  years <- sort(unique(lubridate::year(df_re_plot$year_month_date)))
+
+  moran_year_list <- vector("list", length(years))
+
+  for (yr in years) {
+    block_resid_yr <- df_re_plot %>%
+      filter(lubridate::year(year_month_date) == yr) %>%
+      group_by(block) %>%
+      summarise(mean_resid = mean(pearson_resid, na.rm = TRUE), .groups = "drop") %>%
+      mutate(block_chr = as.character(block)) %>%
+      left_join(coords_resid, by = "block_chr") %>%
+      filter(!is.na(x), !is.na(y), !is.na(mean_resid))
+
+    if (nrow(block_resid_yr) < 10) next  # skip years with too few blocks
+
+    coords_yr <- as.matrix(block_resid_yr[, c("x", "y")])
+    dist_yr   <- as.matrix(dist(coords_yr))
+    diag(dist_yr) <- NA_real_
+
+    band_list <- vector("list", length(distance_breaks) - 1)
+    for (i in seq_len(length(distance_breaks) - 1)) {
+      d_low  <- distance_breaks[i]
+      d_high <- distance_breaks[i + 1]
+
+      w <- matrix(0, nrow = nrow(dist_yr), ncol = ncol(dist_yr))
+      w[!is.na(dist_yr) & dist_yr > d_low & dist_yr <= d_high] <- 1
+
+      if (sum(w) == 0) {
+        band_list[[i]] <- data.frame(
+          year = yr, d_low = d_low, d_high = d_high,
+          d_mid = (d_low + d_high) / 2,
+          morans_I = NA_real_, p_value = NA_real_, significant = NA
+        )
+        next
+      }
+
+      lw <- spdep::mat2listw(w, style = "W", zero.policy = TRUE)
+      mt <- spdep::moran.test(block_resid_yr$mean_resid, lw, zero.policy = TRUE)
+
+      band_list[[i]] <- data.frame(
+        year        = yr,
+        d_low       = d_low,
+        d_high      = d_high,
+        d_mid       = (d_low + d_high) / 2,
+        morans_I    = unname(mt$estimate[["Moran I statistic"]]),
+        p_value     = mt$p.value,
+        significant = mt$p.value < 0.05
+      )
+    }
+    moran_year_list[[which(years == yr)]] <- do.call(rbind, band_list)
+  }
+
+  moran_yr_df <- do.call(rbind, moran_year_list) %>%
+    filter(!is.na(morans_I)) %>%
+    mutate(year = factor(year))
+
+  p_moran_yr <- ggplot(moran_yr_df, aes(x = d_mid, y = morans_I,
+                                         colour = year, group = year)) +
+    geom_hline(yintercept = 0, linetype = "dashed", colour = "gray50") +
+    geom_line(linewidth = 0.8) +
+    geom_point(aes(shape = significant), size = 2) +
+    scale_shape_manual(values = c("TRUE" = 16, "FALSE" = 1),
+                       labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05"),
+                       na.value = 1) +
+    scale_x_continuous(breaks = seq(0, 2000, by = 200)) +
+    labs(
+      title    = "Moran's I correlogram by year",
+      subtitle = "Filled points = p < 0.05 · Each line = one calendar year",
+      x        = "Distance band midpoint (m)",
+      y        = "Moran's I",
+      colour   = "Year", shape = NULL
+    ) +
+    theme_minimal()
+
+  ggsave(
+    file.path(resid_output_dir, paste0("moransI_correlogram_by_year_", run_suffix, ".png")),
+    p_moran_yr, width = 11, height = 5, dpi = 150
+  )
+
+  moran_yr_file <- file.path(resid_output_dir,
+                              paste0("moransI_by_year_distance_", run_suffix, ".csv"))
+  write_csv(moran_yr_df, moran_yr_file)
+  cat("Year-stratified Moran's I correlogram saved to:", moran_yr_file, "\n")
+}
