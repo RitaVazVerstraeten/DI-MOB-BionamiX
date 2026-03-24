@@ -25,7 +25,12 @@
 
 \section{Introduction}
 
-This document presents a hierarchical spatio-temporal state-space model with an effort-dependent observation process for analyzing entomological surveillance data from Cienfuegos. The model aims to correct for biases introduced by different surveillance regimes while estimating the true mosquito presence probability as a function of environmental drivers.
+This document describes two complementary modelling approaches for analysing entomological surveillance data from Cienfuegos, both aimed at estimating the true mosquito presence probability $p_{bt}$ while correcting for biases introduced by mixed surveillance regimes.
+
+\begin{description}
+\item[Part~I --- Bayesian hierarchical model] A full probabilistic model implemented in Stan via \texttt{cmdstanr}. It jointly estimates ecological effects, reactive surveillance bias parameters ($\delta_0$, $\delta_1$), and spatio-temporal random effects, propagating uncertainty through all components.
+\item[Part~II --- Frequentist GLMM] A maximum-likelihood binomial GLMM implemented in \texttt{glmmTMB}. It is computationally fast and used to obtain data-driven estimates of covariate directions and magnitudes, which then inform the prior distributions of the Bayesian model.
+\end{description}
 
 \section{Data Issues and Surveillance Context}
 
@@ -36,6 +41,9 @@ The surveillance system consists of \textbf{routine inspections} (every househol
 \section{Objective}
 
 The goal is to estimate $p_{bt} = \Pr(\text{mosquito immature stages are present in block } b \text{ at time } t)$, the true spatio-temporal mosquito presence probability, while correcting for observations that arise from two regimes: systematic surveillance (baseline, covering all households) and reactive surveillance (additional inspections triggered by dengue cases). The central challenge is that reactive surveillance inflates observed mosquito positivity during outbreaks, and the data do not label observations by surveillance type.
+
+\part*{Part~I: Bayesian Hierarchical Model}
+\addcontentsline{toc}{part}{Part~I: Bayesian Hierarchical Model}
 
 \section{Model Framework}
 
@@ -49,7 +57,7 @@ The total number of inspection events is defined as:
 \begin{equation}
 n_{bt} = N_b^{HH} + \kappa C_{bt},
 \end{equation}
-where $N_b^{HH}$ is known and fixed (universo), $C_{bt}$ is observed, and $\kappa$ is a scaling factor (typically fixed to 1). This encodes the assumption that each dengue case triggers approximately $\kappa$ additional mosquito inspections. We make the assumption that each dengue case will on average originate from a different household. 
+where $N_b^{HH}$ is known and fixed (universo), $C_{bt}$ is observed, and $\kappa$ is a scaling factor fixed at 2 in the current implementation. This encodes the assumption that each dengue case triggers approximately $\kappa$ additional mosquito inspections. We assume that each dengue case originates from a different household on average, so reactive inspections target distinct locations within the block.
 
 \subsection{Latent Ecological Process}
 
@@ -57,7 +65,7 @@ The true mosquito presence probability is modeled as a latent spatio-temporal pr
 \begin{equation}
 \text{logit}(p_{bt}) = \alpha + X_{bt}\beta + u_b + v_t,
 \end{equation}
-where $\alpha$ is the baseline intercept, $X_{bt}$ represents environmental covariates (NDVI, temperature, rainfall, etc.), $\beta$ are regression coefficients, $u_b$ is a spatial random effect (CAR or GP), and $v_t$ is a temporal random effect (RW1, AR1, or seasonal). Crucially, dengue cases do not enter this equation. This equation defines the quantity of interest $p_{bt}$.
+where $\alpha$ is the baseline intercept, $X_{bt}$ represents environmental covariates (average temperature, relative humidity, total precipitation, NDVI), $\beta$ are regression coefficients, $u_b \sim \text{Normal}(0, \sigma_u)$ is a block-level i.i.d.\ random intercept capturing stable spatial heterogeneity not explained by covariates, and $v_t$ is a temporal random effect following an AR(1) process. Crucially, dengue cases do not enter this equation. This equation defines the quantity of interest $p_{bt}$.
 
 \subsection{Reactive Surveillance Targeting Bias}
 
@@ -91,14 +99,7 @@ This is a mixture of unbiased and biased observation processes.
 y_{bt} \sim \text{Binomial}(n_{bt}, \pi_{bt}).
 \end{equation}
 
-\subsubsection{Computational Consideration: Poisson Approximation}
-
-In the Stan implementation, $n_{bt}$ is not fixed but estimated as a function of the uncertain parameter $\kappa$, which creates a hierarchical dependency that complicates likelihood evaluation. To simplify inference, we approximate the Binomial likelihood with a Poisson distribution:
-\begin{equation}
-y_{bt} \sim \text{Poisson}(\lambda_{bt}), \quad \text{where} \quad \lambda_{bt} = N_b^{HH} p_{bt} + \kappa C_{bt} p_{bt}^R,
-\end{equation}
-
-where the first term represents expected positive inspections from systematic surveillance and the second term represents expected positive inspections from reactive surveillance. This approximation is valid when $n_{bt}$ is large and $\pi_{bt}$ is moderate, conditions that hold for our surveillance data (mean $y_{bt}$ 0.004). However, a potential concern is that empirical overdispersion in $y_{bt}$ (variance exceeding the mean) may not be fully captured by the Poisson model, which assumes equidispersion. If unexplained heterogeneity exists beyond the spatio-temporal random effects, future work should use a negative binomial.
+\textbf{Note on implementation:} In the Stan model, $\kappa$ is fixed (not estimated), so $n_{bt}$ is fully determined by the data. The Binomial likelihood is used directly without approximation.
 
 \section{Extensions}
 
@@ -156,9 +157,7 @@ Parameter & Role in Model & Suggested Prior & Interpretation & Reasoning \\
 \addlinespace
 \textbf{$\delta_1$} & Sensitivity to outbreak intensity & Normal(0, 0.2) & Log-linear response to log($C_{bt}$) & Reduced to stabilize initialization; encourages small positive effect but allows no effect; avoids explosive targeting. \\
 \addlinespace
-\textbf{$\kappa$} & \textbf{Reactive inspection scaling} & LogNormal(log(2), 0.35) & Additional inspections per case & Domain knowledge: up to 1--4 extra households within same block per case. LogNormal ensures positivity and realistic range. Centered at 2. \\
-\addlinespace
-\textbf{$\rho$} & AR(1) temporal persistence & Normal(0, 0.2) truncated to (-1, 1) & Temporal autocorrelation & Tighter prior on AR(1) parameter. Allows both positive (mosquitoes remain) and negative (mosquito removal after detection) temporal autocorrelation but regularizes toward independence. \\
+\textbf{$\rho$} & AR(1) temporal persistence & Normal(0, 0.2), constrained to $(-1, 1)$ & Temporal autocorrelation & Tighter prior regularizes toward independence. Allows positive (mosquito persistence) and negative (removal after detection) autocorrelation. The constraint is enforced by the parameter declaration in Stan (\texttt{real<lower=-1,upper=1>}), not by prior truncation. \\
 \addlinespace
 \textbf{$u_{block\_raw}$} & Standardized spatial effects & Normal(0, 1) & Non-centered parameter & Computational device only; ensures stable sampling. \\
 \addlinespace
@@ -188,7 +187,7 @@ Prior to modeling, we compute correlations between each variable and mosquito da
 
 \subsection{Model Fitting}
 
-We test the modeling approach using R stan. In this framework, $\delta_0$ and $\delta_1$ are not estimated but must be fixed at reasonable values. If a fully Bayesian approach is desired, Stan can be used to estimate $\delta_0$ and $\delta_1$ along with their uncertainty.
+The Bayesian model is implemented in Stan and fitted via the \texttt{cmdstanr} R interface using MCMC (NUTS sampler). In the current implementation, $\delta_0$ and $\delta_1$ are estimated jointly with all other parameters, so no fixing is required. MCMC settings: 2 chains, 1000 warmup iterations, 1000 sampling iterations, \texttt{adapt\_delta = 0.95}, \texttt{max\_treedepth = 12}. Two model variants are available: with or without the temporal random effect $v_t$ (\texttt{use\_temporal\_re}); the current default omits it.
 
 \subsection{Additional Considerations}
 
@@ -384,6 +383,22 @@ Several limitations apply to the block-level approach. First, we assume that all
 A key question remains: are we overdoing it by modeling household persistence, visit timing, and explicit colonization/extinction with the mechanistic model? The answer depends on the inferential goals. If the primary objective is robust estimation of $p_{bt}$ for prediction and surveillance evaluation, the simpler block-level model may suffice. If the goal is to understand the mechanistic drivers of mosquito dynamics and evaluate control effectiveness, the added complexity of the household-level model may be justified despite its computational cost.
 
 
+
+\part*{Part~II: Frequentist GLMM --- Prior Elicitation}
+\addcontentsline{toc}{part}{Part~II: Frequentist GLMM}
+
+\section{Role of the GLMM: Bridging Frequentist and Bayesian Inference}
+
+The Bayesian hierarchical model in Part~I requires prior distributions for covariate effects ($\beta$, $w_{k,\ell}$), surveillance bias parameters ($\delta_0$, $\delta_1$), and variance components ($\sigma_u$, $\sigma_v$). While domain knowledge motivates the general shape of these priors (see Table~\ref{tab:priors}), their location and scale benefit from data-driven calibration.
+
+The frequentist GLMM described in this part serves as a fast, computationally efficient tool to:
+\begin{enumerate}
+\item \textbf{Screen covariates}: identify which environmental predictors and lags have the strongest associations with mosquito presence, informing variable selection for the Bayesian model.
+\item \textbf{Elicit prior locations}: fixed-effect estimates from the GLMM (on the log-odds scale) provide empirically grounded starting points for prior means in the Bayesian model. Because the GLMM uses maximum likelihood without shrinkage, its estimates can be used to centre priors rather than adopted directly as posterior summaries.
+\item \textbf{Calibrate variance components}: GLMM estimates of $\sigma_u$ (block heterogeneity) and temporal autocorrelation inform the scale hyperpriors \texttt{Exponential(2)} and \texttt{Exponential(3)} used in Stan.
+\end{enumerate}
+
+In short, the GLMM is run first as an exploratory and prior-elicitation step; its outputs then feed into the Bayesian model rather than being the final inferential target.
 
 \section{GLMM for Mosquito Immature Stages Presence}
 

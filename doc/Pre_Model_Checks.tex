@@ -439,33 +439,27 @@ This reasoning would imply that at the height of entomological surveillance (201
   \end{columns}
 \end{frame}
 
-\begin{frame}
-  \frametitle{Categorical precipitation based on nr rainy days}
-    \centering
-    \vspace{0.2cm}
-    \includegraphics[height=1.0\textheight]{}
-\end{frame}
+% \begin{frame}
+%   \frametitle{Categorical precipitation based on nr rainy days}
+%     \centering
+%     \vspace{0.2cm}
+%     \includegraphics[height=1.0\textheight]{}
+% \end{frame}
 
 \section{GLMM Model attempts}
 \begin{frame}
-  \frametitle{original model}  
-
-\end{frame}
-
-\begin{frame}
-  \frametitle{GLMM model specification}
+  \frametitle{original (full) model}  
   \begin{semiverbatim}
 \footnotesize
 cbind(y\_bt, n\_trials - y\_bt) \textasciitilde
 
   \textit{Lagged covariates ($\ell$ = 0, 1, 2):}
-  avg\_temp\_lag\{0,1,2\}  +  total\_precip\_lag\{0,1,2\}  +
-  mean\_ndvi\_lag\{0,1,2\}  +  precip\_max\_day\_resid\_lag\{0,1,2\}  +
+  total\_rainy\_days\_lag\{0,1,2\}  + precip\_max\_day\_resid\_lag\{0,1,2\} + avg\_VPD\_lag\{0,1,2\}  +  mean\_ndvi\_lag\{0,1,2\}  
   
 \medskip
   \textit{Static covariates:}
-  is\_urban  +  landcover  +  has\_aljibes  +  nr\_aljibes  + is\_WI  +  is\_WUI  +  water\_shortage  +  water\_containers  +
-  reactive\_shift  +
+  is\_urban + is\_WI  +  is\_WUI  +  landcover  +  has\_aljibes  +  nr\_aljibes   +  water\_shortage  +  water\_containers  +
+  reactive\_shift 
 \medskip
 
   \textit{Random effects:}
@@ -477,10 +471,62 @@ cbind(y\_bt, n\_trials - y\_bt) \textasciitilde
   \footnotesize Family: \texttt{binomial(link = "logit")}
 \end{frame}
 
+\begin{frame}
+  \frametitle{GLMM model specification}
+  \begin{semiverbatim}
+\footnotesize
+cbind(y\_bt, n\_trials - y\_bt) \textasciitilde
 
+    total\_precip\_lag\{2\}  + precip\_max\_day\_resid\_lag\{0,1,2\} + avg\_VPD\_lag\{0,1,2\} +  mean\_ndvi\_lag\{2\} +
+\medskip
+    is\_urban  +  is\_WUI  +  reactive\_shift  +
+\medskip
+  ar1(year\_month\_ar1 + 0 | ar1\_group) 
+  % + exp(xy + 0 | spatial, range = 400)
+  \end{semiverbatim}
+  \vspace{-0.5em}
+  \footnotesize Family: \texttt{binomial(link = "logit")}
+\end{frame}
 
+\begin{frame}
+  \frametitle{GLMM model output - summary}
+  \centering
+    \vspace{0.2cm}
+      \begin{columns}
+      \begin{column}{0.52\textwidth}
+        \centering
+          \includegraphics[height=0.95\textheight]{total_rainy_days_full_model.png}
+      \end{column}
+      \begin{column}{0.46\textwidth}
+        \centering
+          \includegraphics[width=\linewidth]{total_rainy_days_final_model.png}
+      \end{column}
+    \end{columns}
+\end{frame}
 
+\begin{frame}
+  \frametitle{GLMM model output - fit}
+  \centering
+    \vspace{0.2cm}
+    \includegraphics[height=0.95\textheight]{total_rainy_days_model_probabilities_timeseries_weighted_20260323.png}
 
+\end{frame}
+
+\begin{frame}
+  \frametitle{GLMM model output - QQplot}
+  \centering
+    \vspace{0.2cm}
+    \includegraphics[height=0.95\textheight]{total_rainy_days_model_qqplot_weighted_avg_20260323.png}
+
+\end{frame}
+
+\begin{frame}
+  \frametitle{GLMM model output - spatial RE distribution}
+  \centering
+    \vspace{0.2cm}
+    \includegraphics[height=0.95\textheight]{total_rainy_days_model_random_effects_plot_20260323.png}
+
+\end{frame}
 
 
 
