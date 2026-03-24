@@ -693,7 +693,57 @@ corrplot(corr_matrix,
          tl.cex = 0.8)
 ```
 
+```{r correlation matrix numeric vars at each lag}
+# Variables to lag: temporal + spatiotemporal (vary over time per block)
+# continuous_spatial (nr_aljibes, water_containers) kept unlagged — no temporal dimension
+vars_to_lag <- c(temporal_vars, spatiotemporal_vars)
+max_lag     <- 2
 
+# Create lags grouped by manzana, then drop incomplete rows from the lag window
+env_lagged <- env_all %>%
+  group_by(manzana) %>%
+  arrange(year_month, .by_group = TRUE) %>%
+  mutate(
+    across(all_of(vars_to_lag), ~.x,          .names = "{.col}_lag0"),
+    across(all_of(vars_to_lag), ~lag(.x, n=1), .names = "{.col}_lag1"),
+    across(all_of(vars_to_lag), ~lag(.x, n=2), .names = "{.col}_lag2")
+  ) %>%
+  ungroup()
+
+lagged_cols <- unlist(lapply(vars_to_lag, function(v) paste0(v, "_lag", 0:max_lag)))
+all_numeric_lagged <- c(lagged_cols, continuous_spatial)
+
+corr_data_lagged <- env_lagged %>%
+  select(all_of(all_numeric_lagged)) %>%
+  drop_na()
+
+corr_matrix_lagged <- cor(corr_data_lagged, method = "spearman")
+
+# Save to file
+png(file.path(output_dir, "11b_numeric_vars_correlation_lagged.png"), width = 1400, height = 1400, res = 150)
+corrplot(corr_matrix_lagged,
+         method      = "color",
+         type        = "upper",
+         addCoef.col = "black",
+         diag        = FALSE,
+         tl.col      = "black",
+         tl.cex      = 0.5,
+         number.cex  = 0.4,
+         mar         = c(0, 0, 3.5, 0),
+         title       = "Spearman Correlation — lag 0, 1, 2")
+dev.off()
+
+# Display in notebook
+corrplot(corr_matrix_lagged,
+         method      = "color",
+         type        = "upper",
+         addCoef.col = "black",
+         diag        = FALSE,
+         tl.col      = "black",
+         tl.cex      = 0.5,
+         number.cex  = 0.45,
+         title       = "Spearman Correlation — lag 0, 1, 2")
+```
 
 ```{r pairwise_plot_numeric_vars, fig.cap="Pairwise scatterplot matrix of numeric explanatory variables"}
 # Reuse numeric variables from previous chunk; build fresh complete-case dataset
@@ -1679,6 +1729,61 @@ and
 
 $$S_0=\sum_{i=1}^{n}\sum_{j=1}^{n} w_{ij}.$$
 
+```{r block_pair_distance_distribution}
+# Extract upper triangle of distance matrix (each pair counted once, diagonal excluded)
+pair_distances <- dist_matrix_valid[upper.tri(dist_matrix_valid, diag = FALSE)]
+pair_distances <- pair_distances[!is.na(pair_distances)]
+
+# Bin into 50m groups from 0 to 2000m
+breaks_2km  <- seq(0, 2000, by = 50)
+dist_binned <- cut(pair_distances,
+                   breaks = breaks_2km,
+                   include.lowest = TRUE,
+                   right = TRUE)
+
+dist_df <- data.frame(
+  distance_band = dist_binned,
+  distance_upper = breaks_2km[as.integer(dist_binned) + 1]  # right edge of each band
+) %>%
+  dplyr::count(distance_band, distance_upper, name = "n_pairs") %>%
+  dplyr::arrange(distance_upper) %>%
+  dplyr::mutate(cum_pairs = cumsum(n_pairs))
+
+n_total <- length(pair_distances)
+cat(sprintf("Total block pairs:      %d\n", n_total))
+cat(sprintf("Pairs within  400m:  %d (%.1f%%)\n",
+    sum(pair_distances <=  400, na.rm = TRUE),
+    100 * mean(pair_distances <=  400, na.rm = TRUE)))
+cat(sprintf("Pairs within 1000m:  %d (%.1f%%)\n",
+    sum(pair_distances <= 1000, na.rm = TRUE),
+    100 * mean(pair_distances <= 1000, na.rm = TRUE)))
+
+p_dist <- ggplot(dist_df, aes(x = distance_upper, y = cum_pairs)) +
+  geom_step(colour = "steelblue", linewidth = 1) +
+  geom_vline(xintercept =  400, linetype = "dashed", colour = "red",    linewidth = 0.8) +
+  geom_vline(xintercept = 1000, linetype = "dashed", colour = "orange", linewidth = 0.8) +
+  annotate("text", x =  420, y = n_total * 0.95,
+           label = "400m cap", hjust = 0, colour = "red",    size = 3.5) +
+  annotate("text", x = 1020, y = n_total * 0.85,
+           label = "1000m",   hjust = 0, colour = "orange",  size = 3.5) +
+  scale_x_continuous(breaks = seq(0, 2000, by = 200)) +
+  scale_y_continuous(
+    labels = scales::comma,
+    sec.axis = sec_axis(~ . / n_total * 100, name = "% of all pairs")
+  ) +
+  labs(
+    title    = "Cumulative block pairs within distance d (0–2000m)",
+    subtitle = sprintf("%s total pairs · 50m bins", scales::comma(n_total)),
+    x        = "Distance (m)",
+    y        = "Number of pairs"
+  ) +
+  theme_minimal()
+
+print(p_dist)
+ggsave(file.path(output_dir, "15b_block_pair_distance_distribution.png"),
+       p_dist, width = 10, height = 5, dpi = 300)
+```
+
 ```{r morans i exponential weighting}
 # Test at non-cumulative distance bands (annuli), for multiple exponential decay values
 distance_breaks <- seq(0, 1000, by = 50)  # 0-50, 50-100, ..., 950-1000 m
@@ -1759,6 +1864,7 @@ p_moran_phi <- ggplot(plot_data, aes(x = Distance_mid_m, y = Morans_I, color = p
 print(p_moran_phi)
 ggsave(file.path(output_dir, "16_exp_moransI_correlogram_multi_phi.png"), p_moran_phi, width = 11, height = 7, dpi = 300)
 ```
+
 
 ### Variogram 
 ```{r variogram_positivity_rate, fig.cap="Empirical variogram of mosquito positivity rate across manzanas", fig.width=10, fig.height=6}
