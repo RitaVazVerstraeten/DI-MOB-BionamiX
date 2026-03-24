@@ -39,13 +39,15 @@ source(file.path(script_dir, "plot_functions.r"))
 # =========================
 hostname <- Sys.info()["nodename"]
 
+
+# ========== Output structure and config =============
 cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/",
   data_file_name = "env_epi_entomo_data_per_manzana_2016_04_to_2019_12.csv",
   output_dir = "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
-  use_temporal_re = FALSE,
+  use_temporal_re = TRUE,
 
   # spatial
   shapefile_path = if (hostname == "frietjes")
@@ -81,6 +83,32 @@ cfg <- list(
   plot_timeseries = TRUE,
   n_blocks_facet = 9
 )
+
+# ========== Output directory structure =============
+date_suffix <- format(Sys.Date(), "%Y%m%d")
+ar1_suffix <- ifelse(cfg$use_temporal_re, "AR1-block", "noAR1")
+spatial_gp_suffix <- ifelse(is.null(cfg$use_spatial_gp) || cfg$use_spatial_gp, "GP", "noGP")
+model_tag <- ifelse(cfg$use_temporal_re, "withTimeRE", "noTimeRE")
+
+# Model spec and predictor spec (mimic GLMM.r logic)
+model_spec <- paste0(
+  "space-", spatial_gp_suffix, "_", ar1_suffix,
+  "_lag", cfg$max_lag,
+  "_k", cfg$kappa
+)
+predictor_spec <- paste0(
+  "lag-", paste(cfg$lag_vars, collapse = "-"),
+  "_unlag-", paste(cfg$unlagged_vars, collapse = "-")
+)
+run_suffix <- date_suffix
+
+model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
+run_output_dir    <- file.path(model_output_dir, run_suffix)
+plots_output_dir  <- file.path(run_output_dir, "plots")
+resid_output_dir  <- file.path(run_output_dir, "residuals_check")
+dir.create(run_output_dir,   recursive = TRUE, showWarnings = FALSE)
+dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(resid_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 cfg$data_file <- file.path(cfg$data_dir, cfg$data_file_name)
 cfg$stan_file <- if (cfg$use_temporal_re) {
