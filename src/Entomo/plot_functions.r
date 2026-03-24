@@ -753,9 +753,7 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
   library(tidyr)
   
   # Create output directory
-  timeseries_dir <- file.path(output_dir, "timeseries_plots")
-  dir.create(timeseries_dir, recursive = TRUE, showWarnings = FALSE)
-  
+  timeseries_dir <- output_dir  
 
   # --- Add uncertainty ribbon using posterior draws if available ---
   # Try to extract posterior draws for fitted probabilities (p_bt_out)
