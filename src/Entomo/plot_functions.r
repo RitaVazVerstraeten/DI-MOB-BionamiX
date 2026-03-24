@@ -756,26 +756,80 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
   timeseries_dir <- file.path(output_dir, "timeseries_plots")
   dir.create(timeseries_dir, recursive = TRUE, showWarnings = FALSE)
   
-  # Plot 1: Aggregate time series (mean across blocks)
-  p1 <- df %>%
-    group_by(year_month_date) %>%
-    summarise(
-      fitted_mean = mean(fitted_p_bt, na.rm = TRUE),
-      observed_mean = mean(observed_p_bt, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    pivot_longer(cols = c(fitted_mean, observed_mean), names_to = "type", values_to = "probability") %>%
-    ggplot(aes(x = year_month_date, y = probability, color = type)) +
-    geom_line(linewidth = 1) +
-    geom_point(size = 1.5) +
-    scale_color_manual(values = c("fitted_mean" = "blue", "observed_mean" = "red"),
-                       labels = c("Fitted p_bt", "Observed p_bt")) +
-    labs(x = "Time", y = "Probability",
-         title = "Time Series: Observed vs Fitted Mosquito Probability (Mean Across Blocks)",
-         color = NULL) +
-    theme_minimal() +
-    theme(legend.position = "bottom")
-  
+
+  # --- Add uncertainty ribbon using posterior draws if available ---
+  # Try to extract posterior draws for fitted probabilities (p_bt_out)
+  p1 <- NULL
+  draws_ok <- FALSE
+  if ("fit" %in% ls(envir = .GlobalEnv)) {
+    fit_obj <- get("fit", envir = .GlobalEnv)
+    if (inherits(fit_obj, "CmdStanMCMC")) {
+      # Try to get p_bt_out draws
+      draws <- tryCatch(fit_obj$draws("p_bt_out", format = "matrix"), error = function(e) NULL)
+      if (!is.null(draws)) {
+        draws_ok <- TRUE
+        # Get df index for each observation
+        df_idx <- df %>% select(year_month_date, block)
+        # For each time point, average across blocks for each posterior draw
+        time_points <- sort(unique(df$year_month_date))
+        n_draws <- nrow(draws)
+        agg_draws <- sapply(time_points, function(tp) {
+          idx <- which(df$year_month_date == tp)
+          if (length(idx) == 0) return(rep(NA, n_draws))
+          rowMeans(draws[, idx, drop = FALSE], na.rm = TRUE)
+        })
+        # agg_draws: n_draws x n_time
+        agg_draws <- t(agg_draws) # n_time x n_draws
+        # Compute mean, 2.5%, 97.5% for each time
+        agg_summary <- data.frame(
+          year_month_date = time_points,
+          fitted_mean = apply(agg_draws, 1, mean, na.rm = TRUE),
+          fitted_lower = apply(agg_draws, 1, quantile, probs = 0.025, na.rm = TRUE),
+          fitted_upper = apply(agg_draws, 1, quantile, probs = 0.975, na.rm = TRUE)
+        )
+        # Observed mean
+        obs_summary <- df %>%
+          group_by(year_month_date) %>%
+          summarise(observed_mean = mean(observed_p_bt, na.rm = TRUE), .groups = "drop")
+        plot_df <- left_join(agg_summary, obs_summary, by = "year_month_date")
+        p1 <- ggplot(plot_df, aes(x = year_month_date)) +
+          geom_ribbon(aes(ymin = fitted_lower, ymax = fitted_upper), fill = "blue", alpha = 0.18) +
+          geom_line(aes(y = fitted_mean, color = "fitted_mean"), linewidth = 1) +
+          geom_point(aes(y = fitted_mean, color = "fitted_mean"), size = 1.5) +
+          geom_line(aes(y = observed_mean, color = "observed_mean"), linewidth = 1) +
+          geom_point(aes(y = observed_mean, color = "observed_mean"), size = 1.5) +
+          scale_color_manual(values = c("fitted_mean" = "blue", "observed_mean" = "red"),
+                             labels = c("Fitted p_bt", "Observed p_bt")) +
+          labs(x = "Time", y = "Probability",
+               title = "Time Series: Observed vs Fitted Mosquito Probability (Mean Across Blocks)",
+               color = NULL,
+               caption = "Shaded ribbon: 95% credible interval for fitted probability (posterior draws)") +
+          theme_minimal() +
+          theme(legend.position = "bottom")
+      }
+    }
+  }
+  if (!draws_ok) {
+    # Fallback: plot without uncertainty
+    p1 <- df %>%
+      group_by(year_month_date) %>%
+      summarise(
+        fitted_mean = mean(fitted_p_bt, na.rm = TRUE),
+        observed_mean = mean(observed_p_bt, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      pivot_longer(cols = c(fitted_mean, observed_mean), names_to = "type", values_to = "probability") %>%
+      ggplot(aes(x = year_month_date, y = probability, color = type)) +
+      geom_line(linewidth = 1) +
+      geom_point(size = 1.5) +
+      scale_color_manual(values = c("fitted_mean" = "blue", "observed_mean" = "red"),
+                         labels = c("Fitted p_bt", "Observed p_bt")) +
+      labs(x = "Time", y = "Probability",
+           title = "Time Series: Observed vs Fitted Mosquito Probability (Mean Across Blocks)",
+           color = NULL) +
+      theme_minimal() +
+      theme(legend.position = "bottom")
+  }
   ggsave(file.path(timeseries_dir, paste0("timeseries_aggregate_", run_suffix, ".png")), 
          p1, width = 12, height = 6, dpi = 150)
   

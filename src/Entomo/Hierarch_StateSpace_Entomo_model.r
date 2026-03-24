@@ -43,7 +43,7 @@ hostname <- Sys.info()["nodename"]
 # ========== Output structure and config =============
 cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/",
-  data_file_name = "env_epi_entomo_data_per_manzana_2016_04_to_2019_12.csv",
+  data_file_name = "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv",
   output_dir = "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
@@ -58,16 +58,16 @@ cfg <- list(
 
   # data prep
   n_blocks = 100, # set NULL for all blocks
-  lag_vars = c("avg_temp", "rel_hum", "total_precip", "mean_ndvi"),
+  lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
   max_lag = 1,
   kappa = 2,
-  unlagged_vars = c("is_urban", "has_aljibes", "is_WI", "is_WUI", "water_shortage", "WS2M"),
-  binary_unlagged_vars = c("is_urban", "has_aljibes", "is_WI", "is_WUI", "water_shortage"),
+  unlagged_vars = c("is_urban", "is_WUI"),
+  numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
 
   # MCMC
   chains = 2,
-  iter_warmup = 1000,
-  iter_sampling = 1000,
+  iter_warmup = 200,
+  iter_sampling = 200,
   # thin = 2,
   adapt_delta = 0.95,
   max_treedepth = 12,
@@ -111,11 +111,12 @@ dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(resid_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 cfg$data_file <- file.path(cfg$data_dir, cfg$data_file_name)
-cfg$stan_file <- if (cfg$use_temporal_re) {
-  "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/Entomo_model/hierarchical_state_space.stan"
-} else {
-  "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/Entomo_model/hierarchical_state_space_no_time_re.stan"
-}
+cfg$stan_file <- "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space.stan"
+# cfg$stan_file <- if (cfg$use_temporal_re) {
+#   "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space.stan"
+# } else {
+#   "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space_no_time_re.stan"
+# }
 
 date_suffix <- format(Sys.Date(), "%Y%m%d")
 model_tag <- ifelse(cfg$use_temporal_re, "withTimeRE", "noTimeRE")
@@ -129,7 +130,22 @@ dir.create(cfg$output_dir, recursive = TRUE, showWarnings = FALSE)
 # =========================
 cat("Using hostname:", hostname, "\n")
 cat("Data directory:", cfg$data_dir, "\n")
-cat("Model variant:", ifelse(cfg$use_temporal_re, "with temporal RE", "without temporal RE"), "\n")
+cat("Model variant:" , "Predictors: ", predictor_spec, "\n","RE and AR: ", model_spec, "\n")
+
+
+# =========================
+# 1b) STANDARDIZE NUMERIC COVARIATES
+# =========================
+
+for (var in cfg$numeric_vars) {
+  if (var %in% names(df) && is.numeric(df[[var]])) {
+    m <- mean(df[[var]], na.rm = TRUE)
+    s <- sd(df[[var]], na.rm = TRUE)
+    if (!is.na(s) && s > 0) {
+      df[[var]] <- (df[[var]] - m) / s
+    }
+  }
+}
 
 prep <- build_stan_data(cfg)
 stan_data <- prep$stan_data
@@ -217,13 +233,14 @@ fit <- mod$sample(
   parallel_chains = cfg$parallel_chains
 )
 
-fit$save_object(file.path(cfg$output_dir, paste0("fit_", run_suffix, ".rds")))
+
+# Save .rds and .txt to run_output_dir (not plots dir)
+fit$save_object(file.path(run_output_dir, paste0("fit_", run_suffix, ".rds")))
 
 summary_vars <- c("alpha", "sigma_gp", "rho_gp", "phi", "delta0", "delta1", "w")
 if (cfg$use_temporal_re) summary_vars <- c(summary_vars, "sigma_v", "rho")
-summary_output <- capture.output(print(fit$summary(variables = summary_vars)))
-cat(summary_output, sep = "\n")
-writeLines(summary_output, file.path(cfg$output_dir, paste0("model_summary_", run_suffix, ".txt")))
+
+writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", run_suffix, ".txt")))
 
 post <- extract_means(fit, nrow(df))
 
@@ -231,31 +248,117 @@ post <- extract_means(fit, nrow(df))
 df$fitted_p_bt <- post$p_bt
 df$observed_p_bt <- df$y_bt / df$N_HH
 
+
 # =========================
 # 3) GENERATE PLOTS
 # =========================
 
-if (cfg$plot_random_effects && !all(is.na(post$u))) {
-  cat("\nGenerating random effects plot...\n")
-  save_random_effects(post$u, post$v, cfg$output_dir, run_suffix)
+# not showing
+
+# Robust random effects plotting for spatial GP and/or temporal AR
+if (cfg$plot_random_effects) {
+  if (!all(is.na(post$u)) && length(post$u) > 0) {
+    cat("\nGenerating random effects plot (spatial + temporal)...\n")
+    save_random_effects(post$u, post$v, plots_output_dir, run_suffix)
+  } else if (!all(is.na(post$v)) && length(post$v) > 0) {
+    cat("\nNo spatial random effects found. Plotting only temporal AR effects...\n")
+    # Plot only temporal AR effects
+    png(file.path(plots_output_dir, paste0("random_effects_temporal_only_", run_suffix, ".png")), width = 800, height = 600)
+    par(mfrow = c(1, 2))
+    plot(post$v, type = "b", main = "Temporal Random Effects (v_t) with AR(1)",
+         xlab = "Time", ylab = "Effect", col = "red", pch = 19)
+    abline(h = 0, lty = 2, col = "gray")
+    acf(post$v, main = "ACF of Temporal Effects", col = "darkred")
+    par(mfrow = c(1, 1))
+    dev.off()
+  } else {
+    cat("\nNo random effects found to plot (neither spatial nor temporal).\n")
+  }
 }
+
+# works: 
 
 if (cfg$plot_ppc) {
   cat("Generating posterior predictive check plot...\n")
-  save_ppc(df, post$y_pred, cfg$output_dir, run_suffix)
+  save_ppc(df, post$y_pred, plots_output_dir, run_suffix)
 }
 
+# giving me an error about Error in `select_parameters()`:
+# ! Some 'pars' don't match parameter names: sigma_u FALSE
+
+# Robust traceplot generation: only plot parameters that exist in the fit object
 if (cfg$plot_traceplots) {
   cat("Generating trace plots...\n")
-  save_trace_plots(fit, cfg$output_dir, run_suffix, cfg$use_temporal_re)
+  # Get available parameter names
+  available_params <- fit$summary()$variable
+  # Main parameters to try to plot
+  params_main <- c("alpha", "sigma_u", "delta0", "delta1", "sigma_v", "rho")
+  params_main <- params_main[params_main %in% available_params]
+  # Only plot if at least one param is present
+  if (length(params_main) > 0) {
+    if (!requireNamespace("bayesplot", quietly = TRUE)) {
+      cat("bayesplot package not installed; skipping trace plots.\n")
+    } else {
+      library(bayesplot)
+      draws_array <- fit$draws(format = "array")
+      ggsave(
+        file.path(plots_output_dir, paste0("traceplot_params_", run_suffix, ".png")),
+        mcmc_trace(draws_array, pars = params_main), width = 10, height = 8
+      )
+    }
+  } else {
+    cat("No main parameters found for traceplot.\n")
+  }
+  # Plot lagged weights if present
+  w_params <- available_params[grepl("^w\\[", available_params)]
+  if (length(w_params) > 0) {
+    if (!requireNamespace("bayesplot", quietly = TRUE)) {
+      cat("bayesplot package not installed; skipping w trace plots.\n")
+    } else {
+      library(bayesplot)
+      draws_array <- fit$draws(format = "array")
+      ggsave(
+        file.path(plots_output_dir, paste0("traceplot_weights_w_", run_suffix, ".png")),
+        mcmc_trace(draws_array, pars = w_params), width = 12, height = 10
+      )
+    }
+  }
+  # Plot unlagged weights if present
+  wu_params <- available_params[grepl("^w_unlagged\\[", available_params)]
+  if (length(wu_params) > 0) {
+    if (!requireNamespace("bayesplot", quietly = TRUE)) {
+      cat("bayesplot package not installed; skipping w_unlagged trace plots.\n")
+    } else {
+      library(bayesplot)
+      draws_array <- fit$draws(format = "array")
+      ggsave(
+        file.path(plots_output_dir, paste0("traceplot_weights_unlagged_", run_suffix, ".png")),
+        mcmc_trace(draws_array, pars = wu_params), width = 12, height = 8
+      )
+    }
+  }
 }
+
 
 if (cfg$plot_timeseries) {
   cat("Generating time series plots...\n")
-  save_timeseries_plots(df, cfg$output_dir, run_suffix, cfg$n_blocks_facet)
+  save_timeseries_plots(df, plots_output_dir, run_suffix, cfg$n_blocks_facet)
 }
 
-cat("\nAll outputs saved to:", cfg$output_dir, "\n")
+
+# Additional residual diagnostics and QQ plots (as in GLMM.r)
+cat("Generating residual diagnostics and QQ plots...\n")
+if ("save_glmm_residuals_plot" %in% ls()) {
+  save_glmm_residuals_plot(fit, resid_output_dir, run_suffix)
+}
+if ("save_glmm_qqplot_observed_vs_expected" %in% ls()) {
+  save_glmm_qqplot_observed_vs_expected(df, post$p_bt, plots_output_dir, run_suffix)
+}
+if ("save_glmm_qqplot_weighted_avg" %in% ls()) {
+  save_glmm_qqplot_weighted_avg(df, post$p_bt, plots_output_dir, run_suffix)
+}
+
+cat("\nAll outputs saved to:", run_output_dir, "\n")
 
 # =========================
 # 4) MORAN'S I ON STAN POSTERIOR RESIDUALS

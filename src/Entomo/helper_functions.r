@@ -199,7 +199,7 @@ make_init_fun <- function(stan_data, use_temporal_re) {
     )
 
     if (use_temporal_re) {
-      init_vals$v_time_raw <- rnorm(stan_data$T, 0, 0.5)
+      init_vals$v_time_raw <- matrix(rnorm(stan_data$B * stan_data$T, 0, 0.5), stan_data$B, stan_data$T)
       init_vals$sigma_v <- runif(1, 0.1, 0.5)
       init_vals$rho <- rnorm(1, 0, 0.25)
     }
