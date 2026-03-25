@@ -25,9 +25,11 @@ parameters {
   matrix[K, Lp1] w;        // distributed lag weights for environmental covariates
   vector<lower=0>[K] sigma_w;  // random walk SD for each covariate's lag structure
   vector[Ku] w_unlagged;   // weights for unlagged block-level covariates
-  matrix[B, T] v_time_raw;    // temporal random effects (non-centered), per block
-  real<lower=0> sigma_v;      // SD of temporal random effects (shared)
-  real<lower=-1,upper=1> rho; // temporal autoregression parameter (shared)
+  vector[T] v_global_raw;          // global AR(1) trend (non-centered)
+  vector[B] v_block_dev_raw;       // per-block deviation from global trend (non-centered)
+  real<lower=0> sigma_v;           // SD of global temporal trend
+  real<lower=-1,upper=1> rho;      // AR(1) coefficient
+  real<lower=0> sigma_block_dev;   // SD of per-block deviations
   real delta0;             // baseline targeting bias (reactive surveillance)
   real delta1;             // log-linear increase with outbreak intensity
   // phi is fixed (passed via data); remove this block to re-estimate it
@@ -41,7 +43,8 @@ transformed parameters {
   vector[N] p_R;           // reactive surveillance probability (biased upward)
   vector[N] omega;         // fraction of inspections that are reactive (omega_bt = kappa*C_bt / n_bt)
   vector[N] pi;            // effective observation probability (mixture of p_bt and p_R)
-  matrix[B, T] v_time;     // temporal random effects with AR(1), per block
+  vector[T] v_global;      // global AR(1) temporal trend
+  vector[B] v_block_dev;  // per-block deviation from global trend
   vector[N] x_effect;      // linear predictor for environmental effects
   vector[B] u_gp;          // spatial random effects: GP with exponential kernel
 
@@ -63,13 +66,14 @@ transformed parameters {
     u_gp = cholesky_decompose(K_gp) * z_gp;
   }
 
-  // 2. AR(1) temporal structure per block: v_t = rho * v_{t-1} + epsilon_t
-  for (b in 1:B) {
-    v_time[b, 1] = sigma_v * v_time_raw[b, 1] / sqrt(fmax(1e-6, 1 - rho^2));
-    for (t in 2:T) {
-      v_time[b, t] = rho * v_time[b, t-1] + sigma_v * v_time_raw[b, t];
-    }
+  // 2. Global AR(1) trend + per-block deviations
+  //    v_global[t] = rho * v_global[t-1] + sigma_v * eps_t  (shared across blocks)
+  //    v_block_dev[b] ~ N(0, sigma_block_dev)                (block-specific offset)
+  v_global[1] = sigma_v * v_global_raw[1] / sqrt(fmax(1e-6, 1 - rho^2));
+  for (t in 2:T) {
+    v_global[t] = rho * v_global[t-1] + sigma_v * v_global_raw[t];
   }
+  v_block_dev = sigma_block_dev * v_block_dev_raw;
 
   // 3. Calculate environmental effects (matrix multiplication)
   // Flatten w to [K*Lp1] and multiply with X_lag_flat[N, K*Lp1]
@@ -78,7 +82,7 @@ transformed parameters {
   // 4. Calculate linear predictor and latent ecological probability
   vector[N] eta;
   for (i in 1:N) {
-    eta[i] = alpha + x_effect[i] + u_gp[block[i]] + v_time[block[i], time[i]];
+    eta[i] = alpha + x_effect[i] + u_gp[block[i]] + v_global[time[i]] + v_block_dev[block[i]];
   }
   p_bt = inv_logit(eta);
 
@@ -122,9 +126,11 @@ model {
   sigma_w ~ exponential(2);  // shrink toward smooth lag structure
   
   w_unlagged ~ normal(0, 0.5);    // unlagged covariate weights
-  to_vector(v_time_raw) ~ normal(0, 1);      // non-centered parameterization for all blocks and times
-  sigma_v ~ exponential(1);        // temporal scale: loosened (mean = 1.0 vs 0.33)
-  rho ~ normal(0.4, 0.2);          // recentred toward positive autocorrelation
+  v_global_raw    ~ normal(0, 1);       // non-centered global AR(1)
+  v_block_dev_raw ~ normal(0, 1);       // non-centered per-block deviations
+  sigma_v         ~ exponential(1);     // SD of global temporal trend
+  sigma_block_dev ~ exponential(2);     // SD of per-block deviations (shrink toward shared trend)
+  rho             ~ normal(0.4, 0.2);   // AR(1) coefficient
   delta0 ~ normal(0.3, 0.4);      // slightly reduced baseline targeting bias
   delta1 ~ normal(0, 0.2);        // reduced log-linear increase to stabilize init
   // phi is fixed (no prior needed)
@@ -144,8 +150,9 @@ generated quantities {
   // Save probabilities and random effects for posterior analysis
   vector[N] p_bt_out = p_bt;
   vector[N] p_R_out = p_R;
-  vector[B] u_gp_out    = u_gp;
-  matrix[B, T] v_time_out  = v_time;
+  vector[B] u_gp_out          = u_gp;
+  vector[T] v_global_out      = v_global;
+  vector[B] v_block_dev_out   = v_block_dev;
   
   // Posterior predictive checks
   array[N] int<lower=0> y_pred;

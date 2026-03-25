@@ -185,7 +185,7 @@ build_stan_data <- function(cfg) {
 #' @param stan_data List containing Stan data (used to determine dimensions)
 #' @param use_temporal_re Logical flag indicating whether temporal RE is enabled in the model
 #' @return Function that returns a list of initial values for one MCMC chain
-make_init_fun <- function(stan_data, use_temporal_re) {
+make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE) {
   function() {
     init_vals <- list(
       alpha      = rnorm(1, -4.5, 0.4),
@@ -194,15 +194,22 @@ make_init_fun <- function(stan_data, use_temporal_re) {
       w_unlagged = rnorm(stan_data$Ku, 0, 0.1),
       sigma_gp   = runif(1, 0.1, 0.5),
       rho_gp     = runif(1, 50, 200),
-      z_gp       = rnorm(stan_data$B, 0, 0.1),
       delta0     = rnorm(1, 0.3, 0.2),
       delta1     = rnorm(1, 0, 0.1)
     )
 
+    if (isTRUE(use_hsgp)) {
+      init_vals$beta_gp <- rnorm(stan_data$M^2, 0, 0.1)
+    } else {
+      init_vals$z_gp <- rnorm(stan_data$B, 0, 0.1)
+    }
+
     if (use_temporal_re) {
-      init_vals$v_time_raw <- matrix(rnorm(stan_data$B * stan_data$T, 0, 0.5), stan_data$B, stan_data$T)
-      init_vals$sigma_v <- runif(1, 0.1, 0.5)
-      init_vals$rho <- rnorm(1, 0, 0.25)
+      init_vals$v_global_raw    <- rnorm(stan_data$T, 0, 0.3)
+      init_vals$v_block_dev_raw <- rnorm(stan_data$B, 0, 0.3)
+      init_vals$sigma_v         <- runif(1, 0.1, 0.5)
+      init_vals$sigma_block_dev <- runif(1, 0.05, 0.3)
+      init_vals$rho             <- rnorm(1, 0.3, 0.15)
     }
 
     init_vals

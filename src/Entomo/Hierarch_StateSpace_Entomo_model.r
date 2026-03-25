@@ -69,8 +69,8 @@ cfg <- list(
 
   # MCMC
   chains = 2,
-  iter_warmup = 500,
-  iter_sampling = 500,
+  iter_warmup = 400,
+  iter_sampling = 400,
   # thin = 2,
   adapt_delta = 0.95,
   max_treedepth = 12,
@@ -78,7 +78,7 @@ cfg <- list(
 
   # phi: set fix_phi = TRUE to pass phi as data (fixed); FALSE to estimate it
   fix_phi = TRUE,
-  phi_fixed = 8.0,   # beta-binomial concentration -> later replace with gamma(2, 0.25)
+  phi_fixed = 25,   # beta-binomial concentration -> later replace with gamma(2, 0.25)
   # prior predictive check (set TRUE before first real fit)
   run_prior_predictive = FALSE,
 
@@ -93,7 +93,8 @@ cfg <- list(
 # ========== Output directory structure =============
 date_suffix <- format(Sys.Date(), "%Y%m%d")
 ar1_suffix <- ifelse(cfg$use_temporal_re, "AR1-block", "noAR1")
-spatial_gp_suffix <- ifelse(is.null(cfg$use_spatial_gp) || cfg$use_spatial_gp, "GP", "noGP")
+gp_type_suffix <- ifelse(isTRUE(cfg$use_hsgp), "HSGP", "GP")
+spatial_gp_suffix <- ifelse(is.null(cfg$use_spatial_gp) || cfg$use_spatial_gp, gp_type_suffix, "noGP")
 model_tag <- ifelse(cfg$use_temporal_re, "withTimeRE", "noTimeRE")
 
 # Model spec and predictor spec (mimic GLMM.r logic)
@@ -254,7 +255,7 @@ disp_df %>%
   filter(n_bt > 0) %>%
   mutate(y_rate = y_bt / n_bt) %>%
   group_by(n_bt) %>%
-  filter(n() >= 30) %>%
+  # filter(n() >= 30) %>%
   summarise(
     p_bar        = mean(y_rate),
     var_observed = var(y_rate),
@@ -309,8 +310,8 @@ if (isTRUE(cfg$run_prior_predictive)) {
   fit_prior <- mod$sample(
     data            = stan_data,
     chains          = 2,
-    iter_warmup     = 0,
-    iter_sampling   = 500,
+    iter_warmup     = 200,
+    iter_sampling   = 200,
     fixed_param     = TRUE,
     parallel_chains = cfg$parallel_chains
   )
@@ -348,7 +349,7 @@ fit <- mod$sample(
   iter_warmup = cfg$iter_warmup,
   iter_sampling = cfg$iter_sampling,
   thin = if (!is.null(cfg$thin)) cfg$thin else 1,
-  init = make_init_fun(stan_data, cfg$use_temporal_re),
+  init = make_init_fun(stan_data, cfg$use_temporal_re, use_hsgp = isTRUE(cfg$use_hsgp)),
   adapt_delta = cfg$adapt_delta,
   max_treedepth = cfg$max_treedepth,
   parallel_chains = cfg$parallel_chains
@@ -360,7 +361,7 @@ fit$save_object(file.path(run_output_dir, paste0("fit_", run_suffix, ".rds")))
 
 summary_vars <- c("alpha", "sigma_gp", "rho_gp", "delta0", "delta1", "w")
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
-if (cfg$use_temporal_re) summary_vars <- c(summary_vars, "sigma_v", "rho")
+if (cfg$use_temporal_re) summary_vars <- c(summary_vars, "sigma_v", "sigma_block_dev", "rho")
 
 summary_output <- capture.output(print(fit$summary(variables = summary_vars)))
 writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", run_suffix, ".txt")))
@@ -368,8 +369,9 @@ writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", ru
 post <- extract_means(fit, nrow(df))
 
 # Prepare data for plotting
-df$fitted_p_bt <- post$p_bt
-df$observed_p_bt <- df$y_bt / df$N_HH
+df$n_bt          <- stan_data$n_bt
+df$fitted_p_bt   <- post$p_bt
+df$observed_p_bt <- df$y_bt / df$n_bt
 
 
 # =========================
@@ -417,16 +419,19 @@ if (cfg$plot_traceplots) {
   } else {
     library(bayesplot)
 
-    # Get available parameter names
     available_params <- fit$summary()$variable
-    exclude_patterns <- c("^w\\[", "^w_unlagged\\[",
-                          "^p_bt\\[", "^p_bt_out\\[", "^p_R\\[", "^p_R_out\\[",
-                          "^omega\\[", "^pi\\[", "^eta\\[", "^x_effect\\[",
-                          "^z_gp\\[", "^u_gp\\[", "^u_gp_out\\[", "^beta_gp\\[",
-                          "^u_block_out\\[", "^v_time_out\\[", "^v_time_raw\\[", "^v_time\\[",
-                          "^y_pred\\[", "^log_lik\\[", "^lp__$")
-    scalar_params <- available_params[!sapply(available_params, function(p)
-      any(sapply(exclude_patterns, function(pat) grepl(pat, p))))]
+
+    # Whitelist: scalar model parameters worth tracing
+    scalar_include <- c("alpha", "sigma_gp", "rho_gp",
+                        "delta0", "delta1",
+                        "sigma_v", "rho", "sigma_block_dev",
+                        "phi")
+    scalar_params <- available_params[
+      available_params %in% scalar_include |
+      grepl("^sigma_w\\[", available_params) |  # K elements, one per covariate
+      grepl("^v_global\\[", available_params)   # T=12 global AR(1) trend values
+    ]
+
     w_params  <- available_params[grepl("^w\\[", available_params)]
     wu_params <- available_params[grepl("^w_unlagged\\[", available_params)]
 
@@ -470,17 +475,7 @@ if (cfg$plot_timeseries) {
 }
 
 
-# Additional residual diagnostics and QQ plots (as in GLMM.r)
-cat("Generating residual diagnostics and QQ plots...\n")
-if ("save_glmm_residuals_plot" %in% ls()) {
-  save_glmm_residuals_plot(fit, resid_output_dir, run_suffix)
-}
-if ("save_glmm_qqplot_observed_vs_expected" %in% ls()) {
-  save_glmm_qqplot_observed_vs_expected(df, post$p_bt, plots_output_dir, run_suffix)
-}
-if ("save_glmm_qqplot_weighted_avg" %in% ls()) {
-  save_glmm_qqplot_weighted_avg(df, post$p_bt, plots_output_dir, run_suffix)
-}
+# glmmTMB-specific diagnostics (residuals, QQ plots) are not applicable to CmdStan fits; skipped
 
 cat("\nAll outputs saved to:", run_output_dir, "\n")
 
@@ -517,7 +512,7 @@ if (requireNamespace("spdep", quietly = TRUE)) {
       group_by(block_chr) %>%
       summarise(mean_resid = mean(pearson_resid_stan, na.rm = TRUE),
                 x = first(x), y = first(y), .groups = "drop") %>%
-      filter(!is.na(x), !is.na(y), !is.na(mean_resid))
+      filter(!is.na(x), !is.na(y), !is.na(mean_resid), is.finite(mean_resid))
 
     if (nrow(block_resid_yr) < 10) next
 
@@ -539,7 +534,19 @@ if (requireNamespace("spdep", quietly = TRUE)) {
         next
       }
       lw <- spdep::mat2listw(w, style = "W", zero.policy = TRUE)
-      mt <- spdep::moran.test(block_resid_yr$mean_resid, lw, zero.policy = TRUE)
+      mt <- tryCatch(
+        spdep::moran.test(block_resid_yr$mean_resid, lw, zero.policy = TRUE),
+        error   = function(e) NULL,
+        warning = function(w) suppressWarnings(
+          spdep::moran.test(block_resid_yr$mean_resid, lw, zero.policy = TRUE))
+      )
+      if (is.null(mt)) {
+        band_list[[i]] <- data.frame(
+          year = yr, d_low = d_low, d_high = d_high,
+          d_mid = (d_low + d_high) / 2,
+          morans_I = NA_real_, p_value = NA_real_, significant = NA)
+        next
+      }
       band_list[[i]] <- data.frame(
         year        = yr,
         d_low       = d_low, d_high = d_high,
@@ -563,11 +570,11 @@ if (requireNamespace("spdep", quietly = TRUE)) {
     geom_line(linewidth = 0.8) +
     geom_point(aes(shape = significant), size = 2) +
     scale_shape_manual(values  = c("TRUE" = 16, "FALSE" = 1),
-                       labels  = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05"),
+                       labels  = c("TRUE" = "p < 0.05", "FALSE" = "p >= 0.05"),
                        na.value = 1) +
     scale_x_continuous(breaks = seq(0, 2000, by = 200)) +
     labs(
-      title    = "Moran's I on Stan posterior Pearson residuals — by year",
+      title    = "Moran's I on Stan posterior Pearson residuals - by year",
       subtitle = "Remaining autocorrelation after reactive-mixture correction",
       x = "Distance band midpoint (m)", y = "Moran's I",
       colour = "Year", shape = NULL
@@ -575,18 +582,18 @@ if (requireNamespace("spdep", quietly = TRUE)) {
     theme_minimal()
 
   ggsave(
-    file.path(cfg$output_dir,
+    file.path(plots_output_dir,
               paste0("moransI_stan_by_year_", run_suffix, ".png")),
     p_moran_stan, width = 11, height = 5, dpi = 150
   )
 
   write.csv(
     moran_stan_df,
-    file.path(cfg$output_dir,
+    file.path(plots_output_dir,
               paste0("moransI_stan_by_year_", run_suffix, ".csv")),
     row.names = FALSE
   )
-  cat("Stan Moran's I correlogram saved to:", cfg$output_dir, "\n")
+  cat("Stan Moran's I correlogram saved to:", plots_output_dir, "\n")
 
 } else {
   cat("Skipping Stan Moran's I: package 'spdep' not installed.\n")

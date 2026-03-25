@@ -876,7 +876,7 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
   # Plot 4: Correlation distribution
   df_corr <- df %>%
     group_by(block) %>%
-    summarise(correlation = cor(observed_p_bt, fitted_p_bt, use = "complete.obs"), .groups = "drop") %>%
+    summarise(correlation = suppressWarnings(cor(observed_p_bt, fitted_p_bt, use = "complete.obs")), .groups = "drop") %>%
     filter(!is.na(correlation))
   
   p4 <- ggplot(df_corr, aes(x = correlation)) +
