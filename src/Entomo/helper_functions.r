@@ -188,14 +188,15 @@ build_stan_data <- function(cfg) {
 make_init_fun <- function(stan_data, use_temporal_re) {
   function() {
     init_vals <- list(
-      alpha = rnorm(1, -4.5, 0.4),
-      w = matrix(rnorm(stan_data$K * stan_data$Lp1, 0, 0.08), stan_data$K, stan_data$Lp1),
-      sigma_w = runif(stan_data$K, 0.1, 0.3),
+      alpha      = rnorm(1, -4.5, 0.4),
+      w          = matrix(rnorm(stan_data$K * stan_data$Lp1, 0, 0.08), stan_data$K, stan_data$Lp1),
+      sigma_w    = runif(stan_data$K, 0.1, 0.3),
       w_unlagged = rnorm(stan_data$Ku, 0, 0.1),
-      u_block_raw = rnorm(stan_data$B, 0, 0.5),
-      sigma_u = runif(1, 0.1, 0.5),
-      delta0 = rnorm(1, 0.3, 0.2),
-      delta1 = rnorm(1, 0, 0.1)
+      sigma_gp   = runif(1, 0.1, 0.5),
+      rho_gp     = runif(1, 50, 200),
+      z_gp       = rnorm(stan_data$B, 0, 0.1),
+      delta0     = rnorm(1, 0.3, 0.2),
+      delta1     = rnorm(1, 0, 0.1)
     )
 
     if (use_temporal_re) {
