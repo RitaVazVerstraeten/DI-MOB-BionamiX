@@ -332,7 +332,7 @@ fit <- mod$sample(
   chains = cfg$chains,
   iter_warmup = cfg$iter_warmup,
   iter_sampling = cfg$iter_sampling,
-  thin = cfg$thin,
+  thin = if (!is.null(cfg$thin)) cfg$thin else 1,
   init = make_init_fun(stan_data, cfg$use_temporal_re),
   adapt_delta = cfg$adapt_delta,
   max_treedepth = cfg$max_treedepth,
@@ -347,6 +347,7 @@ summary_vars <- c("alpha", "sigma_gp", "rho_gp", "delta0", "delta1", "w")
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
 if (cfg$use_temporal_re) summary_vars <- c(summary_vars, "sigma_v", "rho")
 
+summary_output <- capture.output(print(fit$summary(variables = summary_vars)))
 writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", run_suffix, ".txt")))
 
 post <- extract_means(fit, nrow(df))
