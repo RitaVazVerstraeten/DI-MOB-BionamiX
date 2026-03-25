@@ -48,6 +48,9 @@ cfg <- list(
 
   # model variant
   use_temporal_re = TRUE,
+  use_hsgp        = TRUE,   # TRUE = HSGP approx (faster); FALSE = exact Cholesky GP
+  hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
+  hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
 
   # spatial
   shapefile_path = if (hostname == "frietjes")
@@ -57,7 +60,7 @@ cfg <- list(
   sf_block_col = "CODIGO_",
 
   # data prep
-  n_blocks = NULL, # set NULL for all blocks
+  n_blocks = 100, # set NULL for all blocks
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
   max_lag = 1,
   kappa = 2,
@@ -114,7 +117,11 @@ dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(resid_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 cfg$data_file <- file.path(cfg$data_dir, cfg$data_file_name)
-cfg$stan_file <- "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space.stan"
+cfg$stan_file <- if (isTRUE(cfg$use_hsgp)) {
+  "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space_hsgp.stan"
+} else {
+  "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space.stan"
+}
 # cfg$stan_file <- if (cfg$use_temporal_re) {
 #   "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space.stan"
 # } else {
@@ -175,9 +182,17 @@ coords_sf  <- sf_blocks %>%
   select(block_chr, x, y) %>%
   distinct(block_chr, .keep_all = TRUE)
 
-dist_mat <- as.matrix(dist(coords_sf[, c("x", "y")]))
-stan_data$dist_block <- dist_mat
-cat(sprintf("Distance matrix: %d × %d blocks\n", nrow(dist_mat), ncol(dist_mat)))
+if (isTRUE(cfg$use_hsgp)) {
+  stan_data$coords_block <- as.matrix(coords_sf[, c("x", "y")])
+  stan_data$M            <- cfg$hsgp_m
+  stan_data$c_boundary   <- cfg$hsgp_c
+  cat(sprintf("HSGP: %d blocks, M=%d per dim (%d basis functions total), c=%.1f\n",
+              nrow(stan_data$coords_block), cfg$hsgp_m, cfg$hsgp_m^2, cfg$hsgp_c))
+} else {
+  dist_mat <- as.matrix(dist(coords_sf[, c("x", "y")]))
+  stan_data$dist_block <- dist_mat
+  cat(sprintf("Exact GP: distance matrix %d × %d blocks\n", nrow(dist_mat), ncol(dist_mat)))
+}
 
 
 #####################################
@@ -397,55 +412,53 @@ if (cfg$plot_ppc) {
 # Robust traceplot generation: only plot parameters that exist in the fit object
 if (cfg$plot_traceplots) {
   cat("Generating trace plots...\n")
-  # Get available parameter names
-  available_params <- fit$summary()$variable
-  # Exclude weights and high-dimensional outputs
-  exclude_patterns <- c("^w\\[", "^w_unlagged\\[", "^p_bt_out\\[", "^p_R_out\\[", "^u_block_out\\[", "^v_time_out\\[", "^y_pred\\[", "^log_lik\\[", "^lp__$")
-  is_scalar_param <- function(param) {
-    !any(sapply(exclude_patterns, function(pat) grepl(pat, param)))
-  }
-  scalar_params <- available_params[sapply(available_params, is_scalar_param)]
-  # Only plot if at least one param is present
-  if (length(scalar_params) > 0) {
-    if (!requireNamespace("bayesplot", quietly = TRUE)) {
-      cat("bayesplot package not installed; skipping trace plots.\n")
-    } else {
-      library(bayesplot)
-      draws_array <- fit$draws(format = "array")
-      ggsave(
-        file.path(plots_output_dir, paste0("traceplot_params_", run_suffix, ".png")),
-        mcmc_trace(draws_array, pars = scalar_params), width = 10, height = 8
-      )
-    }
+  if (!requireNamespace("bayesplot", quietly = TRUE)) {
+    cat("bayesplot package not installed; skipping trace plots.\n")
   } else {
-    cat("No scalar parameters found for traceplot.\n")
-  }
-  # Plot lagged weights if present
-  w_params <- available_params[grepl("^w\\[", available_params)]
-  if (length(w_params) > 0) {
-    if (!requireNamespace("bayesplot", quietly = TRUE)) {
-      cat("bayesplot package not installed; skipping w trace plots.\n")
-    } else {
-      library(bayesplot)
-      draws_array <- fit$draws(format = "array")
-      ggsave(
-        file.path(plots_output_dir, paste0("traceplot_weights_w_", run_suffix, ".png")),
-        mcmc_trace(draws_array, pars = w_params), width = 12, height = 10
-      )
+    library(bayesplot)
+
+    # Get available parameter names
+    available_params <- fit$summary()$variable
+    exclude_patterns <- c("^w\\[", "^w_unlagged\\[",
+                          "^p_bt\\[", "^p_bt_out\\[", "^p_R\\[", "^p_R_out\\[",
+                          "^omega\\[", "^pi\\[", "^eta\\[", "^x_effect\\[",
+                          "^z_gp\\[", "^u_gp\\[", "^u_gp_out\\[", "^beta_gp\\[",
+                          "^u_block_out\\[", "^v_time_out\\[", "^v_time_raw\\[", "^v_time\\[",
+                          "^y_pred\\[", "^log_lik\\[", "^lp__$")
+    scalar_params <- available_params[!sapply(available_params, function(p)
+      any(sapply(exclude_patterns, function(pat) grepl(pat, p))))]
+    w_params  <- available_params[grepl("^w\\[", available_params)]
+    wu_params <- available_params[grepl("^w_unlagged\\[", available_params)]
+
+    # Helper: save chunked traceplots (avoids huge single ggplot)
+    save_trace_chunks <- function(vars, draws_arr, file_prefix, chunk_size = 12, w, h) {
+      chunks <- split(vars, ceiling(seq_along(vars) / chunk_size))
+      for (i in seq_along(chunks)) {
+        ggsave(
+          file.path(plots_output_dir, paste0(file_prefix, "_part", i, "_", run_suffix, ".png")),
+          mcmc_trace(draws_arr, pars = chunks[[i]]), width = w, height = h
+        )
+      }
     }
-  }
-  # Plot unlagged weights if present
-  wu_params <- available_params[grepl("^w_unlagged\\[", available_params)]
-  if (length(wu_params) > 0) {
-    if (!requireNamespace("bayesplot", quietly = TRUE)) {
-      cat("bayesplot package not installed; skipping w_unlagged trace plots.\n")
+
+    # Scalar params
+    if (length(scalar_params) > 0) {
+      draws_scalar <- fit$draws(variables = scalar_params, format = "array")
+      save_trace_chunks(scalar_params, draws_scalar, "traceplot_params", chunk_size = 12, w = 10, h = 8)
     } else {
-      library(bayesplot)
-      draws_array <- fit$draws(format = "array")
-      ggsave(
-        file.path(plots_output_dir, paste0("traceplot_weights_unlagged_", run_suffix, ".png")),
-        mcmc_trace(draws_array, pars = wu_params), width = 12, height = 8
-      )
+      cat("No scalar parameters found for traceplot.\n")
+    }
+
+    # Lagged weights
+    if (length(w_params) > 0) {
+      draws_w <- fit$draws(variables = w_params, format = "array")
+      save_trace_chunks(w_params, draws_w, "traceplot_weights_w", chunk_size = 12, w = 12, h = 10)
+    }
+
+    # Unlagged weights
+    if (length(wu_params) > 0) {
+      draws_wu <- fit$draws(variables = wu_params, format = "array")
+      save_trace_chunks(wu_params, draws_wu, "traceplot_weights_unlagged", chunk_size = 12, w = 12, h = 8)
     }
   }
 }
