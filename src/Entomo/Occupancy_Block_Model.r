@@ -369,7 +369,8 @@ fit <- mod$sample(
   init            = make_init(stan_data, use_hsgp = isTRUE(cfg$use_hsgp)),
   adapt_delta     = cfg$adapt_delta,
   max_treedepth   = cfg$max_treedepth,
-  parallel_chains = cfg$parallel_chains
+  parallel_chains = cfg$parallel_chains, 
+  refresh = 10 # show update every 10 iterations
 )
 
 fit$save_object(file.path(cfg$output_dir, paste0("fit_", run_suffix, ".rds")))
