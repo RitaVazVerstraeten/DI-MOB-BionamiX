@@ -47,7 +47,7 @@ cfg <- list(
   output_dir = "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
-  use_temporal_re = TRUE,
+  use_temporal_AR = TRUE,
   use_hsgp        = TRUE,   # TRUE = HSGP approx (faster); FALSE = exact Cholesky GP
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
@@ -92,10 +92,10 @@ cfg <- list(
 
 # ========== Output directory structure =============
 date_suffix <- format(Sys.Date(), "%Y%m%d")
-ar1_suffix <- ifelse(cfg$use_temporal_re, "AR1-block", "noAR1")
+ar1_suffix <- ifelse(cfg$use_temporal_AR, "AR1-block", "noAR1")
 gp_type_suffix <- ifelse(isTRUE(cfg$use_hsgp), "HSGP", "GP")
 spatial_gp_suffix <- ifelse(is.null(cfg$use_spatial_gp) || cfg$use_spatial_gp, gp_type_suffix, "noGP")
-model_tag <- ifelse(cfg$use_temporal_re, "withTimeRE", "noTimeRE")
+model_tag <- ifelse(cfg$use_temporal_AR, "withTimeRE", "noTimeRE")
 
 # Model spec and predictor spec (mimic GLMM.r logic)
 model_spec <- paste0(
@@ -123,14 +123,14 @@ cfg$stan_file <- if (isTRUE(cfg$use_hsgp)) {
 } else {
   "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space.stan"
 }
-# cfg$stan_file <- if (cfg$use_temporal_re) {
+# cfg$stan_file <- if (cfg$use_temporal_AR) {
 #   "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space.stan"
 # } else {
 #   "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space_no_time_re.stan"
 # }
 
 date_suffix <- format(Sys.Date(), "%Y%m%d")
-model_tag <- ifelse(cfg$use_temporal_re, "withTimeRE", "noTimeRE")
+model_tag <- ifelse(cfg$use_temporal_AR, "withTimeRE", "noTimeRE")
 run_suffix <- paste0(date_suffix, "_stand_", model_tag)
 
 options(mc.cores = if (hostname == "frietjes") 6 else 2)
@@ -349,7 +349,7 @@ fit <- mod$sample(
   iter_warmup = cfg$iter_warmup,
   iter_sampling = cfg$iter_sampling,
   thin = if (!is.null(cfg$thin)) cfg$thin else 1,
-  init = make_init_fun(stan_data, cfg$use_temporal_re, use_hsgp = isTRUE(cfg$use_hsgp)),
+  init = make_init_fun(stan_data, cfg$use_temporal_AR, use_hsgp = isTRUE(cfg$use_hsgp)),
   adapt_delta = cfg$adapt_delta,
   max_treedepth = cfg$max_treedepth,
   parallel_chains = cfg$parallel_chains
@@ -361,7 +361,7 @@ fit$save_object(file.path(run_output_dir, paste0("fit_", run_suffix, ".rds")))
 
 summary_vars <- c("alpha", "sigma_gp", "rho_gp", "delta0", "delta1", "w")
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
-if (cfg$use_temporal_re) summary_vars <- c(summary_vars, "sigma_v", "sigma_block_dev", "rho")
+if (cfg$use_temporal_AR) summary_vars <- c(summary_vars, "sigma_v", "sigma_block_dev", "rho")
 
 summary_output <- capture.output(print(fit$summary(variables = summary_vars)))
 writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", run_suffix, ".txt")))
