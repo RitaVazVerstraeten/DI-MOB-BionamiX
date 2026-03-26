@@ -26,7 +26,10 @@ cfg <- list(
   data_dir  = if (hostname == "frietjes") "~/data/Entomo"
               else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/",
   data_file_name = "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv",
-  output_dir = "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan_occupancy",
+  base_output_dir = paste0(
+    "/home/rita/PyProjects/DI-MOB-BionamiX/results/",
+    "Entomo/fitting/stan_occupancy"
+  ),
   stan_file  = NULL,   # set below after use_hsgp is resolved
   shapefile_path = if (hostname == "frietjes")
     "/home/rita/data/Entomo/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp"
@@ -69,14 +72,16 @@ cfg$stan_file <- if (isTRUE(cfg$use_hsgp)) {
   file.path(stan_dir, "occupancy_block_model.stan")
 }
 
-gp_type_suffix <- ifelse(isTRUE(cfg$use_hsgp), "HSGP", "GP")
+gp_label <- if (isTRUE(cfg$use_hsgp)) {
+  paste0("HSGP_M", cfg$hsgp_m)
+} else {
+  "GP"
+}
+b_label <- if (is.null(cfg$n_blocks)) "B_All" else paste0("B", cfg$n_blocks)
 cat(sprintf("GP type: %s | Stan: %s\n",
-            gp_type_suffix, basename(cfg$stan_file)))
+            gp_label, basename(cfg$stan_file)))
 
 date_suffix <- format(Sys.Date(), "%Y%m%d")
-run_suffix  <- paste0(date_suffix, "_occupancy")
-
-dir.create(cfg$output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # =========================
 # 2) LOAD AND PREPARE DATA
@@ -221,6 +226,15 @@ phi_use <- if (is.finite(phi_empirical) && phi_empirical > 0 && phi_empirical < 
 }
 cat("Using phi =", phi_use, "\n")
 
+# Build run label and output directory from model specs
+# Format: <gp>_AR1global_<B>_phi<phi>
+phi_label  <- paste0("phi", round(phi_use))
+model_spec <- paste(gp_label, "AR1global", b_label, phi_label, sep = "_")
+run_suffix <- paste0(date_suffix, "_", model_spec)
+cfg$output_dir <- file.path(cfg$base_output_dir, model_spec)
+dir.create(cfg$output_dir, recursive = TRUE, showWarnings = FALSE)
+cat(sprintf("Output dir: %s\n", cfg$output_dir))
+
 # =========================
 # 6) ASSEMBLE STAN DATA
 # =========================
@@ -298,8 +312,8 @@ make_init <- function(stan_data, use_hsgp = FALSE) {
       sigma_global = 0.3,
       rho          = 0.4,
 
-      # Per-block deviations
-      v_block_raw  = matrix(0, nrow = B, ncol = T),
+      # Per-block time-invariant random effect
+      u_block_raw  = rep(0, B),
       sigma_block  = 0.1,
 
       # Reactive surveillance
@@ -318,8 +332,33 @@ make_init <- function(stan_data, use_hsgp = FALSE) {
 }
 
 # =========================
-# 8) FIT MODEL
+# 8) MODEL SPEC + FIT
 # =========================
+gp_detail <- if (isTRUE(cfg$use_hsgp)) {
+  sprintf("HSGP (M=%d per dim, M_total=%d, c=%.1f)",
+          cfg$hsgp_m, cfg$hsgp_m^2, cfg$hsgp_c)
+} else {
+  sprintf("Exact Cholesky GP (%d x %d)", B, B)
+}
+
+cat(paste(rep("=", 55), collapse = ""), "\n")
+cat("MODEL SPECIFICATION — Occupancy Block Model\n")
+cat(paste(rep("=", 55), collapse = ""), "\n")
+cat(sprintf("  Blocks (B):          %d\n", B))
+cat(sprintf("  Time periods (T):    %d\n", length(time_levels)))
+cat(sprintf("  Observations (N):    %d\n", nrow(df)))
+cat(sprintf("  Lag covariates (K):  %d  (L=%d)\n", K, L))
+cat(sprintf("  Unlagged covars:     %d\n", Ku))
+cat(sprintf("  Spatial GP:          %s\n", gp_detail))
+cat("  Temporal structure:  Global AR(1) + per-block AR(1) deviations\n")
+cat(sprintf("  Occupancy dynamics:  HMM (separate gamma / phi processes)\n"))
+cat(sprintf("  Reactive surv.:      omega mixture (delta0, delta1)\n"))
+cat(sprintf("  Observation model:   Beta-Binomial (phi = %.1f)\n", phi_use))
+cat(sprintf("  MCMC:                %d chains x %d samples (warmup %d)\n",
+            cfg$chains, cfg$iter_sampling, cfg$iter_warmup))
+cat(sprintf("  Output dir:          %s\n", cfg$output_dir))
+cat(paste(rep("=", 55), collapse = ""), "\n")
+
 mod <- cmdstan_model(cfg$stan_file)
 
 fit <- mod$sample(

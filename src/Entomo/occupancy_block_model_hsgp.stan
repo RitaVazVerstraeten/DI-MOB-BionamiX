@@ -97,9 +97,9 @@ parameters {
   real<lower=0> sigma_global;       // SD of global temporal innovations
   real<lower=-1,upper=1> rho;       // AR(1) coefficient (shared)
 
-  // --- Per-block temporal deviations ---
-  matrix[B, T] v_block_raw;         // non-centred per-block deviations
-  real<lower=0> sigma_block;        // SD of per-block deviations
+  // --- Per-block time-invariant random effect ---
+  vector[B] u_block_raw;            // non-centred block offsets ~ normal(0,1)
+  real<lower=0> sigma_block;        // SD of block-level deviations
 
   // --- Reactive surveillance ---
   real delta0;                      // baseline log-odds shift for reactive inspections
@@ -129,14 +129,9 @@ transformed parameters {
     v_global[t] = rho * v_global[t-1] + sigma_global * v_global_raw[t];
   }
 
-  // --- Per-block AR(1) deviations ---
-  matrix[B, T] v_block;
-  for (b in 1:B) {
-    v_block[b, 1] = sigma_block * v_block_raw[b, 1] / sqrt(fmax(1e-6, 1 - rho^2));
-    for (t in 2:T) {
-      v_block[b, t] = rho * v_block[b, t-1] + sigma_block * v_block_raw[b, t];
-    }
-  }
+  // --- Per-block time-invariant random effect ---
+  // eta_b = u_gp[b] + u_block[b]: spatial GP + non-spatial block offset
+  vector[B] u_block = sigma_block * u_block_raw;
 
   // --- Environmental effects per observation ---
   vector[N] xeff_gamma = X_lag_flat * to_vector(w_gamma) + X_unlagged * w_unlagged_gamma;
@@ -150,7 +145,7 @@ transformed parameters {
   for (i in 1:N) {
     int b = block[i];
     int t = time[i];
-    real shared_re = u_gp[b] + v_global[t] + v_block[b, t];
+    real shared_re = u_gp[b] + v_global[t] + u_block[b];
     eta_gamma_mat[b, t] = alpha_gamma + xeff_gamma[i] + shared_re;
     eta_phi_mat[b, t]   = alpha_phi   + xeff_phi[i]   + shared_re;
   }
@@ -230,8 +225,8 @@ model {
   sigma_global ~ exponential(1);
   rho          ~ normal(0.4, 0.2);
 
-  // Per-block temporal deviations
-  to_vector(v_block_raw) ~ normal(0, 1);
+  // Per-block time-invariant random effect
+  u_block_raw ~ normal(0, 1);
   sigma_block ~ exponential(3);
 
   // Reactive surveillance
