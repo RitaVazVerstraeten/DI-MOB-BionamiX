@@ -25,7 +25,7 @@
 
 \section{Introduction}
 
-This document describes two complementary modelling approaches for analysing entomological surveillance data from Cienfuegos, both aimed at estimating the true mosquito presence probability $p_{bt}$ while correcting for biases introduced by mixed surveillance regimes.
+This document describes two complementary modelling approaches for analysing entomological surveillance data from Cienfuegos, both aimed at estimating the true mosquito immature stages (larvae and pupae) presence probability $p_{bt}$ while correcting for biases introduced by mixed surveillance regimes.
 
 \begin{description}
 \item[Part~I --- Bayesian hierarchical model] A full probabilistic model implemented in Stan via \texttt{cmdstanr}. It jointly estimates ecological effects, reactive surveillance bias parameters ($\delta_0$, $\delta_1$), and spatio-temporal random effects, propagating uncertainty through all components.
@@ -63,9 +63,25 @@ where $N_b^{HH}$ is known and fixed (universo), $C_{bt}$ is observed, and $\kapp
 
 The true mosquito presence probability is modeled as a latent spatio-temporal process:
 \begin{equation}
-\text{logit}(p_{bt}) = \alpha + X_{bt}\beta + u_b + v_t,
+\text{logit}(p_{bt}) = \alpha + \underbrace{\sum_{k \in \mathcal{L}} \sum_{\ell=0}^{L} w_{k\ell}\, X_{k,b,t-\ell} + \sum_{k \in \mathcal{U}} w_k\, X_{k,b}}_{\text{environmental effects}} + \underbrace{u_b^{GP}}_{\text{spatial}} + \underbrace{v_t^{global} + v_b^{dev}}_{\text{temporal}},
 \end{equation}
-where $\alpha$ is the baseline intercept, $X_{bt}$ represents environmental covariates (average temperature, relative humidity, total precipitation, NDVI), $\beta$ are regression coefficients, $u_b \sim \text{Normal}(0, \sigma_u)$ is a block-level i.i.d.\ random intercept capturing stable spatial heterogeneity not explained by covariates, and $v_t$ is a temporal random effect following an AR(1) process. Crucially, dengue cases do not enter this equation. This equation defines the quantity of interest $p_{bt}$.
+where:
+\begin{itemize}
+  \item $\alpha$ is the baseline log-odds of mosquito presence;
+  \item $\mathcal{L}$ and $\mathcal{U}$ index lagged and unlagged covariates respectively, with distributed lag weights $w_{k\ell}$ (see Section on distributed lags);
+  \item $u_b^{GP}$ is a \textbf{spatial Gaussian process} with an exponential covariance kernel:
+  \[
+    \text{Cov}(u_b, u_{b'}) = \sigma_{GP}^2 \exp\!\left(-\frac{d_{bb'}}{\rho_{GP}}\right),
+  \]
+  where $d_{bb'}$ is the distance between block centroids (metres), $\sigma_{GP}$ is the marginal standard deviation, and $\rho_{GP}$ is the spatial length-scale estimated from data;
+  \item $v_t^{global}$ is a \textbf{city-wide AR(1) temporal trend} shared across all blocks:
+  \[
+    v_t^{global} = \rho\, v_{t-1}^{global} + \sigma_v\, \varepsilon_t, \quad \varepsilon_t \sim \text{Normal}(0,1),
+  \]
+  with stationary initialisation $v_1^{global} \sim \text{Normal}(0,\, \sigma_v / \sqrt{1-\rho^2})$;
+  \item $v_b^{dev} \sim \text{Normal}(0, \sigma_{dev})$ is a \textbf{block-specific deviation} from the global trend, allowing each block to run warmer or cooler than the city-wide average.
+\end{itemize}
+Crucially, dengue cases do not enter this equation. This equation defines the quantity of interest $p_{bt}$.
 
 \subsection{Reactive Surveillance Targeting Bias}
 
@@ -80,7 +96,7 @@ Each inspection event belongs to one of two types: systematic (with probability 
 \begin{equation}
 \omega_{bt} = \frac{\kappa C_{bt}}{N_b^{HH} + \kappa C_{bt}},
 \end{equation}
-which is implied by effort, not estimated.
+which is currently implied by effort, not estimated.
 
 \subsection{Effective Observation Probability}
 
@@ -96,10 +112,11 @@ This is a mixture of unbiased and biased observation processes.
 \subsection{Observation Model}
 
 \begin{equation}
-y_{bt} \sim \text{Binomial}(n_{bt}, \pi_{bt}).
+y_{bt} \sim \text{BetaBinomial}(n_{bt},\; \pi_{bt} \cdot \phi,\; (1-\pi_{bt}) \cdot \phi),
 \end{equation}
+where $\phi > 0$ is a concentration parameter that controls overdispersion. When $\phi \to \infty$ the BetaBinomial converges to the Binomial; for finite $\phi$ the variance exceeds the Binomial variance by a factor $(n_{bt} + \phi)/(1 + \phi)$. Inspection data exhibit clear overdispersion beyond what a Binomial model can capture (variance/binomial-variance ratio $\approx 8$ estimated from zero-case cells), so the BetaBinomial is used throughout. $\phi$ is estimated empirically from zero-case cells and fixed at that value for the main model fit.
 
-\textbf{Note on implementation:} In the Stan model, $\kappa$ is fixed (not estimated), so $n_{bt}$ is fully determined by the data. The Binomial likelihood is used directly without approximation.
+\textbf{Note on implementation:} In the Stan model, $\kappa$ is fixed at 2 (not estimated), so $n_{bt}$ is fully determined by the data.
 
 \section{Extensions}
 
@@ -123,11 +140,14 @@ where $k$ indexes the predictor, and $K_L$ represents the predictors that requir
 
 \subsection{Temporal Autocorrelation}
 
-The temporal random effect is modeled with autoregression:
-\begin{equation}
-v_t = \rho v_{t-1} + \epsilon_t,
-\end{equation}
-where $\rho$ is the autoregressive parameter and $\epsilon_t$ is white noise.
+The temporal structure is decomposed into a \textbf{global trend} shared by all blocks and \textbf{per-block deviations}:
+\begin{align}
+v_t^{global} &= \rho\, v_{t-1}^{global} + \sigma_v\, \varepsilon_t, \quad \varepsilon_t \sim \text{Normal}(0,1), \\
+v_b^{dev} &\sim \text{Normal}(0, \sigma_{dev}).
+\end{align}
+The global trend captures city-wide seasonal fluctuations shared by all blocks. The per-block deviation $v_b^{dev}$ is a scalar offset that allows each block to sit systematically above or below the global trend across the study period. Both components use the same AR(1) coefficient $\rho$.
+
+This decomposition avoids fitting a fully block-specific AR(1) (which would require $B \times T$ parameters) while still allowing block-level heterogeneity through the GP spatial effect and the scalar deviation term.
 
 \subsubsection{Sources of Autocorrelation}
 
@@ -144,39 +164,43 @@ The analysis requires a dataset structured with one row per time--block combinat
 \subsection{Priors}
 The information on priors selection is available in Table 1. 
 
-\begin{table}[h]
+\begin{table}[ht]
 \centering
 \small
-\begin{tabular}{p{1.5cm}p{3.0cm}p{3.0cm}p{3.0cm}p{5cm}}
+\begin{tabular}{p{2.0cm}p{3.0cm}p{3.0cm}p{3.0cm}p{4.5cm}}
 \toprule
-Parameter & Role in Model & Suggested Prior & Interpretation & Reasoning \\
+Parameter & Role in Model & Prior & Interpretation & Reasoning \\
 \midrule
-\textbf{$\alpha$} & Baseline log-odds of mosquito positivity & Normal(-4.5, 1.2) & Baseline mosquito presence when covariates = 0 & Shifted way down for rare events. On logit scale, -4.5 $\approx$ 0.011 probability, reflecting low baseline positivity in absence of favorable conditions. \\
+\textbf{$\alpha$} & Baseline log-odds of mosquito presence & Normal($-7.0$, 1.5) & Baseline at covariate mean & At 0.5--5\% prevalence, logit $\approx -5.3$ to $-2.9$; centred on rarer events. \\
 \addlinespace
-\textbf{$\delta_0$} & Baseline reactive targeting boost & Normal(0.3, 0.4) & Log-odds increase under reactive inspection & OR ($e^{0.3}$) $\approx$ 1.35 typical. Slightly reduced baseline targeting bias to stabilize initialization. \\
+\textbf{$\delta_0$} & Baseline reactive targeting boost & Normal(0.3, 0.4) & Log-odds increase for reactive inspections & OR $\approx e^{0.3} \approx 1.35$ baseline uplift; wide enough for the posterior to move. \\
 \addlinespace
-\textbf{$\delta_1$} & Sensitivity to outbreak intensity & Normal(0, 0.2) & Log-linear response to log($C_{bt}$) & Reduced to stabilize initialization; encourages small positive effect but allows no effect; avoids explosive targeting. \\
+\textbf{$\delta_1$} & Sensitivity to outbreak intensity & Normal(0, 0.2) & Log-linear response to $\log(C_{bt})$ & Weakly regularised; allows no effect; avoids explosive targeting. \\
 \addlinespace
-\textbf{$\rho$} & AR(1) temporal persistence & Normal(0, 0.2), constrained to $(-1, 1)$ & Temporal autocorrelation & Tighter prior regularizes toward independence. Allows positive (mosquito persistence) and negative (removal after detection) autocorrelation. The constraint is enforced by the parameter declaration in Stan (\texttt{real<lower=-1,upper=1>}), not by prior truncation. \\
+\textbf{$\rho$} & AR(1) temporal persistence & Normal(0.4, 0.2), constrained to $(-1,1)$ & Temporal autocorrelation & Centred on moderate positive persistence, consistent with seasonal data. Constraint enforced by Stan parameter declaration. \\
 \addlinespace
-\textbf{$u_{block\_raw}$} & Standardized spatial effects & Normal(0, 1) & Non-centered parameter & Computational device only; ensures stable sampling. \\
+\textbf{$\sigma_v$} & SD of global temporal innovations & Exponential(1) & City-wide month-to-month variability & Mean = 1.0; allows substantial city-wide seasonal swings. \\
 \addlinespace
-\textbf{$v_{time\_raw}$} & AR(1) \textit{innovation} terms & Normal(0, 1) & Standardized shocks & Computational innovation term in AR(1). The random shock entering the system at time $t$. \\
+\textbf{$\sigma_{dev}$} & SD of per-block deviations from global trend & Exponential(2) & Block-level temporal offset & Mean = 0.5; block deviations expected smaller than the global trend. \\
 \addlinespace
-\textbf{$\sigma_v$} & SD of temporal innovations & Exponential(3) & Size of month-to-month ecological shocks & Stricter prior due to AR(1) structure; prevents volatility while allowing moderate temporal variation. \\
+\textbf{$\sigma_{GP}$} & GP marginal SD & Half-Normal(0, 1) & Amplitude of spatial variation & Weakly regularised; posterior driven by data. \\
 \addlinespace
-\textbf{$\sigma_u$} & SD of spatial random effects & Exponential(2) & Between-block heterogeneity & Tighter prior (prevents extreme variance during initialization). Shrinks block effects to prevent them from absorbing ecological signal. \\
+\textbf{$\rho_{GP}$} & GP length-scale (metres) & InvGamma(3, 150) & Spatial decay of mosquito clustering & Mode at $\approx$75\,m, consistent with residual spatial autocorrelation peak from GLMM Moran's I diagnostics. \\
 \addlinespace
-\textbf{$w_{k,1}$} & Initial lag-0 weight & Normal(0, 0.5) & Immediate effect of covariate \textit{k} & Starting point for random walk; regularizes initial lag effect. \\
+\textbf{$z_{GP}$} & Non-centred GP weights & Normal(0, 1) & Computational device & $u_b^{GP} = L_{GP}\, z_{GP}$ where $L_{GP}$ is the Cholesky factor of the kernel matrix; ensures efficient sampling. \\
 \addlinespace
-\textbf{$w_{k,l}$} & Subsequent lag weights & Random Walk: Normal($w_{k,l-1}$, $\sigma_w[k]$) & Effect of covariate \textit{k} at lag \textit{l} & Enforces smoothness across lags via random walk prior; prevents extreme swings in lag structure. \\
+\textbf{$w_{k,1}$} & Lag-0 weight for covariate $k$ & Normal(0, 0.5) & Immediate effect of covariate & Starting point for random walk; regularises initial lag effect. \\
 \addlinespace
-\textbf{$\sigma_w[k]$} & Random walk SD for lag structure & Exponential(2) & Smoothness of lag trajectory & Shrinks toward smooth lag structure; prevents overfitting across lags. \\
+\textbf{$w_{k,\ell}$} & Lag-$\ell$ weight ($\ell \geq 2$) & Normal($w_{k,\ell-1}$, $\sigma_w[k]$) & Effect of covariate $k$ at lag $\ell$ & Random walk prior enforces smooth lag trajectories. \\
 \addlinespace
-\textbf{$w_{unlagged}$} & Unlagged covariate weights & Normal(0, 0.5) & Effect of static spatial covariates & Regularizes effects of non-temporal covariates (e.g., urban form, land cover). \\
+\textbf{$\sigma_w[k]$} & Random walk SD per covariate & Exponential(2) & Smoothness of lag structure & Shrinks toward smooth lag profile; prevents overfitting across lags. \\
+\addlinespace
+\textbf{$w_{unlagged}$} & Unlagged covariate weights & Normal(0, 0.5) & Effect of static spatial covariates & Regularises effects of non-temporal predictors (e.g.\ urban form). \\
+\addlinespace
+\textbf{$\phi$} & Beta-binomial concentration & Fixed (data) & Overdispersion & Estimated empirically from zero-case cells ($\approx$23 for the 100-block subset); re-estimated when the block set changes. \\
 \bottomrule
 \end{tabular}
-\caption{Prior distributions for model parameters.}
+\caption{Prior distributions for \texttt{hierarchical\_state\_space.stan} parameters.}
 \label{tab:priors}
 \end{table}
 
@@ -193,194 +217,67 @@ The Bayesian model is implemented in Stan and fitted via the \texttt{cmdstanr} R
 
 When including lagged coefficients for the same variables, we must correct for temporal association. One option is to constrain the trajectory of coefficients (for a given environmental variable) using a polynomial function; see the ARBOALVO publication for this approach. Additionally, we may consider a hurdle Poisson model, which separately models the probability of zero and the distribution of non-zero values. Such models are well-suited when data contain excess zeros not sufficiently captured by standard models.
 
-% \section{Alternative Approach: Household-Level Model}
+\section{Occupancy Block Model}
+\label{sec:occupancy}
 
-% \subsection{Motivation}
+\subsection{Motivation}
 
-% Since data generation starts at the household level, we can model the process mechanistically at that level and aggregate upward.
+The hierarchical state-space model treats $p_{bt}$ as a smooth latent process driven by environment and random effects, but does not model how blocks transition between mosquito-free and colonised states. The Occupancy Block Model (OBM; \texttt{occupancy\_block\_model.stan}) extends the framework by explicitly modelling \textbf{colonisation} (larvae appearing where none were present) and \textbf{persistence} (larvae remaining from the previous month) as separate ecological processes, implemented as a two-state Markov chain at the block level. This allows environmental drivers to have different effects at the two stages of the mosquito lifecycle, and makes control effectiveness directly estimable.
 
-% \subsection{Latent State Variables}
+\subsection{Occupancy Dynamics}
 
-% We define two latent state variables at the household level: $z_{ib,t} \in \{0,1\}$ indicating whether household $i$ in block $b$ has mosquito larvae at time $t$, and $v_{ib,t} \in \{0,1\}$ indicating whether the household was visited between time $t-1$ and $t$. The application of active control (removal) is defined deterministically as:
-% \begin{equation}
-% c_{ib,t} = v_{ib,t} \cdot z_{ib,t}.
-% \end{equation}
+The block-level occupancy probability evolves as:
+\begin{equation}
+p_{b,t} = \gamma_{bt}\,(1 - p_{b,t-1}) + p_{b,t-1}\,\phi_{bt},
+\end{equation}
+where $\gamma_{bt} = \text{logit}^{-1}(\eta_{bt}^\gamma)$ is the \textbf{colonisation probability} (an unoccupied block becomes occupied) and $\phi_{bt} = \text{logit}^{-1}(\eta_{bt}^\phi)$ is the \textbf{persistence probability} (an occupied block remains so). The chain is initialised at its stationary distribution:
+\begin{equation}
+p_{b,1} = \frac{\gamma_{b,1}}{\gamma_{b,1} + (1 - \phi_{b,1})}.
+\end{equation}
 
-% \subsection{Ecological Transitions}
+A control effectiveness parameter $\theta > 0$ reduces persistence on the log-odds scale after a reactive inspection: $\phi_{bt}^{ctrl} = \text{logit}^{-1}(\eta_{bt}^\phi - \theta)$. In the current implementation $\theta$ enters the observation model (via the reactive probability) rather than the ecological forward pass, keeping the Markov chain computationally tractable without tracking visit history as a latent variable.
 
-% The probability of colonization (larvae appearing in a previously uninfested household) and persistence (larvae remaining despite control) are given by:
-% \begin{equation}
-% P(z_{ib,t} = 1 \mid z_{ib,t-1} = 0) = \text{Logit}^{-1}(\gamma_{bt})
-% \end{equation}
-% \begin{equation}
-% P(z_{ib,t} = 1 \mid z_{ib,t-1} = 1) = \text{Logit}^{-1}(\phi_{bt} - \theta c_{ib,t-1}).
-% \end{equation}
-% The state $z_{ib,t}$ advances as:
-% \begin{equation}
-% z_{ib,t} \mid z_{ib,t-1}, v_{ib,t-1} \sim \text{Bernoulli}\left(\text{Logit}^{-1}(\phi_{bt} - \theta c_{ib,t-1})z_{ib,t-1} + \text{Logit}^{-1}(\gamma_{bt})(1 - z_{ib,t-1})\right).
-% \end{equation}
+\subsection{Separate Environmental Effects for Colonisation and Persistence}
 
-% \subsection{Visit Process}
+Colonisation and persistence have \textbf{separate} linear predictors and \textbf{separate} distributed lag weight matrices:
+\begin{align}
+\eta_{bt}^\gamma &= \alpha_\gamma + \sum_{k,\ell} w_{k\ell}^\gamma\, X_{k,b,t-\ell} + \sum_k w_k^{\gamma,u}\, X_{k,b} + u_b^{GP} + v_t^{global} + v_{b,t}^{block}, \\
+\eta_{bt}^\phi   &= \alpha_\phi   + \sum_{k,\ell} w_{k\ell}^\phi\,   X_{k,b,t-\ell} + \sum_k w_k^{\phi,u}\,   X_{k,b} + u_b^{GP} + v_t^{global} + v_{b,t}^{block}.
+\end{align}
+The spatial GP and temporal components are \emph{shared} between the two processes, but the lag weights $w^\gamma$ and $w^\phi$ are estimated independently with separate random walk priors. This allows, for example, rainfall to drive colonisation strongly while having a weaker effect on persistence.
 
-% The probability of a new visit (systematic + reactive) and revisit are given by:
-% \begin{equation}
-% P(v_{ib,t} = 1 \mid v_{ib,t-1} = 0) = \text{Logit}^{-1}(\alpha_0 + \alpha_1 C_{bt})
-% \end{equation}
-% \begin{equation}
-% P(v_{ib,t} = 1 \mid v_{ib,t-1} = 1) = \text{Logit}^{-1}(\alpha_0 + \alpha_1 C_{bt} + \alpha_2 v_{ib,t-1}),
-% \end{equation}
-% which yields:
-% \begin{equation}
-% v_{ib,t} \mid v_{ib,t-1} \sim \text{Bernoulli}\left(\text{Logit}^{-1}(\alpha_0 + \alpha_1 C_{bt} + \alpha_2 v_{ib,t-1})\right).
-% \end{equation}
+\subsection{Spatial and Temporal Random Effects}
 
-% \subsection{Environmental Drivers}
+The OBM uses the same spatial GP (exponential kernel, Cholesky parameterised) as the hierarchical state-space model. The temporal structure is richer: rather than a scalar per-block deviation, the OBM fits a \textbf{full per-block AR(1) deviation matrix} $v_{b,t}^{block}$, allowing each block to follow its own seasonal trajectory around the global trend. Both the global trend and the per-block deviations share the same AR(1) coefficient $\rho$.
 
-% Larvae colonization and persistence are modeled as purely driven by ecological covariates with spatio-temporal smoothing:
-% \begin{align}
-% \gamma_{bt} &= \alpha_0^\gamma + \mathbf{x}_{bt}^T \boldsymbol{\alpha}_{\gamma\phi} + s_b + u_t \\
-% \phi_{bt} &= \alpha_0^\phi + \mathbf{x}_{bt}^T \boldsymbol{\alpha}_{\gamma\phi} + s_b + u_t
-% \end{align}
-% Note that we use different intercepts (persistence easier than colonization?) but shared ecological drivers and shared random effects as a deliberate design choice.
+\subsection{Observation Model}
 
-% \subsection{Distributed Lag Covariates (Household Model)}
-
-% As in the original model, we separate covariates that require temporal lagging (e.g., rainfall, temperature) from those that do not (e.g., static land cover, urban form). Let $K_L$ index lagged covariates and $K_U$ index unlagged covariates. Then:
-% \begin{align}
-% \gamma_{bt} &= \alpha_0^\gamma + \sum_{k\in K_L}\sum_{\ell=0}^{L} w_{k\ell}^{\gamma}\,X_{k,b,t-\ell} + \sum_{k\in K_U} w_{k}^{\gamma}\,X_{k,b} + s_b + u_t, \\
-% \phi_{bt} &= \alpha_0^\phi + \sum_{k\in K_L}\sum_{\ell=0}^{L} w_{k\ell}^{\phi}\,X_{k,b,t-\ell} + \sum_{k\in K_U} w_{k}^{\phi}\,X_{k,b} + s_b + u_t.
-% \end{align}
-% This mirrors the original distributed lag model, but is applied separately to colonization and persistence. Lag weights $w_{k\ell}$ can be regularized (e.g., polynomial or smoothness constraints) to avoid identifiability issues across lags.
-
-% \subsection{Observation and Aggregation}
-
-% We define an observation variable at the household level:
-% \begin{equation}
-% y_{ib,t} = \mathbb{1}\{z_{ib,t} = 1, v_{ib,t} = 1\}.
-% \end{equation}
-% We observe the sum over households per block:
-% \begin{equation}
-% Y_{bt}^* = \sum_{i=1}^{N_b} y_{ib,t}.
-% \end{equation}
-% The latent variable of interest is the fraction of households with larvae (regardless of observation):
-% \begin{equation}
-% p_{bt} = \frac{\sum_{i=1}^{N_b} z_{ib,t}}{N_b}.
-% \end{equation}
-
-% \subsection{Implementation Challenge}
-
-% Either build a POMP model (but this may be infeasible for hundreds of blocks with hundreds of households) or integrate over households analytically:
-% \begin{equation}
-% P(z_{ib,t} = 1, v_{ib,t} = 1) = P(z_{ib,t} = 1) \cdot P(v_{ib,t} = 1 \mid z_{ib,t} = 1).
-% \end{equation}
-
-% \subsection{Take Expectations per Block (Mean-Field Closure)}
-
-% Define the block-level expectations over households:
-% \begin{align}
-% p_{bt} &= \mathbb{E}[z_{ib,t}] = \Pr(z_{ib,t}=1) = \frac{1}{N_b}\sum_{i=1}^{N_b} z_{ib,t}, \\
-% q_{bt} &= \mathbb{E}[v_{ib,t}] = \Pr(v_{ib,t}=1) = \frac{1}{N_b}\sum_{i=1}^{N_b} v_{ib,t}, \\
-% r_{bt} &= \mathbb{E}[c_{ib,t}] = \Pr(c_{ib,t}=1) = \mathbb{E}[z_{ib,t}v_{ib,t}] = \frac{1}{N_b}\sum_{i=1}^{N_b} z_{ib,t}v_{ib,t}.
-% \end{align}
-% Since $r_{bt}$ is the expected value of a product of two Bernoulli variables, we need a closure:
-% \begin{itemize}
-% \item \textbf{Independence:} $r_{bt} \approx p_{bt}q_{bt}$.
-% \item \textbf{Dependent (approx.):} $r_{bt} \approx p_{bt}q_{bt} + \rho\,p_{bt}(1-p_{bt})q_{bt}(1-q_{bt})$, using $\mathrm{Cov}(X,Y)=\rho\,\mathrm{Var}(X)\,\mathrm{Var}(Y)$ and $\mathrm{Var}(X)=p(1-p)$.
-% \end{itemize}
-
-% \subsection{Expectations for Visit Dynamics}
-
-% By the law of total expectation,
-% \begin{align}
-% q_{bt} &= \mathbb{E}[v_{ib,t}] = \sum_{y\in\{0,1\}} \mathbb{E}[v_{ib,t}\mid v_{ib,t-1}=y]\,\Pr(v_{ib,t-1}=y) \\
-% &= \text{Logit}^{-1}(\alpha_0+\alpha_1 C_{bt})\,(1-q_{bt-1}) + \text{Logit}^{-1}(\alpha_0+\alpha_1 C_{bt}+\alpha_2)\,q_{bt-1}.
-% \end{align}
-% This is a weighted average of transition probabilities for previously unvisited vs. previously visited households.
-
-% \subsection{Expectations for Larvae Dynamics}
-
-% Similarly,
-% \begin{align}
-% p_{bt} &= \mathbb{E}[z_{ib,t}] = \text{Logit}^{-1}(\gamma_{bt})\,(1-p_{bt-1}) 
-%  + \mathbb{E}\big[\text{Logit}^{-1}(\phi_{bt}-\theta v_{ib,t-1}) \mid z_{ib,t-1}=1\big] p_{bt-1}.
-% \end{align}
-% Since $v_{ib,t-1}\in\{0,1\}$ and $v$ does not explicitly depend on $z$, we can split:
-% \begin{equation}
-% \mathbb{E}\big[\text{Logit}^{-1}(\phi_{bt}-\theta v_{ib,t-1})\big] = (1-q_{bt-1})\,\text{Logit}^{-1}(\phi_{bt}) + q_{bt-1}\,\text{Logit}^{-1}(\phi_{bt}-\theta).
-% \end{equation}
-% Therefore,
-% \begin{align}
-% p_{bt} &= \text{Logit}^{-1}(\gamma_{bt})\,(1-p_{bt-1}) \\
-% &\quad + p_{bt-1}\Big[(1-q_{bt-1})\,\text{Logit}^{-1}(\phi_{bt}) + q_{bt-1}\,\text{Logit}^{-1}(\phi_{bt}-\theta)\Big].
-% \end{align}
-
-% \subsection{Observation and Simulation Equations}
-
-% Under the independence closure $r_{bt}=p_{bt}q_{bt}$:
-% \begin{align}
-% q_{bt} &= (1-q_{bt-1})\,\text{Logit}^{-1}(\alpha_0+\alpha_1 C_{bt}) + q_{bt-1}\,\text{Logit}^{-1}(\alpha_0+\alpha_1 C_{bt}+\alpha_2), \\
-% p_{bt} &= \text{Logit}^{-1}(\gamma_{bt})\,(1-p_{bt-1}) + p_{bt-1}\Big[(1-q_{bt-1})\,\text{Logit}^{-1}(\phi_{bt}) + q_{bt-1}\,\text{Logit}^{-1}(\phi_{bt}-\theta)\Big], \\
-% r_{bt} &= p_{bt}q_{bt}, \\
-% \gamma_{bt} &= \alpha_0^\gamma + \mathbf{x}_{bt}^T \boldsymbol{\alpha}_{\gamma\phi} + s_b + u_t, \\
-% \phi_{bt} &= \alpha_0^\phi + \mathbf{x}_{bt}^T \boldsymbol{\alpha}_{\gamma\phi} + s_b + u_t.
-% \end{align}
-% The observation model is then
-% \begin{equation}
-% Y_{bt} \sim \text{Binomial}(N_b, r_{bt}).
-% \end{equation}
-% \textit{Note:} We do not observe the number of visits per block, so the Markov chain for $q_{bt}$ may be weakly identifiable.
-
-% \subsection{Special Case: No Revisiting}
-
-% If revisits are negligible ($\alpha_2=0$ and no dependence on $v_{ib,t-1}$), then
-% \begin{align}
-% q_{bt} &= \text{Logit}^{-1}(\alpha_0+\alpha_1 C_{bt}), \\
-% p_{bt} &= \text{Logit}^{-1}(\gamma_{bt})\,(1-p_{bt-1}) + p_{bt-1}\Big[(1-q_{bt-1})\,\text{Logit}^{-1}(\phi_{bt}) + q_{bt-1}\,\text{Logit}^{-1}(\phi_{bt}-\theta)\Big], \\
-% r_{bt} &= p_{bt}q_{bt}.
-% \end{align}
-
-% \subsection{Model Assumptions}
-
-% \begin{itemize}
-% \item Households are interchangeable within a block.
-% \item Visits are exogenous (scheduled or externally driven); detection is perfect if visited.
-% \item Binomial thinning: each household can be visited at most once per month.
-% \item Within a month, $z_{ib,t}$ and $v_{ib,t}$ are independent (otherwise use a bivariate Bernoulli).
-% \item Between months, $z_{ib,t}$ depends on $v_{ib,t-1}$ through control, but $v_{ib,t}$ does not depend on $z_{ib,t-1}$. In reality, larvae $\rightarrow$ dengue $\rightarrow$ higher visit probability, so this assumption may be violated.
-% \end{itemize}
-
-% \subsection{Model Comparison}
-
-% \begin{table}[h]
-% \centering
-% \small
-% \begin{tabular}{@{}p{2.5cm}p{5.5cm}p{5.5cm}@{}}
-% \toprule
-% \textbf{Aspect} & \textbf{Original Model} & \textbf{Tijs' New Model} \\ 
-% \midrule
-% Level of modelling & Block-time, households integrated out implicitly & Household-level, explicit aggregation to blocks \\
-% \midrule
-% Latent state & $p_{bt}$ = Pr(larvae present at household) & 1. Ecological: $z_{ib,t} \in \{0,1\}$ (larvae present)\newline 2. Visit: $v_{ib,t} \in \{0,1\}$ (household visit) \\
-% \midrule
-% Dynamics & No explicit colonization/extinction\newline Temporal structure via random effects\newline Ecology drives $p_{bt}$ & Colonization: $P(z_{ib,t}=1|z_{ib,t-1}=0)$\newline Persistence with control: $P(z_{ib,t}=1|z_{ib,t-1}=1)$\newline Visit probability depends on dengue burden and previous visits \\
-% \midrule
-% Observation & Observation bias via systematic/reactive inspections\newline Dengue cases affect observation, not ecology & Define: $y_{ib,t} = \mathbb{1}\{z_{ib,t}=1, v_{ib,t}=1\}$\newline Observe: $Y_{bt}^* = \sum y_{ib,t}$\newline True hidden Markov model + partial observation \\
-% \midrule
-% Benefits & 1. Computation manageable\newline 2. Identifiability issues avoided\newline 3. Best for estimating $p_{bt}$ robustly\newline 4. Scaling\newline 5. Inference (not simulation) & 1. Understanding revisits \& removal\newline 2. Understanding control effectiveness in entomology \\
-% \midrule
-% Risks & 1. No distinction in why $p_{bt}$ changes\newline 2. Intervention effects absorbed into observation bias\newline 3. Need good non-dengue period & 1. Computation: $\sim$2,000,000 latent states\newline 2. Identifiability: never observe $z_{ib,t}=0, v_{ib,t}=1$ or $z_{ib,t}=1, v_{ib,t}=0$ \\
-% \bottomrule
-% \end{tabular}
-% \caption{Comparison of modeling approaches}
-% \end{table}
+The reactive surveillance mixture and beta-binomial likelihood are identical to the hierarchical state-space model:
+\begin{align}
+\omega_{bt} &= \min\!\left(1,\, \frac{\kappa C_{bt}}{n_{bt}}\right), \quad
+\pi_{bt}     = (1-\omega_{bt})\, p_{bt} + \omega_{bt}\, p_{bt}^R, \\
+y_{bt}       &\sim \text{BetaBinomial}(n_{bt},\; \pi_{bt}\phi,\; (1-\pi_{bt})\phi),
+\end{align}
+where $p_{bt}^R = \text{logit}^{-1}(\eta_{bt}^\gamma + \delta_0 + \delta_1 \log C_{bt})$ uses the colonisation linear predictor as the baseline for reactive detection probability.
 
 \section{Discussion and Limitations}
 
-Both modeling approaches have important considerations. The block-level model is computationally tractable and avoids certain identifiability issues by anchoring inference during non-outbreak periods and using effort ratios instead of estimating visit probabilities directly. However, it does not distinguish mechanistically why $p_{bt}$ changes over time, and intervention effects are absorbed into the observation bias term. The household-level model offers greater mechanistic detail but faces computational challenges (approximately 2 million latent states for 1,410 blocks with 40 houses each over 36 months) and potential identifiability issues since we never observe households that are visited but have no larvae, or vice versa.
+\subsection{Shared Limitations}
 
-Several limitations apply to the block-level approach. First, we assume that all households are visited monthly through systematic surveillance, but this may not hold in practice. Second, we do not correct for the possibility that multiple dengue cases $C_{bt}$ might originate from the same household, which would violate our assumption that each case triggers inspection of a distinct household. These limitations suggest that the model's correction for reactive surveillance bias may be imperfect, particularly in settings with irregular coverage or spatial clustering of cases.
+Several limitations apply to all approaches. First, we assume each dengue case originates from a distinct household; in reality, multiple cases may cluster in a single household, inflating $n_{bt}$ and biasing $\omega_{bt}$. Second, systematic surveillance is assumed to cover all households monthly, but coverage gaps likely exist. Third, reactive inspections are unlabelled in the data, so the baseline/reactive decomposition relies entirely on the $\kappa = 2$ assumption.
 
-A key question remains: are we overdoing it by modeling household persistence, visit timing, and explicit colonization/extinction with the mechanistic model? The answer depends on the inferential goals. If the primary objective is robust estimation of $p_{bt}$ for prediction and surveillance evaluation, the simpler block-level model may suffice. If the goal is to understand the mechanistic drivers of mosquito dynamics and evaluate control effectiveness, the added complexity of the household-level model may be justified despite its computational cost.
+\subsection{Comparison: Hierarchical State-Space vs Occupancy Block Model}
+
+Both Bayesian models share the same covariate structure (distributed lags with random walk priors), spatial GP, global AR(1) temporal trend, beta-binomial likelihood, and reactive surveillance mixture. They differ in how $p_{bt}$ is generated:
+
+\begin{description}
+  \item[Hierarchical State-Space (HSS):] $p_{bt} = \text{logit}^{-1}(\eta_{bt})$ is derived \emph{directly} from the linear predictor at each time step. There is no ecological memory of previous occupancy states beyond what the AR(1) temporal trend captures. All environmental covariates share a single set of lag weights acting on the marginal occupancy probability.
+  \item[Occupancy Block Model (OBM):] $p_{bt}$ is propagated forward via an explicit two-state Markov chain. Colonisation and persistence have \emph{separate} environmental effects, so the model can distinguish drivers of initial infestation from drivers of larval persistence. Control effectiveness ($\theta$) is directly estimable. The per-block temporal deviation is a full AR(1) series ($B \times T$ parameters) rather than a scalar offset.
+\end{description}
+
+\noindent\textbf{When to prefer the HSS:} when the primary goal is robust prediction of $p_{bt}$ or surveillance evaluation, or when computational cost must be minimised. The HSS has no Markov forward pass and fewer parameters, making it faster to fit and less prone to identifiability problems.
+
+\noindent\textbf{When to prefer the OBM:} when the goal is to disentangle colonisation from persistence dynamics, understand how different environmental drivers act at different lifecycle stages, or quantify the effectiveness of reactive inspections in reducing future mosquito prevalence. The OBM is more mechanistically interpretable but slower to fit due to the $B \times T$ Markov forward pass and the larger per-block deviation matrix.
 
 
 
