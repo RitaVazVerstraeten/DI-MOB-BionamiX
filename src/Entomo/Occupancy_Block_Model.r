@@ -38,7 +38,7 @@ cfg <- list(
   sf_block_col = "CODIGO_",
 
   # Data prep
-  n_blocks  = NULL,            # NULL = all blocks; use 100 for testing
+  n_blocks  = 100,            # NULL = all blocks; use 100 for testing
   lag_vars  = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
   max_lag   = 1,              # lags 0 and 1 → Lp1 = 2
   kappa     = 2,
@@ -288,9 +288,9 @@ make_init <- function(stan_data, use_hsgp = FALSE) {
   function() {
     init_vals <- list(
       # Intercepts: target ~1% equilibrium occupancy
-      alpha_gamma = -5.0,
-      alpha_phi   = -1.0,
-      theta       = 1.5,
+      alpha_gamma = -5.0, # baseline logit colonization
+      alpha_phi   = -1.0, # baseline logit persistence
+      theta       = 1.5,  # estimate intervention effect -> not used
 
       # Lag weights near GLMM estimates for lag-0
       w_gamma      = matrix(c(-0.15, -0.15,  0.10, -0.15,
@@ -503,11 +503,11 @@ ggsave(
 
 # --- Occupancy diagnostics: zero vs positive months ---
 p_zero <- df %>%
-  mutate(positive = y_bt > 0) %>%
-  group_by(year_month_date) %>%
+  mutate(positive = y_bt > 0) %>% # binary for positive manzana 
+  group_by(year_month_date) %>% # per year-month
   summarise(
-    pct_positive_obs  = mean(positive),
-    mean_p_bt_fitted  = mean(p_bt_mean),
+    pct_positive_obs  = mean(positive), # fraction of manzanas with any mosquito positive (IS)
+    mean_p_bt_fitted  = mean(p_bt_mean), # latent occupancy pobability across all manzanas  
     .groups = "drop"
   ) %>%
   ggplot(aes(x = year_month_date)) +
