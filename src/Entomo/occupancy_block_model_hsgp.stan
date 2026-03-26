@@ -203,8 +203,8 @@ model {
   // ---- Priors ----
 
   alpha_gamma ~ normal(-5.0, 1.5);
-  alpha_phi   ~ normal(-1.5, 0.5);
-  theta       ~ normal(1.5, 0.5);
+  alpha_phi   ~ normal(-1.0, 1.5);
+  theta       ~ normal(1.5, 1.0);
 
   for (k in 1:K) {
     w_gamma[k, 1] ~ normal(0, 0.5);
@@ -222,20 +222,20 @@ model {
 
   // Spatial GP (HSGP)
   beta_gp  ~ normal(0, 1);
-  sigma_gp ~ normal(0, 0.5);                   // half-normal
+  sigma_gp ~ normal(0, 1);                   // half-normal
   rho_gp   ~ inv_gamma(3, 150);              // mode ~75m
 
   // Global temporal AR(1)
   v_global_raw ~ normal(0, 1);
-  sigma_global ~ exponential(3);
-  rho          ~ normal(0.3, 0.2);
+  sigma_global ~ exponential(1);
+  rho          ~ normal(0.4, 0.2);
 
   // Per-block temporal deviations
   to_vector(v_block_raw) ~ normal(0, 1);
   sigma_block ~ exponential(3);
 
   // Reactive surveillance
-  delta0 ~ normal(2.0, 0.5);
+  delta0 ~ normal(1.5, 1.0);
   delta1 ~ normal(0, 0.4);
 
   // ---- Likelihood ----
