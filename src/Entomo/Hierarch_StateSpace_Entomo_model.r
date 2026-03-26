@@ -9,22 +9,6 @@ if (!require("cmdstanr", quietly = TRUE)) {
 renv::restore()
 
 library(cmdstanr)
-
-# Ensure Stan's bundled libtbb.so.2 is findable at runtime.
-# Required on SSH servers where libtbb is not installed system-wide.
-local({
-  tbb_path <- file.path(cmdstan_path(), "stan/lib/stan_math/lib/tbb")
-  if (dir.exists(tbb_path)) {
-    current <- Sys.getenv("LD_LIBRARY_PATH")
-    if (!grepl(tbb_path, current, fixed = TRUE)) {
-      Sys.setenv(LD_LIBRARY_PATH = paste(tbb_path, current, sep = ":"))
-    }
-    cat("TBB library path set:", tbb_path, "\n")
-  } else {
-    cat("Warning: CmdStan TBB path not found at", tbb_path, "\n")
-  }
-})
-
 library(dplyr)
 library(ggplot2)
 library(readr)
@@ -85,8 +69,8 @@ cfg <- list(
 
   # MCMC
   chains = 2,
-  iter_warmup = 400,
-  iter_sampling = 400,
+  iter_warmup = 500,
+  iter_sampling = 500,
   # thin = 2,
   adapt_delta = 0.95,
   max_treedepth = 12,
@@ -321,7 +305,8 @@ if (isTRUE(cfg$fix_phi)) {
 
 
 
-mod <- cmdstan_model(cfg$stan_file)
+mod <- cmdstan_model(cfg$stan_file,
+  force_recompile = hostname == "frietjes")
 
 # =========================
 # 2c) PRIOR PREDICTIVE CHECK
