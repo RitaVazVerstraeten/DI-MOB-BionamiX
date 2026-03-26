@@ -9,6 +9,22 @@ if (!require("cmdstanr", quietly = TRUE)) {
 renv::restore()
 
 library(cmdstanr)
+
+# Ensure Stan's bundled libtbb.so.2 is findable at runtime.
+# Required on SSH servers where libtbb is not installed system-wide.
+local({
+  tbb_path <- file.path(cmdstan_path(), "stan/lib/stan_math/lib/tbb")
+  if (dir.exists(tbb_path)) {
+    current <- Sys.getenv("LD_LIBRARY_PATH")
+    if (!grepl(tbb_path, current, fixed = TRUE)) {
+      Sys.setenv(LD_LIBRARY_PATH = paste(tbb_path, current, sep = ":"))
+    }
+    cat("TBB library path set:", tbb_path, "\n")
+  } else {
+    cat("Warning: CmdStan TBB path not found at", tbb_path, "\n")
+  }
+})
+
 library(dplyr)
 library(ggplot2)
 library(readr)
@@ -291,8 +307,16 @@ disp_df %>%
        
 # Pass phi as fixed data when fix_phi = TRUE
 if (isTRUE(cfg$fix_phi)) {
-  stan_data$phi <- cfg$phi_fixed
-  cat(sprintf("phi fixed at %.1f (not estimated)\n", cfg$phi_fixed))
+  phi_use <- if (is.finite(phi_pooled) && phi_pooled > 0 && phi_pooled < 500) {
+    round(phi_pooled, 1)
+  } else {
+    cfg$phi_fixed
+  }
+  stan_data$phi <- phi_use
+  cat(sprintf(
+    "phi fixed at %.1f (empirical from zero-case cells; cfg fallback = %.1f)\n",
+    phi_use, cfg$phi_fixed
+  ))
 }
 
 
