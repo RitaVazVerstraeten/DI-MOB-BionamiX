@@ -10,7 +10,7 @@
 #
 # Kept:
 #   - Full data prep, model fit, coefficient table, model RDS
-#   - QQ plots (observed vs fitted, weighted)
+#   - Calibration plots (observed vs fitted, weighted)
 #   - Residuals plot, random effects plot
 #   - Sections 13 & 14 (large-residual diagnostics, AR(1) diagnostics)
 
@@ -469,7 +469,7 @@ cat("  Aggregated predictions CSV:", summary_pred_file, "\n", sep = "")
 cat("  Config RDS:                ", cfg_file, "\n", sep = "")
 
 # =========================
-# 10. PLOTS (no CI bands — QQ plots only)
+# 10. PLOTS (no CI bands — calibration plots only)
 # =========================
 # Timeseries plots with CI bands are skipped (they need SE columns).
 # Run full GLMM.r to get those.
@@ -492,16 +492,16 @@ df_summary_weighted <- df_summary %>%
     )
   )
 
-# QQ plot: observed vs baseline fitted
-save_glmm_qqplot_observed_vs_expected(
+# Calibration plot: observed vs baseline fitted
+save_glmm_calibplot_observed_vs_expected(
   df_summary  = df_summary,
   df_observed = df_observed,
   output_dir  = plots_output_dir,
   run_suffix  = run_suffix
 )
 
-# QQ plot: observed vs weighted fitted
-save_glmm_qqplot_weighted_avg(
+# Calibration plot: observed vs weighted fitted
+save_glmm_calibplot_weighted_avg(
   df         = df_summary_weighted,
   output_dir = plots_output_dir,
   run_suffix = run_suffix

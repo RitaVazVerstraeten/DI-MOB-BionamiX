@@ -495,65 +495,65 @@ save_glmm_prob_timeseries_plot_random_blocks <- function(
   cat("  Probability plot (random blocks) PNG: ", plot_file, "\n", sep = "")
 }
 
-#' Save GLMM Observed vs Expected QQ Plot
+#' Save GLMM Observed vs Expected Calibration Plot
 #'
-#' Plots a QQ plot of observed vs expected (fitted) probabilities aggregated over time.
+#' Plots a calibration plot of observed vs expected (fitted) probabilities aggregated over time.
 #' @param df_plot Data frame with columns: p_observed, p_bt_fitted (or similar)
 #' @param output_dir Output directory for plot
 #' @param run_suffix Suffix for filename
 #' @return NULL (saves plot)
-save_glmm_qqplot_observed_vs_expected <- function(df_summary, df_observed, output_dir, run_suffix) {
+save_glmm_calibplot_observed_vs_expected <- function(df_summary, df_observed, output_dir, run_suffix) {
   # Merge summary and observed data
   df_plot <- df_summary %>%
     left_join(df_observed, by = c("block", "year_month_date"))
   # Remove NA values for fair comparison
-  qq_df <- df_plot %>%
+  calib_df <- df_plot %>%
     filter(!is.na(p_observed) & !is.na(p_bt_fitted))
-  qq_data <- data.frame(Observed = qq_df$p_observed, Expected = qq_df$p_bt_fitted)
-  p_qq <- ggplot(qq_data, aes(x = Expected, y = Observed)) +
+  calib_data <- data.frame(Observed = calib_df$p_observed, Expected = calib_df$p_bt_fitted)
+  p_calib <- ggplot(calib_data, aes(x = Expected, y = Observed)) +
     geom_point(alpha = 0.7, color = "#0072B2") +
     geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
     labs(
       x = "Expected (Fitted Probability)",
       y = "Observed Probability",
-      title = "QQ Plot: Observed vs Expected Probabilities",
+      title = "Calibration Plot: Observed vs Expected Probabilities",
       subtitle = "Paired by block/month"
     ) +
     theme_minimal()
-  print(p_qq)
-  qqplot_file <- file.path(output_dir, paste0("glmm_qqplot_observed_vs_expected_", run_suffix, ".png"))
-  ggsave(qqplot_file, p_qq, width = 7, height = 7, dpi = 150)
-  cat("  QQ plot PNG: ", qqplot_file, "\n", sep = "")
+  print(p_calib)
+  calibplot_file <- file.path(output_dir, paste0("glmm_calibplot_observed_vs_expected_", run_suffix, ".png"))
+  ggsave(calibplot_file, p_calib, width = 7, height = 7, dpi = 150)
+  cat("  Calibration plot PNG: ", calibplot_file, "\n", sep = "")
 }
 
 
-#' Save QQ Plot for Weighted Average Fitted Probability
+#' Save Calibration Plot for Weighted Average Fitted Probability
 #'
-#' Plots a QQ plot of observed vs weighted average fitted probability: p_fit = (1-omega)*p_bt + omega*p_R
+#' Plots a calibration plot of observed vs weighted average fitted probability: p_fit = (1-omega)*p_bt + omega*p_R
 #' @param df Data frame with columns: p_observed, p_bt_fitted, p_R_fitted, omega
 #' @param output_dir Output directory for plot
 #' @param run_suffix Suffix for filename
 #' @return NULL (saves plot)
-save_glmm_qqplot_weighted_avg <- function(df, output_dir, run_suffix) {
+save_glmm_calibplot_weighted_avg <- function(df, output_dir, run_suffix) {
   # Remove NA values for fair comparison
-  qq_df <- df %>%
+  calib_df <- df %>%
     filter(!is.na(p_observed) & !is.na(p_fitted_weighted))
-  qq_data <- data.frame(Observed = df$p_observed, Weighted_Fitted = df$p_fitted_weighted)
+  calib_data <- data.frame(Observed = df$p_observed, Weighted_Fitted = df$p_fitted_weighted)
 
-  p_qq <- ggplot(qq_data, aes(x = Weighted_Fitted, y = Observed)) +
+  p_calib <- ggplot(calib_data, aes(x = Weighted_Fitted, y = Observed)) +
     geom_point(alpha = 0.7, color = "#009E73") +
     geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
     labs(
       x = "Weighted Fitted Probability",
       y = "Observed Probability",
-      title = "QQ Plot: Observed vs Weighted Fitted Probability",
+      title = "Calibration Plot: Observed vs Weighted Fitted Probability",
       subtitle = "Weighted average: (1-omega)*p_bt + omega*p_R"
     ) +
     theme_minimal()
-  print(p_qq)
-  qqplot_file <- file.path(output_dir, paste0("glmm_qqplot_weighted_avg_", run_suffix, ".png"))
-  ggsave(qqplot_file, p_qq, width = 7, height = 7, dpi = 150)
-  cat("  QQ plot (weighted avg) PNG: ", qqplot_file, "\n", sep = "")
+  print(p_calib)
+  calibplot_file <- file.path(output_dir, paste0("glmm_calibplot_weighted_avg_", run_suffix, ".png"))
+  ggsave(calibplot_file, p_calib, width = 7, height = 7, dpi = 150)
+  cat("  Calibration plot (weighted avg) PNG: ", calibplot_file, "\n", sep = "")
 }
 
 
@@ -594,6 +594,7 @@ save_glmm_residuals_plot <- function(model, output_dir, run_suffix) {
 save_glmm_random_effects_plot <- function(model, output_dir, run_suffix) {
   re_plot_file <- file.path(output_dir, paste0("glmm_random_effects_plot_", run_suffix, ".png"))
   re <- suppressWarnings(ranef(model)$cond)
+  # ranef extracts the BLUPs (best linear unbiased prediction) from the model
   if (length(re) > 0) {
     re_df <- dplyr::bind_rows(lapply(names(re), function(grp) {
       data.frame(

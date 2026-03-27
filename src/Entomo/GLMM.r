@@ -20,11 +20,11 @@ conflicted::conflict_prefer("lag", "dplyr")
 # =========================
 cfg <- list(
   # Random effects to include
-  include_block_re = FALSE,      # Random intercept for block (spatial)
+  include_block_re = TRUE,      # Random intercept for block (spatial)
   include_time_re = FALSE,      # Random intercept for time (temporal)
   include_ar1_temporal = TRUE, # AR(1) temporal autocorrelation (within group)
-  ar1_group = "global",         # "block" (within-block AR1) or "global"
-  include_spatial_ar = TRUE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
+  ar1_group = "global",         # "block" (within-block AR1) or "global"f
+  include_spatial_ar = FALSE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
   # include_spatial_ar = TRUE,  # Matérn spatial autocorrelation: mat(xy + 0 | spatial)
 
   # Link function for binomial GLMM
@@ -84,6 +84,7 @@ cfg <- list(
 )
 
 date_suffix <- format(Sys.Date(), "%Y%m%d")
+
 if (!cfg$ar1_group %in% c("block", "global")) {
   stop("cfg$ar1_group must be either 'block' or 'global'")
 }
@@ -624,6 +625,13 @@ df_summary_weighted <- df_summary %>%
     )
   )
 
+save_glmm_prob_timeseries_plot_weighted(
+  df_summary = df_summary_weighted,
+  output_dir = plots_output_dir,
+  run_suffix = run_suffix,
+  cfg = cfg
+)
+
 save_glmm_prob_timeseries_plot_random_blocks(
     df_summary = df_summary,
     df_observed = df_observed,
@@ -632,23 +640,17 @@ save_glmm_prob_timeseries_plot_random_blocks(
     cfg = cfg,
     n_blocks = 10)
 
-save_glmm_prob_timeseries_plot_weighted(
-  df_summary = df_summary_weighted,
-  output_dir = plots_output_dir,
-  run_suffix = run_suffix,
-  cfg = cfg
-)
 
-# QQ plot of observed vs expected (fitted) probabilities (aggregated over time)
-save_glmm_qqplot_observed_vs_expected(
+# Calibration plot of observed vs expected (fitted) probabilities (aggregated over time)
+save_glmm_calibplot_observed_vs_expected(
   df_summary = df_summary,
   df_observed = df_observed,
   output_dir = plots_output_dir,
   run_suffix = run_suffix
 )
 
-# QQ plot of observed vs weighted average fitted probability
-save_glmm_qqplot_weighted_avg(
+# Calibration plot of observed vs weighted average fitted probability
+save_glmm_calibplot_weighted_avg(
   df = df_summary_weighted,
   output_dir = plots_output_dir,
   run_suffix = run_suffix
