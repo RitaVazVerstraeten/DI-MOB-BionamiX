@@ -1,0 +1,549 @@
+\documentclass[aspectratio=169]{beamer}
+
+\makeatletter
+\def\input@path{{shared/}{shared/classes/ugent-beamer/}{shared/styles/timscolours/}}
+\makeatother
+
+% Load the UGent theme
+\usetheme[language=en,faculty=bw,usecolors]{ugent}
+\usepackage[ugent]{timscolours}
+
+% \usepackage{svg}
+\input{shared/header}
+
+\usepackage{graphicx} % Required for inserting images
+\graphicspath{{../shared/classes/ugent-beamer/}{images/}}
+\usepgfplotslibrary{dateplot}
+\usepackage{pgfplotstable}
+\usepackage{filecontents}
+\usepackage{tikz}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{diagbox}
+
+% For absolute positioning of logos
+\usepackage[absolute,overlay]{textpos}
+
+\titlegraphic{
+  \includegraphics[height=1.5cm]{shared/classes/ugent-beamer/fwo_kleur.png}\hspace{1cm}
+  % \includegraphics[height=1.5cm]{images/your-logo2.png}
+}
+\title{Hierarchical Spatio-Temporal State-Space Model for Mosquito Surveillance}
+\author{Rita Verstraeten}
+\date{\today}
+
+% Custom title page with logos
+\addtobeamertemplate{title page}{%
+  \begin{textblock*}{8cm}(2.5cm,0.86\paperheight)
+    \includegraphics[height=0.75cm]{fwo_kleur.png}
+    \hspace{0.4cm}
+    \includegraphics[height=0.8cm, trim=9cm 8cm 9cm 8cm, clip]{ITM_logo.jpg}
+    \hspace{0.4cm}
+    \includegraphics[height=0.9cm]{IPK_logo.jpeg}
+  \end{textblock*}
+}{}
+
+% Final slide
+\newcommand{\finalframe}{
+  \begin{frame}
+    \vskip-.6cm
+    \begin{minipage}[t][.7\textheight][c]{\textwidth}
+        \vfill
+        \begin{center}
+        {\color{white}\fbox{\begin{minipage}{0.45\textwidth}
+          \centering
+          \textcolor{white}{\large \textbf{Rita Verstraeten}}\\
+          \textcolor{white}{\normalsize PhD Student}\\[0.3cm]
+          \textcolor{white}{\Large BIONAMIX}\\[0.8cm]
+          \textcolor{white}{\footnotesize rita.verstraeten@ugent.be}\\[0.2cm]
+          \textcolor{white}{+32 474 40 45 220}\\[0.2cm]
+          \textcolor{white}{www.bionamix.ugent.be}
+        \end{minipage}}}
+        \hspace{2cm}
+        \begin{minipage}{0.3\textwidth}
+          \centering
+          \Huge \textcolor{white}{Thank you!}\\[0.5cm]
+          \Large \textcolor{white}{Questions?}
+        \end{minipage}
+        \end{center}
+        \vfill
+    \end{minipage}
+    \vspace{15pt}
+  \end{frame}
+}
+\setbeamerfont{author}{size=\Large}
+
+
+\begin{document}
+
+% Title slide
+\titleframe
+
+
+% Outline
+\begin{frame}{Outline}
+  \tableofcontents
+\end{frame}
+
+%===============================================
+% SECTION 1: INTRODUCTION AND CONTEXT
+%===============================================
+
+\section{Introduction and Surveillance Context}
+
+\begin{frame}{Dengue and Mosquito Surveillance}
+  \begin{itemize}
+    \item \textbf{Dengue transmission:} Transmitted by \textit{Aedes} mosquitoes (particularly \textit{Aedes aegypti})
+    \item \textbf{Modelling goals:}
+      \begin{itemize}
+        \item Estimate true mosquito presence probability in space and time
+        \item Account for observation biases in surveillance data
+        \item Use entomological model to inform seasonality in mechanistic epi model. $\rightarrow$ \textbf{keep it simple!}
+      \end{itemize}
+    \item \textbf{Data source:} Entomological surveillance in Cienfuegos, Cuba 2015 - 2019
+      \begin{itemize}
+        \item Routine household inspections (monthly)
+        \item Quality control re-inspections
+        \item Reactive inspections triggered by dengue cases
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{The Data Problem}
+  \begin{itemize}
+    \item \textbf{Unequal sampling effort:}
+      \begin{itemize}
+        \item Routine: every household inspected monthly (systematic)
+        \item Reactive: additional inspections when dengue cases occur
+      \end{itemize}
+    \item \textbf{Observation bias:}
+      \begin{itemize}
+        \item Reactive surveillance inflates observed positivity during outbreaks
+        \item Routine and reactive inspections are \textbf{not labeled} in the data
+      \end{itemize}
+    \item \textbf{Missing data:}
+      \begin{itemize}
+        \item Absences are not recorded (partial observation)
+        \item We only know when mosquitoes \textit{are} detected, not when they \textit{are absent}
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Core Problem}
+  \begin{center}
+    \large
+    \textbf{How do we estimate the true mosquito presence probability when surveillance effort depends on dengue cases?}
+  \end{center}
+  
+  \vspace{1.5cm}
+  We need to separate:
+    \begin{itemize}
+    \item \textbf{True ecology:} Actual mosquito dynamics
+    \item \textbf{Observation bias:} Changes in detection due to increased effort
+    \end{itemize}
+\end{frame}
+
+%===============================================
+% SECTION 2: RESEARCH OBJECTIVE
+%===============================================
+
+\section{Research Objective}
+
+\begin{frame}{Objective}
+  \textbf{Estimate:}
+  \[
+    p_{bt} = \Pr(\text{mosquito immature stages present in block } b \text{ at time } t)
+  \]
+  
+  \vspace{1cm}
+  
+  \textbf{While accounting for:}
+  \begin{itemize}
+    \item \textbf{Systematic surveillance:} Baseline, covers all households monthly
+    \item \textbf{Reactive surveillance:} Additional inspections triggered by dengue cases
+    \item \textbf{Environmental drivers:} NDVI, temperature, rainfall, urbanization, etc.
+    \item \textbf{Spatial heterogeneity:} Between-block differences
+    \item \textbf{Temporal dynamics:} Month-to-month changes and seasonal patterns
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Why This Matters}
+  \begin{columns}
+    \column{0.5\textwidth}
+    \textbf{Without correction:}
+    \begin{itemize}
+      \item Naive analysis $\Rightarrow$ spurious association between cases and mosquitoes
+      \item Inflated positivity during outbreaks
+      \item Biased estimates of environmental effects
+    \end{itemize}
+    
+    \column{0.5\textwidth}
+    \textbf{With correction:}
+    \begin{itemize}
+      \item Isolate true ecological drivers
+    %   \item Evaluate intervention effectiveness
+    %   \item Improve surveillance design
+    \end{itemize}
+  \end{columns}
+\end{frame}
+
+%===============================================
+% SECTION 3: MODELING APPROACH (BLOCK-LEVEL)
+%===============================================
+
+\section{Block-Level Hierarchical Model}
+
+\begin{frame}{Model Overview}
+  \textbf{Three-component structure:}
+  \begin{itemize}
+    \item \textbf{Ecological process:} Latent mosquito presence probability $p_{bt}$
+    \item \textbf{Reactive surveillance bias:} Increased detection under reactive surveillance
+    \item \textbf{Observation model:} Binomial (or Poisson approximation)
+  \end{itemize}
+  
+  \vspace{1cm}
+  
+  \textbf{Key insight:} Separate the ecology from the observation process
+\end{frame}
+
+\subsection{Observation Data}
+
+\begin{frame}{Available Data Structure}
+  For each block $b$ and time $t$:
+  
+  \begin{center}
+    \begin{tabular}{|c|c|}
+      \hline
+      \textbf{Data} & \textbf{Description} \\
+      \hline
+      $y_{bt}$ & Mosquito-positive inspection events \\
+      $N_b^{HH}$ & Number of households (fixed) \\
+      $C_{bt}$ & Observed dengue cases \\
+      $X_{bt}$ & Environmental covariates \\
+      \hline
+    \end{tabular}
+  \end{center}
+  
+  \vspace{1cm}
+  
+  \textbf{Assumptions:}
+  \begin{itemize}
+    \item Every household inspected once per month (systematic)
+    \item Each dengue case triggers $\kappa$ additional inspections
+    \item $\kappa$ is estimated or fixed
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Counting Inspection Events}
+  \textbf{Total number of inspection events:}
+  \begin{equation*}
+    n_{bt} = \underbrace{N_b^{HH}}_{\text{systematic}} + \underbrace{\kappa C_{bt}}_{\text{reactive}}
+  \end{equation*}
+  
+  \vspace{1cm}
+  
+  \begin{itemize}
+    \item $N_b^{HH}$ is known and fixed
+    \item $C_{bt}$ is observed
+    \item $\kappa$ is a scaling factor (e.g., $\kappa \approx 1-4$)
+    \item Assumes: each dengue case originates from a different household
+  \end{itemize}
+\end{frame}
+
+\subsection{Ecological Process}
+
+\begin{frame}{Latent Ecological Model}
+  The \textbf{true} mosquito presence probability:
+  \begin{equation*}
+    \text{logit}(p_{bt}) = \alpha + X_{bt}\beta + u_b + v_t
+  \end{equation*}
+  
+  \vspace{1cm}
+  
+  \begin{itemize}
+    \item $\alpha$ = baseline intercept
+    \item $X_{bt}\beta$ = environmental effects (NDVI, temperature, rainfall, etc.)
+    \item $u_b$ = spatial random effect (between-block heterogeneity)
+    \item $v_t$ = temporal random effect (month-to-month, seasonal)
+  \end{itemize}
+  
+  \vspace{1cm}
+  
+  \textbf{Crucial:} Dengue cases do \textbf{NOT} enter this equation!
+\end{frame}
+
+\subsection{Distributed Lag Model for Environmental Covariates}
+
+\begin{frame}{Why Lags Matter}
+  \textbf{Problem:} Environmental effects are not instantaneous!
+  \begin{itemize}
+    \item Temperature/rainfall in week 1 may affect larvae development in weeks 2-4
+    \item Urbanization (land cover) may have immediate structural effects
+    \item Different covariates have different lag structures
+  \end{itemize}
+  
+  \vspace{1cm}
+  
+  \textbf{Solution:} Distributed Lag Model with \textbf{random walk prior}
+\end{frame}
+
+\begin{frame}{Lag Weights with Random Walk Prior}
+  \textbf{Lag weight for covariate } $k$ \textbf{ at lag } $\ell$:
+  
+  \vspace{0.5cm}
+  
+  \textbf{Prior specification:}
+  \begin{align*}
+    w_{k,0} &\sim \text{Normal}(0, 0.5) \quad \text{(immediate effect)} \\
+    w_{k,\ell} &\sim \text{Normal}(w_{k,\ell-1}, \sigma_w[k]) \quad \ell = 1, \ldots, L \\
+    \sigma_w[k] &\sim \text{Exponential}(2)
+  \end{align*}
+  
+  \vspace{1cm}
+  
+  \textbf{Interpretation:} Each lag weight is centered on the previous lag weight. Encourages \textbf{smooth} trajectories across lags, preventing wild swings.
+\end{frame}
+
+\begin{frame}{Lag Structure in Updated Model}
+  \textbf{Separate covariates into two types:}
+  
+  \begin{itemize}
+    \item \textbf{Lagged covariates } ($K_L$): Temperature, rainfall, humidity
+      \begin{itemize}
+        \item Include lags 0 to $L$ (e.g., $L=8$ weeks)
+        \item Each follows random walk prior on lag weights
+      \end{itemize}
+    \item \textbf{Static covariates } ($K_U$): Urban form, land cover
+      \begin{itemize}
+        \item No temporal variation, simpler prior
+        \item $w_k \sim \text{Normal}(0, 0.5)$
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Updated Ecological Model with Lags}
+  \textbf{Full specification:}
+  \begin{equation*}
+    \text{logit}(p_{bt}) = \alpha + \underbrace{\sum_{k \in K_L} \sum_{\ell=0}^{L} w_{k,\ell} X_{k,b,t-\ell}}_{\text{lagged}} + \underbrace{\sum_{k \in K_U} w_k X_{k,b}}_{\text{static}} + u_b + v_t
+  \end{equation*}
+  
+  \vspace{1cm}
+  
+  where:
+  \begin{itemize}
+    \item $X_{k,b,t-\ell}$ = covariate $k$ in block $b$ at time $t-\ell$ (past values)
+    \item $w_{k,\ell}$ = estimated lag weight (follows random walk prior)
+    \item $w_k$ = unlagged weight (simple prior)
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Benefits of Random Walk Prior on Lags}
+  \begin{itemize}
+    \item \textbf{Smoothness:} Realistic lag trajectories (smooth peak, not jagged)
+    \item \textbf{Regularization:} Prevents overfitting across many lag coefficients
+    \item \textbf{Interpretability:} Easy to visualize when effect peaks
+    \item \textbf{Parsimony:} Reduces effective degrees of freedom
+    \item \textbf{Identifiability:} Helps distinguish lagged vs.\ unlagged effects
+  \end{itemize}
+\end{frame}
+
+\subsection{Reactive Surveillance Bias}
+
+\begin{frame}{Modeling Reactive Surveillance Bias}
+  When dengue cases occur, detection probability increases:
+  \begin{equation*}
+    \text{logit}(p_{bt}^R) = \text{logit}(p_{bt}) + \delta_0 + \delta_1 \log(C_{bt})
+  \end{equation*}
+  
+  \vspace{1cm}
+  
+  \textbf{Parameters:}
+  \begin{itemize}
+    \item $\delta_0$ = baseline reactive targeting bias
+      \begin{itemize}
+        \item Positive $\Rightarrow$ easier to find mosquitoes under reactive surveillance
+      \end{itemize}
+    \item $\delta_1$ = sensitivity to outbreak intensity
+      \begin{itemize}
+        \item Positive $\Rightarrow$ targeting intensifies with more cases
+      \end{itemize}
+  \end{itemize}
+  
+  \vspace{1cm}
+  
+  \textbf{This affects only observation, not true ecology!}
+\end{frame}
+
+\subsection{Mixture of Surveillance Types}
+
+\begin{frame}{Combining Systematic and Reactive Surveillance}
+  The \textbf{fraction} of inspections that are reactive:
+  \begin{equation*}
+    \omega_{bt} = \frac{\kappa C_{bt}}{N_b^{HH} + \kappa C_{bt}}
+  \end{equation*}
+  
+  \vspace{1cm}
+  
+  The \textbf{effective observation probability} (mixture):
+  \begin{equation*}
+    \pi_{bt} = \begin{cases}
+      p_{bt} & \text{if } C_{bt} = 0 \\
+      (1 - \omega_{bt})p_{bt} + \omega_{bt}p_{bt}^R & \text{if } C_{bt} > 0
+    \end{cases}
+  \end{equation*}
+  
+  \vspace{1cm}
+  
+  \textbf{Interpretation:}
+  \begin{itemize}
+    \item During no-outbreak: only systematic surveillance, probability = $p_{bt}$
+    \item During outbreak: weighted mix of unbiased and biased detection
+  \end{itemize}
+\end{frame}
+
+\subsection{Observation Model}
+
+\begin{frame}{Observation Model: Binomial}
+  \begin{equation*}
+    y_{bt} \sim \text{Binomial}(n_{bt}, \pi_{bt})
+  \end{equation*}
+  
+  \vspace{1cm}
+  
+  \textbf{Interpretation:}
+  \begin{itemize}
+    \item Out of $n_{bt}$ inspection events, $y_{bt}$ are positive
+    \item Probability of positive inspection depends on surveillance type
+    \item $\pi_{bt}$ captures the mixture of systematic and reactive surveillance
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Computational Approximation: Poisson}
+  \textbf{Problem:} In Stan, $n_{bt}$ is not fixed; it depends on uncertain $\kappa$
+  
+  \vspace{1cm}
+  
+  \textbf{Solution:} Approximate with Poisson likelihood:
+  \begin{equation*}
+    y_{bt} \sim \text{Poisson}(\lambda_{bt})
+  \end{equation*}
+  
+  where:
+  \begin{equation*}
+    \lambda_{bt} = \underbrace{N_b^{HH} p_{bt}}_{\text{systematic}} + \underbrace{\kappa C_{bt} p_{bt}^R}_{\text{reactive}}
+  \end{equation*}
+  
+  \vspace{1cm}
+  
+  \textbf{Validity:}
+  \begin{itemize}
+    \item Valid when $n_{bt}$ is large and $\pi_{bt}$ is moderate
+    \item Your data: mean $y_{bt} = 0.004$ (rare events) $\Rightarrow$ Poisson appropriate
+    \item Risk: may not capture overdispersion (remedy: negative binomial ??)
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Full Model Specification}
+  \textbf{Ecological process:}
+  \begin{equation*}
+    \text{logit}(p_{bt}) = \alpha + X_{bt}\beta + u_b + v_t
+  \end{equation*}
+  
+  \textbf{Reactive bias:}
+  \begin{equation*}
+    p_{bt}^R = \text{logit}^{-1}(\text{logit}(p_{bt}) + \delta_0 + \delta_1 \log(C_{bt}))
+  \end{equation*}
+  
+  \textbf{Observation model:}
+  \begin{equation*}
+    y_{bt} \sim \text{Poisson}\left( N_b^{HH} p_{bt} + \kappa C_{bt} p_{bt}^R \right)
+  \end{equation*}
+  
+  \vspace{1cm}
+  
+  \textbf{Random effects:}
+  \begin{itemize}
+    \item $u_b \sim \text{Normal}(0, \sigma_u)$ (spatial CAR or GP could be done, but computationally heavy)
+    \item $v_t \sim \text{AR(1)}$ (temporal autocorrelation)
+  \end{itemize}
+\end{frame}
+
+\section{Strengths and Limitations}
+
+\begin{frame}{Strengths of Block-Level Approach}
+  \begin{itemize}
+    \item \textbf{Computationally tractable:} Feasible in Stan
+    \item \textbf{Direct inference:} Estimates $p_{bt}$ directly
+    \item \textbf{Avoids identifiability issues:} Doesn't try to estimate visit probabilities
+    \item \textbf{Clear separation:} Ecology vs.\ observation cleanly separated
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Limitations}
+  \begin{itemize}
+    \item \textbf{Mechanistic detail:} Doesn't explain \textit{why} $p_{bt}$ changes
+      \begin{itemize}
+        \item Colonization vs.\ persistence? Control effectiveness?
+      \end{itemize}
+    \item \textbf{Assumption on coverage:} Assumes all households visited monthly
+    \item \textbf{Clustering:} Assumes each case from different household
+      \begin{itemize}
+        \item May not hold in practice
+      \end{itemize}
+    \item \textbf{Poisson approximation:} May not capture overdispersion
+    \item \textbf{Computation:} Huge number of parameters to estimate
+    \begin{itemize}
+        \item 7 per environmental covariates (plus lags)
+        \item baseline intercept
+        \item temporal autocorrelation 
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{When to Use This Approach}
+  \textbf{Best for:}
+  \begin{itemize}
+    \item Robust estimation of $p_{bt}$ for prediction
+    \item Surveillance evaluation and design
+    \item Quantifying environmental drivers
+    \item When computational efficiency is important
+  \end{itemize}
+  
+  \vspace{1cm}
+  
+  \textbf{Not ideal for:}
+  \begin{itemize}
+    \item Understanding mechanistic drivers (colonization vs.\ persistence)
+    \item Evaluating specific control interventions
+    \item Very detailed mechanistic modeling
+  \end{itemize}
+\end{frame}
+
+\section{Extensions and Next Steps}
+
+\begin{frame}{Possible Extensions}
+  \begin{itemize}
+    \item \textbf{Distributed lag models:} Allow lagged effects of covariates
+    \item \textbf{Temporal autocorrelation:} AR(1) or RW1 for $v_t$
+    \item \textbf{Bayesian estimation of $\delta_0, \delta_1$:} Rather than fixing
+    \item \textbf{Negative binomial:} If overdispersion detected
+    \item \textbf{Hurdle models:} Separate zero-inflation from conditional process
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Questions for Stijn & Joris}
+  \begin{itemize}
+    \item Does the separation of ecology vs.\ observation bias make sense?
+    \item Is the \textbf{Poisson} approximation appropriate, or should we investigate overdispersion?
+    \item How should we regularize lagged covariate effects to avoid \textbf{overfitting}?
+    \item What \textbf{assumptions} might I be missing? 
+    \item How to best test model assumptions and validate predictions?
+    \item Is there a way to \textbf{simplify} the model to reduce computation (and complexity in explanation)? 
+    \item Is a RW prior for the \textbf{lags} the way to go? 
+    \item Is house-block scale too small? Do I need to move to a coarser \textbf{spatial resolution}? 
+  \end{itemize}
+\end{frame}
+
+\finalframe
+
+\end{document}
