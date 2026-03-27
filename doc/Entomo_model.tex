@@ -244,11 +244,11 @@ Colonisation and persistence have \textbf{separate} linear predictors and \textb
 \eta_{bt}^\gamma &= \alpha_\gamma + \sum_{k,\ell} w_{k\ell}^\gamma\, X_{k,b,t-\ell} + \sum_k w_k^{\gamma,u}\, X_{k,b} + u_b^{GP} + v_t^{global} + v_{b,t}^{block}, \\
 \eta_{bt}^\phi   &= \alpha_\phi   + \sum_{k,\ell} w_{k\ell}^\phi\,   X_{k,b,t-\ell} + \sum_k w_k^{\phi,u}\,   X_{k,b} + u_b^{GP} + v_t^{global} + v_{b,t}^{block}.
 \end{align}
-The spatial GP and temporal components are \emph{shared} between the two processes, but the lag weights $w^\gamma$ and $w^\phi$ are estimated independently with separate random walk priors. This allows, for example, rainfall to drive colonisation strongly while having a weaker effect on persistence.
+The spatial GP and temporal components are \emph{shared} between the two processes, but the lag weights $w^\gamma$ and $w^\phi$ are estimated independently with separate random walk priors. This allows, for example, vapor pressure deficit (dry stress) drive presistence strongly while having a weaker effect on colonisation.
 
 \subsection{Spatial and Temporal Random Effects}
 
-The OBM uses the same spatial GP (exponential kernel, Cholesky parameterised) as the hierarchical state-space model. The temporal structure is richer: rather than a scalar per-block deviation, the OBM fits a \textbf{full per-block AR(1) deviation matrix} $v_{b,t}^{block}$, allowing each block to follow its own seasonal trajectory around the global trend. Both the global trend and the per-block deviations share the same AR(1) coefficient $\rho$.
+The OBM uses the same spatial GP (exponential kernel, Cholesky parameterised) as the hierarchical state-space model. ~The temporal structure is richer: rather than a scalar per-block deviation, the OBM fits a \textbf{full per-block AR(1) deviation matrix} $v_{b,t}^{block}$, allowing each block to follow its own seasonal trajectory around the global trend. Both the global trend and the per-block deviations share the same AR(1) coefficient $\rho$.~ Both models use a global (city-wide) AR(1) with a per-block deviation from this temporal trend. The inclusion of a block-time deviation was too computationally heavy. 
 
 \subsection{Observation Model}
 

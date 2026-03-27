@@ -86,6 +86,7 @@ manzanas <- manzanas %>%
 length(unique(manzanas$CODIGO_))
 
 municipality <- st_read(file.path(shapefile_path, "Municipality", "MUNICIPIO CFGOS 3022025.shp"))
+CMFs <- st_read(file.path(shapefile_path, "CMF", "Poligonos CMF Cienfuegos_28032025.shp"))
 
 # Ensure year_month is recognized as date/factor
 if ("year_month" %in% colnames(env_all)) {
@@ -1368,6 +1369,38 @@ if (all(c("manzana", "year_month", "Houses_pos_IS", "Inspected_houses") %in% col
 }
 ```
 
+```{r ento_positivity_25_manzanas, fig.cap="Temporal positivity trend for 25 randomly selected manzanas", fig.width=18, fig.height=12}
+if (exists("manzana_month_positivity")) {
+  set.seed(123)
+  selected_manzanas <- sample(unique(manzana_month_positivity$manzana), 25)
+
+  trend_data <- manzana_month_positivity %>%
+    filter(manzana %in% selected_manzanas) %>%
+    mutate(year_month_date = as.Date(paste0(year_month, "_01"), "%Y_%m_%d"))
+
+  p_trend <- ggplot(trend_data, aes(x = year_month_date, y = Positivity_Rate)) +
+    geom_line(colour = "#4a90c4", linewidth = 0.6) +
+    geom_point(colour = "#4a90c4", size = 1.5) +
+    facet_wrap(~manzana, ncol = 5, scales = "free_y") +
+    scale_x_date(date_labels = "%Y", date_breaks = "1 year") +
+    labs(
+      title    = "Temporal positivity trend — 25 randomly selected manzanas",
+      subtitle = "Observed monthly positivity rate",
+      x = NULL, y = "Positivity rate (%)"
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(
+      strip.text       = element_text(face = "bold", size = 9),
+      axis.text.x      = element_text(angle = 45, hjust = 1, size = 8),
+      panel.grid.minor = element_blank()
+    )
+
+  print(p_trend)
+  ggsave(file.path(output_dir, "15_ento_positivity_trend_25_manzanas.png"),
+         p_trend, width = 18, height = 12, dpi = 300)
+}
+```
+
 ### Positivity by CMF over time (spatio-temporal)
 
 First create a unique Area_CMF indicator 
@@ -1380,7 +1413,7 @@ env_epi_ento_CMF <- env_epi_ento %>%
 if (all(c("Area_CMF", "year_month", "Houses_pos_IS", "Inspected_houses") %in% colnames(env_epi_ento_CMF))) {
   # Calculate positivity for each CMF-month combination (aggregate to CMF level)
   cmf_month_positivity <- env_epi_ento_CMF %>%
-    select(Area_CMF, year_month, Houses_pos_IS, Inspected_houses) %>%
+    select(AREA, Area_CMF, year_month, Houses_pos_IS, Inspected_houses) %>%
     drop_na() %>%
     group_by(Area_CMF, year_month) %>%
     summarise(
@@ -1429,6 +1462,127 @@ if (all(c("Area_CMF", "year_month", "Houses_pos_IS", "Inspected_houses") %in% co
   cat("Note: CMF or required variables not found in dataset.\n")
 }
 ```
+
+
+
+```{r ento_positivity_25_cmfs, fig.cap="Temporal positivity trend for 16 randomly selected CMFs", fig.width=14, fig.height=10}
+if (exists("cmf_month_positivity")) {
+  set.seed(123)
+  selected_cmfs <- sample(unique(cmf_month_positivity$Area_CMF), 25)
+
+  trend_data_cmf <- cmf_month_positivity %>%
+    filter(Area_CMF %in% selected_cmfs) %>%
+    mutate(year_month_date = as.Date(paste0(year_month, "_01"), "%Y_%m_%d"))
+
+  p_trend_cmf <- ggplot(trend_data_cmf, aes(x = year_month_date, y = Positivity_Rate)) +
+    geom_line(colour = "#4a90c4", linewidth = 0.6) +
+    geom_point(colour = "#4a90c4", size = 1.5) +
+    facet_wrap(~Area_CMF, ncol = 5, scales = "free_y") +
+    scale_x_date(date_labels = "%Y", date_breaks = "1 year") +
+    labs(
+      title    = "Temporal positivity trend — 25 randomly selected CMFs",
+      subtitle = "Observed monthly positivity rate",
+      x = NULL, y = "Positivity rate (%)"
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(
+      strip.text       = element_text(face = "bold", size = 9),
+      axis.text.x      = element_text(angle = 45, hjust = 1, size = 8),
+      panel.grid.minor = element_blank()
+    )
+
+  print(p_trend_cmf)
+  ggsave(file.path(output_dir, "16_ento_positivity_trend_25_cmfs.png"),
+         p_trend_cmf, width = 18, height = 12, dpi = 300)
+}
+```
+
+### Spatial Map of Mosquito Positivity by CMF
+
+```{r ento_spatial_map_cmf, fig.cap="Spatial distribution of mosquito positivity rates across CMFs - handled for zero-inflation"}
+if (exists("cmf_month_positivity") && exists("CMFs")) {
+  # Aggregate mean positivity per CMF across all time periods
+  cmf_pos_map <- cmf_month_positivity %>%
+    group_by(Area_CMF) %>%
+    summarise(
+      Positivity_Rate = mean(Positivity_Rate, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  # CMFs shapefile has columns: AS (area), CMF, AP
+  # Area_CMF in the data was constructed as paste(AREA, CMF, sep = "_")
+  # AS in the shapefile corresponds to AREA in the survey data
+  cmfs_map <- CMFs %>%
+    mutate(Area_CMF = paste(AS, CMF, sep = "_"))
+
+  # Join positivity data to shapefile
+  cmfs_ento <- cmfs_map %>%
+    left_join(cmf_pos_map, by = "Area_CMF")
+
+  # Quantile-based categories to handle zero-inflation
+  cmfs_ento <- cmfs_ento %>%
+    mutate(
+      Positivity_Category = case_when(
+        is.na(Positivity_Rate)  ~ "No Data",
+        Positivity_Rate == 0    ~ "Zero",
+        Positivity_Rate > 0 & Positivity_Rate <= quantile(Positivity_Rate[Positivity_Rate > 0], 0.33, na.rm = TRUE) ~ "Low (1st tertile)",
+        Positivity_Rate > quantile(Positivity_Rate[Positivity_Rate > 0], 0.33, na.rm = TRUE) &
+        Positivity_Rate <= quantile(Positivity_Rate[Positivity_Rate > 0], 0.67, na.rm = TRUE) ~ "Medium (2nd tertile)",
+        Positivity_Rate > quantile(Positivity_Rate[Positivity_Rate > 0], 0.67, na.rm = TRUE) ~ "High (3rd tertile)",
+        TRUE ~ "No Data"
+      )
+    )
+
+  p_cmf_map <- ggplot() +
+    geom_sf(data = municipality, fill = NA, color = "black", linewidth = 0.8) +
+    geom_sf(data = cmfs_ento, aes(fill = Positivity_Category), color = "gray40", linewidth = 0.2) +
+    scale_fill_manual(
+      values = c(
+        "Zero"                 = "white",
+        "Low (1st tertile)"    = "#deebf7",
+        "Medium (2nd tertile)" = "#9ecae1",
+        "High (3rd tertile)"   = "#3182bd",
+        "No Data"              = "grey"
+      ),
+      na.value = "white",
+      breaks = c("Zero", "Low (1st tertile)", "Medium (2nd tertile)", "High (3rd tertile)", "No Data")
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text       = element_blank(),
+      axis.ticks      = element_blank(),
+      panel.grid      = element_blank(),
+      plot.title      = element_text(face = "bold", size = 12),
+      legend.position = "right",
+      legend.text     = element_text(size = 9)
+    ) +
+    labs(
+      title    = "Mosquito Survey Positivity Rates Across CMFs",
+      subtitle = "(Mean monthly positivity, stratified by tertiles due to zero-inflation)",
+      fill     = "Positivity\nCategory"
+    )
+
+  print(p_cmf_map)
+  ggsave(file.path(output_dir, "17_ento_spatial_map_positivity_cmf.png"),
+         p_cmf_map, width = 11, height = 9, dpi = 300)
+
+  cat("\n**Positivity Category Breakdown (CMFs):**\n")
+  cmf_category_summary <- cmfs_ento %>%
+    st_drop_geometry() %>%
+    group_by(Positivity_Category) %>%
+    summarise(
+      Count     = n(),
+      Mean_Rate = mean(Positivity_Rate, na.rm = TRUE),
+      Min_Rate  = min(Positivity_Rate, na.rm = TRUE),
+      Max_Rate  = max(Positivity_Rate, na.rm = TRUE),
+      .groups = "drop"
+    )
+  print(knitr::kable(cmf_category_summary, digits = 2))
+} else {
+  cat("CMFs shapefile or cmf_month_positivity not available.\n")
+}
+```
+
 
 ## Temporal autocorrelation
 
@@ -1612,7 +1766,7 @@ moran_global <- moran.test(positivity_clean,
 print(moran_global)
 ```
 
-With a Moran's I of 0.14 with significance, we can say that there is strong evidence for spatial auto-correlation (spatial clustering) in the positivity rate! 
+With a Moran's I of 0.14 with significance, we can say that there is evidence for spatial auto-correlation (spatial clustering) in the positivity rate! 
 
 The next step will be to test the Moran's I on the residuals fromt he model, after accounting for the spatial explanantory variables. If the Moran's I is no longer singificant after that, then we don't need to account for additional spatial autocorrelation in the model. If it is, then we should include a spatial random effect in the model (likely). 
 
@@ -1697,7 +1851,7 @@ colors <- ifelse(moran_by_distance$Significant, "red", "blue")
 points(moran_by_distance$Distance_mid_m, moran_by_distance$Morans_I, 
        pch = 16, cex = 1.5, col = colors)
 
-abline(h = 0, lty = 2, col = "gray", lwd = 2)
+# abline(h = 0, lty = 2, col = "gray", lwd = 2)
 legend("topright", legend = c("p < 0.05", "p ≥ 0.05"), 
        col = c("red", "blue"), pch = 16)
 grid()

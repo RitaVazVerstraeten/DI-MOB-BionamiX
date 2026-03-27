@@ -1,7 +1,7 @@
 \documentclass[aspectratio=169]{beamer}
 
 \makeatletter
-\def\input@path{{shared/}{shared/classes/ugent-beamer/}{shared/styles/timscolours/}}
+\def\input@path{{shared/}{shared/classes/ugent-beamer/}{shared/styles/timscolours/}{out.nosync/}}
 \makeatother
 
 % Load the UGent theme
@@ -12,7 +12,7 @@
 \input{shared/header}
 
 \usepackage{graphicx} % Required for inserting images
-\graphicspath{{../shared/classes/ugent-beamer/}{images/}}
+\graphicspath{{../shared/classes/ugent-beamer/}{images/}{out.nosync/images/}}
 \usepgfplotslibrary{dateplot}
 \usepackage{pgfplotstable}
 \usepackage{filecontents}
@@ -73,6 +73,28 @@
 }
 \setbeamerfont{author}{size=\Large}
 
+\AtBeginSection[]{
+  \begin{frame}
+    \vfill
+    \centering
+    \usebeamerfont{title}\insertsectionhead
+    \vfill
+  \end{frame}
+}
+
+\defbeamertemplate*{subsection page}{ugent}[1][]{%
+    \vskip-.6cm
+    \begin{minipage}[t][.7\textheight][b]{\textwidth}
+        \hspace*{.025\textwidth}{\usebeamerfont{title}\usebeamercolor[fg]{title}\insertsectionhead}\\[0.3cm]
+        \hspace*{.025\textwidth}{\usebeamerfont{subtitle}\usebeamercolor[fg]{subtitle}\insertsubsectionhead}
+    \end{minipage}
+    \vspace{15pt}
+}
+\newcommand{\subsectionframe}{
+  \insectionframetrue
+  \frame{\subsectionpage}
+  \insectionframefalse
+}
 
 \begin{document}
 
@@ -143,6 +165,22 @@
     \end{itemize}
 \end{frame}
 
+\begin{frame}{Mosquito positivity (Municipaltiy) rate over time}
+\centering
+  \includegraphics[width=\linewidth]{11_ento_temporal_positivity.png}
+\end{frame}
+
+\begin{frame}{Mosquito positivity (Manzanas) rate over time}
+\centering
+\vspace{0.3cm}
+  \includegraphics[width=1.35\textheight]{15_ento_positivity_trend_25_manzanas.png}
+\end{frame}
+
+\begin{frame}{Mosquito positivity (CMFs) rate over time}
+\centering
+\vspace{0.3cm}
+  \includegraphics[width=1.35\textheight]{16_ento_positivity_trend_25_cmfs.png}
+\end{frame}
 %===============================================
 % SECTION 2: RESEARCH OBJECTIVE
 %===============================================
@@ -245,7 +283,7 @@
   \begin{itemize}
     \item $N_b^{HH}$ is known and fixed
     \item $C_{bt}$ is observed
-    \item $\kappa$ is a scaling factor (e.g., $\kappa \approx 1-4$)
+    \item $\kappa = 2$ (fixed; each case triggers $\approx 2$ additional inspections)
     \item Assumes: each dengue case originates from a different household
   \end{itemize}
 \end{frame}
@@ -255,20 +293,19 @@
 \begin{frame}{Latent Ecological Model}
   The \textbf{true} mosquito presence probability:
   \begin{equation*}
-    \text{logit}(p_{bt}) = \alpha + X_{bt}\beta + u_b + v_t
+    \text{logit}(p_{bt}) = \alpha + X_{bt}\beta + \underbrace{u_b^{GP}}_{\text{spatial}} + \underbrace{v_t^{global} + v_b^{dev}}_{\text{temporal}}
   \end{equation*}
-  
-  \vspace{1cm}
-  
+
   \begin{itemize}
     \item $\alpha$ = baseline intercept
-    \item $X_{bt}\beta$ = environmental effects (NDVI, temperature, rainfall, etc.)
-    \item $u_b$ = spatial random effect (between-block heterogeneity)
-    \item $v_t$ = temporal random effect (month-to-month, seasonal)
+    \item $X_{bt}\beta$ = environmental effects (distributed lags)
+    \item $u_b^{GP}$ = \textbf{spatial GP} with exponential kernel:
+      $\text{Cov}(u_b, u_{b'}) = \sigma_{GP}^2\exp(-d_{bb'}/\rho_{GP})$
+    \item $v_t^{global}$ = \textbf{city-wide AR(1) trend}: $v_t = \rho v_{t-1} + \sigma_v \varepsilon_t$
+    \item $v_b^{dev} \sim \text{Normal}(0, \sigma_{dev})$ = per-block offset from global trend
   \end{itemize}
-  
-  \vspace{1cm}
-  
+
+  \vspace{0.3cm}
   \textbf{Crucial:} Dengue cases do \textbf{NOT} enter this equation!
 \end{frame}
 
@@ -324,16 +361,13 @@
 \begin{frame}{Updated Ecological Model with Lags}
   \textbf{Full specification:}
   \begin{equation*}
-    \text{logit}(p_{bt}) = \alpha + \underbrace{\sum_{k \in K_L} \sum_{\ell=0}^{L} w_{k,\ell} X_{k,b,t-\ell}}_{\text{lagged}} + \underbrace{\sum_{k \in K_U} w_k X_{k,b}}_{\text{static}} + u_b + v_t
+    \text{logit}(p_{bt}) = \alpha + \underbrace{\sum_{k \in K_L} \sum_{\ell=0}^{L} w_{k,\ell} X_{k,b,t-\ell}}_{\text{lagged}} + \underbrace{\sum_{k \in K_U} w_k X_{k,b}}_{\text{static}} + u_b^{GP} + v_t^{global} + v_b^{dev}
   \end{equation*}
-  
-  \vspace{1cm}
-  
-  where:
+
   \begin{itemize}
-    \item $X_{k,b,t-\ell}$ = covariate $k$ in block $b$ at time $t-\ell$ (past values)
-    \item $w_{k,\ell}$ = estimated lag weight (follows random walk prior)
-    \item $w_k$ = unlagged weight (simple prior)
+    \item $X_{k,b,t-\ell}$ = covariate $k$ in block $b$ at lag $\ell$
+    \item $w_{k,\ell}$ = estimated lag weight (random walk prior)
+    \item $w_k$ = unlagged weight; $\quad$ current covariates: \texttt{total\_rainy\_days}, \texttt{avg\_VPD}, \texttt{precip\_max\_day}, \texttt{mean\_ndvi} (lags 0--1); \texttt{is\_urban}, \texttt{is\_WUI} (unlagged)
   \end{itemize}
 \end{frame}
 
@@ -403,68 +437,45 @@
 
 \subsection{Observation Model}
 
-\begin{frame}{Observation Model: Binomial}
+\begin{frame}{Observation Model: Beta-Binomial}
   \begin{equation*}
-    y_{bt} \sim \text{Binomial}(n_{bt}, \pi_{bt})
+    y_{bt} \sim \text{BetaBinomial}(n_{bt},\; \pi_{bt}\cdot\phi,\; (1-\pi_{bt})\cdot\phi)
   \end{equation*}
-  
-  \vspace{1cm}
-  
-  \textbf{Interpretation:}
+
   \begin{itemize}
     \item Out of $n_{bt}$ inspection events, $y_{bt}$ are positive
-    \item Probability of positive inspection depends on surveillance type
-    \item $\pi_{bt}$ captures the mixture of systematic and reactive surveillance
-  \end{itemize}
-\end{frame}
-
-\begin{frame}{Computational Approximation: Poisson}
-  \textbf{Problem:} In Stan, $n_{bt}$ is not fixed; it depends on uncertain $\kappa$
-  
-  \vspace{1cm}
-  
-  \textbf{Solution:} Approximate with Poisson likelihood:
-  \begin{equation*}
-    y_{bt} \sim \text{Poisson}(\lambda_{bt})
-  \end{equation*}
-  
-  where:
-  \begin{equation*}
-    \lambda_{bt} = \underbrace{N_b^{HH} p_{bt}}_{\text{systematic}} + \underbrace{\kappa C_{bt} p_{bt}^R}_{\text{reactive}}
-  \end{equation*}
-  
-  \vspace{1cm}
-  
-  \textbf{Validity:}
-  \begin{itemize}
-    \item Valid when $n_{bt}$ is large and $\pi_{bt}$ is moderate
-    \item Your data: mean $y_{bt} = 0.004$ (rare events) $\Rightarrow$ Poisson appropriate
-    \item Risk: may not capture overdispersion (remedy: negative binomial ??)
+    \item $\pi_{bt}$ = mixture of systematic and reactive detection probabilities
+    \item $\phi$ = concentration parameter controlling \textbf{overdispersion}
+      \begin{itemize}
+        \item $\phi \to \infty$: reduces to Binomial
+        \item Estimated from zero-case cells: $\phi \approx 23$ (100-block subset)
+        \item Empirical variance/binomial-variance ratio $\approx 25$ $\Rightarrow$ overdispersion real
+      \end{itemize}
+    \item $\kappa = 2$ is fixed $\Rightarrow$ $n_{bt}$ fully determined by data, no approximation needed
   \end{itemize}
 \end{frame}
 
 \begin{frame}{Full Model Specification}
   \textbf{Ecological process:}
   \begin{equation*}
-    \text{logit}(p_{bt}) = \alpha + X_{bt}\beta + u_b + v_t
+    \text{logit}(p_{bt}) = \alpha + X_{bt}\beta + u_b^{GP} + v_t^{global} + v_b^{dev}
   \end{equation*}
-  
+
   \textbf{Reactive bias:}
   \begin{equation*}
-    p_{bt}^R = \text{logit}^{-1}(\text{logit}(p_{bt}) + \delta_0 + \delta_1 \log(C_{bt}))
+    p_{bt}^R = \text{logit}^{-1}\!\left(\text{logit}(p_{bt}) + \delta_0 + \delta_1 \log C_{bt}\right)
   \end{equation*}
-  
+
   \textbf{Observation model:}
   \begin{equation*}
-    y_{bt} \sim \text{Poisson}\left( N_b^{HH} p_{bt} + \kappa C_{bt} p_{bt}^R \right)
+    y_{bt} \sim \text{BetaBinomial}(n_{bt},\; \pi_{bt}\phi,\; (1-\pi_{bt})\phi)
   \end{equation*}
-  
-  \vspace{1cm}
-  
+
   \textbf{Random effects:}
   \begin{itemize}
-    \item $u_b \sim \text{Normal}(0, \sigma_u)$ (spatial CAR or GP could be done, but computationally heavy)
-    \item $v_t \sim \text{AR(1)}$ (temporal autocorrelation)
+    \item $u_b^{GP}$: spatial GP, exponential kernel, $\sigma_{GP} \sim \text{Half-Normal}(0,1)$, $\rho_{GP} \sim \text{InvGamma}(3,150)$
+    \item $v_t^{global}$: global AR(1), $\sigma_v \sim \text{Exp}(1)$, $\rho \sim \text{Normal}(0.4, 0.2)$
+    \item $v_b^{dev}$: per-block offset, $\sigma_{dev} \sim \text{Exp}(2)$
   \end{itemize}
 \end{frame}
 
@@ -483,20 +494,16 @@
   \begin{itemize}
     \item \textbf{Mechanistic detail:} Doesn't explain \textit{why} $p_{bt}$ changes
       \begin{itemize}
-        \item Colonization vs.\ persistence? Control effectiveness?
+        \item Colonization vs.\ persistence not separated; control effect not estimable
+        \item $\Rightarrow$ addressed by the Occupancy Block Model
       \end{itemize}
     \item \textbf{Assumption on coverage:} Assumes all households visited monthly
-    \item \textbf{Clustering:} Assumes each case from different household
+    \item \textbf{Clustering:} Assumes each case originates from a different household
+    \item \textbf{GP computation:} Exact Cholesky is $\mathcal{O}(B^3)$ per HMC step
       \begin{itemize}
-        \item May not hold in practice
+        \item HSGP approximation available ($\mathcal{O}(B \cdot M^2)$) for scaling to all blocks
       \end{itemize}
-    \item \textbf{Poisson approximation:} May not capture overdispersion
-    \item \textbf{Computation:} Huge number of parameters to estimate
-    \begin{itemize}
-        \item 7 per environmental covariates (plus lags)
-        \item baseline intercept
-        \item temporal autocorrelation 
-    \end{itemize}
+    \item \textbf{Unlabelled inspections:} Baseline/reactive split relies entirely on $\kappa = 2$
   \end{itemize}
 \end{frame}
 
@@ -519,30 +526,232 @@
   \end{itemize}
 \end{frame}
 
-\section{Extensions and Next Steps}
+% \begin{frame}{Possible Extensions}
+%   \begin{itemize}
+%     \item \textbf{Distributed lag models:} Allow lagged effects of covariates
+%     \item \textbf{Temporal autocorrelation:} AR(1) or RW1 for $v_t$
+%     \item \textbf{Bayesian estimation of $\delta_0, \delta_1$:} Rather than fixing
+%     \item \textbf{Negative binomial:} If overdispersion detected
+%     \item \textbf{Hurdle models:} Separate zero-inflation from conditional process
+%   \end{itemize}
+% \end{frame}
 
-\begin{frame}{Possible Extensions}
+
+
+%===============================================
+% SECTION: GLMM — FREQUENTIST APPROACH
+%===============================================
+
+\section{GLMM --- Frequentist Approach}
+
+\begin{frame}{Why a Frequentist GLMM?}
+  \textbf{Role in the modelling pipeline:}\vspace{0.3cm}
+
+  \noindent\textbf{1.~Covariate screening:} fast identification of which environmental predictors and lags are associated with mosquito presence\vspace{0.15cm}
+
+  \noindent\textbf{2.~Prior elicitation:} fixed-effect estimates (log-odds scale) inform prior means for the Bayesian model\vspace{0.15cm}
+
+  \noindent\textbf{3.~Variance calibration:} block and temporal variance estimates inform Stan hyperpriors
+
+  \vspace{0.4cm}
+  \noindent\textbf{Key difference from the Bayesian model:}\vspace{0.1cm}
+
+  \noindent MLE via \texttt{glmmTMB} (Laplace approximation) --- no priors, fast, no MCMC.
+  $\Rightarrow$ run first, feed results into Stan \\
+  \vspace{0.4cm}
+  \hspace{0.5cm}
+  $\Rightarrow$ \textit{is this considered overfitting?}
+\end{frame}
+
+\begin{frame}{Data Expansion: Separating Surveillance Types}
+  When $C_{bt} > 0$, each original observation is \textbf{split into two rows}:
+
+  \vspace{0.3cm}
+  \noindent\textbf{Baseline row} (systematic surveillance):
+  \begin{equation*}
+    n^{(base)} = \lfloor(1-\omega_{bt})\,n_{bt}\rfloor, \quad
+    y^{(base)} = \lfloor y_{bt}(1-\omega_{bt})\rfloor, \quad
+    \texttt{reactive\_shift} = 0
+  \end{equation*}
+
+  \noindent\textbf{Reactive row} (case-triggered inspections):
+  \begin{equation*}
+    n^{(react)} = \lfloor\omega_{bt}\,n_{bt}\rfloor, \quad
+    y^{(react)} = \lfloor y_{bt}\,\omega_{bt}\rfloor, \quad
+    \texttt{reactive\_shift} = \log(1+C_{bt})
+  \end{equation*}
+
+  where $\omega_{bt} = \kappa C_{bt} / n_{bt}$
+
+  \vspace{0.3cm}
+  \textbf{Caveat:} positives are split proportionally --- assumes equal positivity rate in both surveillance types (discussed in limitations)
+\end{frame}
+
+\begin{frame}{GLMM Linear Predictor}
+  For each row $i$ (baseline or reactive):
+  \begin{equation*}
+    \eta_i = \alpha
+      + \sum_{k \in \mathcal{L}} \sum_{\ell=0}^{L} \beta_{k\ell}\, x_{k,b(i),t(i)-\ell}
+      + \sum_{k \in \mathcal{U}} \beta_k\, x_{k,b(i)}
+      + \delta \cdot \texttt{reactive\_shift}_i
+      + v_{t(i)} + \phi_{b(i),t(i)}
+  \end{equation*}
+
   \begin{itemize}
-    \item \textbf{Distributed lag models:} Allow lagged effects of covariates
-    \item \textbf{Temporal autocorrelation:} AR(1) or RW1 for $v_t$
-    \item \textbf{Bayesian estimation of $\delta_0, \delta_1$:} Rather than fixing
-    \item \textbf{Negative binomial:} If overdispersion detected
-    \item \textbf{Hurdle models:} Separate zero-inflation from conditional process
+    \item $\mathcal{L}$: lagged covariates (lags $\ell = 0,1,2$): \texttt{rainy\_days\_cat}, \texttt{avg\_VPD}, \texttt{precip\_max\_day}
+    \item $\mathcal{U}$: unlagged: \texttt{is\_urban}, \texttt{is\_WUI}
+    \item $\delta$: log-odds shift for reactive rows
+    \item $v_t \sim \mathcal{N}(0,\sigma_v)$: i.i.d.\ month random intercept
+    \item $\phi_{b,t}$: AR(1) within-block temporal effect: \texttt{ar1(year\_month + 0 | block)}
   \end{itemize}
 \end{frame}
 
-\begin{frame}{Questions for Stijn & Joris}
+\begin{frame}{GLMM Observation Model and Random Effects}
+  \textbf{Likelihood:}
+  \begin{equation*}
+    y_i \sim \text{Binomial}(n_i,\; \text{logit}^{-1}(\eta_i))
+  \end{equation*}
+  specified in \texttt{glmmTMB} as \texttt{cbind(y\_i, n\_i - y\_i) \textasciitilde\ \ldots}
+
+  \vspace{0.5cm}
+  \textbf{Configurable random effects} (\texttt{cfg} list in \texttt{GLMM.r}):
+  \begin{center}
+  \small
+  \begin{tabular}{lll}
+    \hline
+    \textbf{Effect} & \textbf{Formula} & \textbf{Current} \\
+    \hline
+    Block intercept & \texttt{(1 | block)} & off \\
+    Month intercept & \texttt{(1 | year\_month)} & on \\
+    Within-block AR(1) & \texttt{ar1(time + 0 | block)} & on \\
+    Global AR(1) & \texttt{ar1(time + 0 | all)} & off \\
+    Spatial exp.\ cov. & \texttt{exp(xy + 0 | spatial)} & off \\
+    \hline
+  \end{tabular}
+  \end{center}
+\end{frame}
+
+\begin{frame}{GLMM Outputs and Role}
+  \textbf{Outputs:}
   \begin{itemize}
-    \item Does the separation of ecology vs.\ observation bias make sense?
-    \item Is the \textbf{Poisson} approximation appropriate, or should we investigate overdispersion?
-    \item How should we regularize lagged covariate effects to avoid \textbf{overfitting}?
-    \item What \textbf{assumptions} might I be missing? 
-    \item How to best test model assumptions and validate predictions?
-    \item Is there a way to \textbf{simplify} the model to reduce computation (and complexity in explanation)? 
-    \item Is a RW prior for the \textbf{lags} the way to go? 
-    \item Is house-block scale too small? Do I need to move to a coarser \textbf{spatial resolution}? 
+    \item Fitted baseline probability $\hat{p}_{bt}$ (from baseline rows)
+    \item Fitted reactive probability $\hat{p}_{bt}^R$ (from reactive rows, when $\kappa > 0$)
+    \item Weighted average: $\hat{\pi}_{bt} = (1-\omega_{bt})\hat{p}_{bt} + \omega_{bt}\hat{p}_{bt}^R$
+    \item Fixed-effect table with odds ratios
+    \item Diagnostic plots: time-series, QQ, residuals, random effects
+  \end{itemize}
+
+  \vspace{0.5cm}
+  \textbf{Key limitation --- proportional positive split:}
+  \begin{itemize}
+    \item \textbf{Are we comparing apples to pears by looking at ecological positivity rate ($p_{b,t}$) vs observed positivity rate?}
+    \item \textbf{Uncontrolled variance in AR(1) factor}
+    \item Assumes reactive and baseline rows have the \emph{same} positivity rate
+    \item In reality reactive inspections target high-risk households $\Rightarrow$ positivity likely higher
   \end{itemize}
 \end{frame}
+
+\section{Results}
+\subsection{GLMM + temporal AR}
+
+\begin{frame}{GLMM Municipality-overall fit}
+  \centering
+  \vspace{0.2cm}
+    \includegraphics[width=\linewidth]{Model_output/probabilities_timeseries_20260324.png}
+
+\end{frame}
+
+\begin{frame}{GLMM per-manzana fit}
+  \centering
+  \vspace{0.2cm}
+    \includegraphics[width=\linewidth]{Model_output/probabilities_timeseries_random_blocks_20260324.png}
+\end{frame}
+
+\begin{frame}{GLMM Output coefficients}
+  \centering
+  \vspace{0.2cm}
+    \includegraphics[height=\textheight]{Model_output/Txt_output_20260324.png}
+\end{frame}
+
+
+\begin{frame}{GLMM QQ plot}
+  \centering
+  \vspace{0.2cm}
+    \includegraphics[height=\textheight]{Model_output/glmm_qqplot_observed_vs_expected_20260324.png}
+\end{frame}
+
+
+\subsection{GLMM + temporal RE + spatial RE}
+
+\begin{frame}{GLMM Municipality-overall fit}
+  \centering
+  \vspace{0.2cm}
+    \includegraphics[width=\linewidth]{Model_output/probabilities_timeseries_20260313.png}
+
+\end{frame}
+
+\begin{frame}{GLMM per-manzana fit}
+  \centering
+  \vspace{0.2cm}
+    \includegraphics[width=\linewidth]{Model_output/probabilities_timeseries_random_blocks_20260313.png}
+\end{frame}
+
+\begin{frame}{GLMM Output coefficients}
+  \centering
+  \vspace{0.2cm}
+    \includegraphics[height=\textheight]{Model_output/Txt_output_20260313.png}
+\end{frame}
+
+
+\begin{frame}{GLMM QQ plot}
+  \centering
+  \vspace{0.2cm}
+    \includegraphics[height=\textheight]{Model_output/glmm_qqplot_observed_vs_expected_20260313.png}
+\end{frame}
+
+\subsection{GLMM + spatial AC}
+
+\begin{frame}{GLMM Municipality-overall fit}
+  \centering
+  \vspace{0.2cm}
+    \includegraphics[width=\linewidth]{Model_output/probabilities_timeseries_20260314.png}
+
+\end{frame}
+
+\begin{frame}{GLMM per-manzana fit}
+  \centering
+  \vspace{0.2cm}
+    \includegraphics[width=\linewidth]{Model_output/probabilities_timeseries_random_blocks_20260314.png}
+\end{frame}
+
+\begin{frame}{GLMM Output coefficients}
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      \vspace{0.2cm}
+      \includegraphics[height=0.95\linewidth]{Model_output/Txt_output_20260314_part1.png}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \vspace{0.2cm}
+      \includegraphics[height=0.95\linewidth]{Model_output/Txt_output_20260314_part2.png}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{GLMM QQ plot}
+  \centering
+  \vspace{0.2cm}
+    \includegraphics[height=\textheight]{Model_output/glmm_qqplot_observed_vs_expected_20260314.png}
+\end{frame}
+
+\section{Questions}
+\begin{frame}{Questions for Stijn}
+\begin{itemize}
+  \item Given that my \textbf{outcome is a rare event} (with low levels when present) (±1\% prevalence) with a reactive surveillance process, is a GLMM with a split-row design (baseline vs reactive rows) the right frequentist approach, or would another model be better? 
+  \item Given the data, should I rather tend towards \textbf{cleaning up the data} or should I adjust my modelling strategy? 
+  \item What can I actually use the GLMM model for given the extremely high variance on the temporal autoregressive factor? 
+\end{itemize}
+\end{frame}
+
 
 \finalframe
 
