@@ -22,9 +22,9 @@ cfg <- list(
   # Random effects to include
   include_block_re = FALSE,      # Random intercept for block (spatial)
   include_time_re = FALSE,      # Random intercept for time (temporal)
-  include_ar1_temporal = FALSE, # AR(1) temporal autocorrelation (within group)
+  include_ar1_temporal = TRUE, # AR(1) temporal autocorrelation (within group)
   ar1_group = "block",         # "block" (within-block AR1) or "global"
-  include_spatial_ar = TRUE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
+  include_spatial_ar = FALSE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
   # include_spatial_ar = TRUE,  # Matérn spatial autocorrelation: mat(xy + 0 | spatial)
 
   # Link function for binomial GLMM
@@ -388,6 +388,11 @@ if (cfg$include_time_re) {
 if (cfg$include_ar1_temporal) {
   random_effects <- c(random_effects, "ar1(year_month_ar1 + 0 | ar1_group)")
 }
+#With ar1_group = "block", each block gets its own independent AR1 process. If set to "global", all observations share a single AR1 process across all blocks.
+# the AR1 covariance function the corelation btw time points t and t+k is Corr(u_t, u_{t+k}) = rho^k, where rho is the autocorr coeff estimated from the data 
+
+# For each block, a separate time series of latent values u_t is estimated — one per month. Consecutive months within a block are correlated by ρ, two months apart by ρ², etc. This captures the idea that mosquito occurrence in one month tends to persist into the next, independently within each block.
+
 if (cfg$include_spatial_ar) {
   random_effects <- c(random_effects, "exp(xy + 0 | spatial)")
   # random_effects <- c(random_effects, "mat(xy + 0 | spatial, range = 400)")
