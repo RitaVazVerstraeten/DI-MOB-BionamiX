@@ -649,6 +649,41 @@ print(p)
 ggsave(file.path(output_dir, "07_spatiotemporal_by_landcover.png"), p, width = 12, height = 6, dpi = 300)
 ```
 
+### Spatial Map — NDVI (first month snapshot)
+
+```{r spatial_map_ndvi, fig.cap="Spatial distribution of mean NDVI across manzanas (first available month)", fig.width=10, fig.height=8}
+# Use first available year_month as a snapshot
+first_month <- env_all %>%
+  filter(!is.na(mean_ndvi)) %>%
+  pull(year_month) %>%
+  sort() %>%
+  first()
+
+ndvi_snapshot <- env_all %>%
+  filter(year_month == first_month) %>%
+  select(manzana, mean_ndvi)
+
+manzanas_ndvi <- manzanas %>%
+  left_join(ndvi_snapshot, by = c("CODIGO_" = "manzana"))
+
+p_ndvi <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = manzanas_ndvi %>% filter(!is.na(mean_ndvi)),
+          aes(fill = mean_ndvi), color = "gray30", size = 0.1) +
+  geom_sf(data = manzanas_ndvi %>% filter(is.na(mean_ndvi)),
+          fill = "white", color = "gray30", size = 0.1) +
+  scale_fill_viridis_c(option = "viridis", name = "NDVI") +
+  theme_minimal() +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = paste0("Mean NDVI per Manzana (", first_month, ")"))
+
+print(p_ndvi)
+ggsave(file.path(output_dir, "08b_spatial_map_ndvi.png"), p_ndvi, width = 10, height = 8, dpi = 300)
+```
+
 ---
 
 ## Collinearity in Environmental data

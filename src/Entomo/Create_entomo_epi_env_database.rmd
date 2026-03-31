@@ -977,7 +977,7 @@ p_temp <- ggplot(plot_long, aes(x = year_month_date, y = Value, color = Type, gr
   ) +
   scale_color_manual(
     name = "Legend",
-    values = c("Mean" = "darkblue", "Max" = "red", "Min" = "orange")
+    values = c("Mean" = "orange", "Max" = "red", "Min" = "darkblue")
   ) +
   scale_fill_manual(
     name = "Temp Category",
@@ -1113,7 +1113,7 @@ p_precip_with_cat <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
     sec.axis = sec_axis(~ . / scale_factor, name = "Days")
   ) +
   labs(
-    title = "Precipitation categories",
+    title = "Precipitation categories - based on total precipitation",
     x = "Month"
   ) +
   # scale_fill_manual(values = c("dry" = "red", "med" = "yellow", "wett" = "skyblue")) +
@@ -1122,7 +1122,7 @@ p_precip_with_cat <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
   theme(legend.position = "right", legend.justification = c(1, 1))
 print(p_precip_with_cat)
 ggsave(
-  filename = file.path(save_images_to, "Precipitation_with_categories.png"),
+  filename = file.path(save_images_to, "Precipitation_with_categories_total_precip.png"),
   plot = p_precip_with_cat,
   width = 12,
   height = 6,
@@ -1142,15 +1142,79 @@ q_rainy_days <- quantile(meteo_monthly$total_rainy_days, probs = c(0, 0.6, 1), n
 # Create the categorical variable
 meteo_monthly <- meteo_monthly %>%
   mutate(
-    precip_cat = cut(
-      total_precip,
-      breaks = q_precip,
+    rainy_days_cat = cut(
+      total_rainy_days,
+      breaks = q_rainy_days,
       labels = c("dry", "wett"),
       include.lowest = TRUE,
       right = FALSE
     )
   )
-print(q_precip)
+print(q_rainy_days)
+```
+
+```{r plot the precipitation categories based on rainy days}
+meteo_monthly$year_month_date <- as.Date(paste0(meteo_monthly$year_month, "_01"), format = "%Y_%m_%d")
+
+# Create a data frame for rectangles (one per month)
+rects <- meteo_monthly %>%
+  mutate(
+    xmin = year_month_date - 15, # half a month before
+    xmax = year_month_date + 15  # half a month after
+  )
+scale_factor <- max(meteo_to_plot$total_precip, na.rm = TRUE) / max(meteo_to_plot$total_rainy_days, na.rm = TRUE)
+
+p_precip_with_cat <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
+  geom_rect(
+    data = rects,
+    aes(
+      xmin = xmin,
+      xmax = xmax,
+      ymin = -Inf,
+      ymax = max(meteo_to_plot$total_precip, na.rm = TRUE),
+      fill = rainy_days_cat
+    ),
+    alpha = 0.2,
+    inherit.aes = FALSE
+  ) +
+  geom_line(aes(y = total_precip, linetype = "Total Precip")) +
+  geom_point(aes(y = total_precip), size=1.5) +
+  geom_line(aes(y = consec_rainy_days * scale_factor, linetype = "Consec Rainy Days")) +
+  geom_point(aes(y = consec_rainy_days * scale_factor), size = 1.5) +
+  geom_line(aes(y = total_rainy_days * scale_factor, linetype = "Total Rainy Days")) +
+  geom_point(aes(y = total_rainy_days * scale_factor), size = 1.5) +
+  scale_linetype_manual(
+    name = NULL,
+    values = c(
+      "Total Precip" = "solid",
+      "Consec Rainy Days" = "dotdash",
+      "Total Rainy Days" = "dashed"
+    )
+  ) +
+  scale_y_continuous(
+    name = "Precipitation (mm)",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Days")
+  ) +
+  labs(
+    title = "Precipitation categories - based on total rainy days",
+    x = "Month"
+  ) +
+  # scale_fill_manual(values = c("infrequent" = "red", "frequent" = "skyblue")) +
+  scale_fill_manual(values = c("dry" = "red", "wett" = "skyblue")) +
+  theme_minimal() +
+  theme(legend.position = "right", legend.justification = c(1, 1))
+print(p_precip_with_cat)
+ggsave(
+  filename = file.path(save_images_to, "Precipitation_with_categories_rainy_days.png"),,
+  plot = p_precip_with_cat,
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+
+meteo_monthly <- meteo_monthly %>%
+ select(-year_month_date)
 ```
 
 ```{r add rainy days category to data}

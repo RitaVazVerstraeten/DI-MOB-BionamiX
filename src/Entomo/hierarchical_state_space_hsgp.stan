@@ -156,7 +156,7 @@ model {
   delta1      ~ normal(0, 0.2);
   beta_gp     ~ normal(0, 1);        // non-centred HSGP basis coefficients
   sigma_gp    ~ normal(0, 1);        // GP marginal SD (half-normal)
-  rho_gp      ~ inv_gamma(3, 150);   // mode at 75m, matching observed residual spatial peak
+  rho_gp      ~ inv_gamma(3, 150);   // avg at 75m, matching observed residual spatial peak
 
   for (i in 1:N) {
     y[i] ~ beta_binomial(n_bt[i], pi[i] * phi, (1 - pi[i]) * phi);
