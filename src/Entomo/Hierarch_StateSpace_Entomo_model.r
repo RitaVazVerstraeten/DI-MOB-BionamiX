@@ -145,18 +145,8 @@ cat("Model variant:" , "Predictors: ", predictor_spec, "\n","RE and AR: ", model
 
 
 # =========================
-# 1b) STANDARDIZE NUMERIC COVARIATES
+# 1b) STANDARDIZE NUMERIC COVARIATES - done in helper functions
 # =========================
-
-for (var in cfg$numeric_vars) {
-  if (var %in% names(df) && is.numeric(df[[var]])) {
-    m <- mean(df[[var]], na.rm = TRUE)
-    s <- sd(df[[var]], na.rm = TRUE)
-    if (!is.na(s) && s > 0) {
-      df[[var]] <- (df[[var]] - m) / s
-    }
-  }
-}
 
 prep <- build_stan_data(cfg)
 stan_data <- prep$stan_data
@@ -213,25 +203,7 @@ disp_df <- df %>%
                   right  = TRUE)
   )
 
-zero_case <- disp_df %>%
-  filter(C_bt == 0, n_bt > 0) %>%
-  mutate(y_rate = y_bt / n_bt)
-
-p_bar    <- mean(zero_case$y_rate)
-var_obs  <- var(zero_case$y_rate)
-n_rep    <- median(zero_case$n_bt)
-var_binom <- p_bar * (1 - p_bar) / n_rep
-
-disp_ratio <- var_obs / var_binom
-phi_pooled <- (n_rep - disp_ratio) / (disp_ratio - 1)
-
-cat("n cells:          ", nrow(zero_case), "\n")
-cat("median n_bt:      ", n_rep, "\n")
-cat("mean y_rate:      ", round(p_bar, 4), "\n")
-cat("dispersion ratio: ", round(disp_ratio, 2), "\n")
-cat("implied phi:      ", round(phi_pooled, 2), "\n")
-
-disp_df %>%
+phi_grouped <- disp_df %>%
   filter(n_bt > 0) %>%
   mutate(y_rate = y_bt / n_bt) %>%
   group_by(n_bt) %>%
@@ -250,6 +222,8 @@ disp_df %>%
     phi_mean     = mean(phi_implied),
     phi_weighted = weighted.mean(phi_implied, w = n_cells)  # weight by cell count
   )
+cat("implied phi (grouped median across n_bt bins):", round(phi_grouped$phi_median, 2), "\n")
+print(phi_grouped)
 
 disp_df %>%
   filter(n_bt > 0) %>%
@@ -291,16 +265,18 @@ disp_df %>%
        
 # Pass phi as fixed data when fix_phi = TRUE
 if (isTRUE(cfg$fix_phi)) {
-  phi_use <- if (is.finite(phi_pooled) && phi_pooled > 0 && phi_pooled < 500) {
-    round(phi_pooled, 1)
+  phi_grouped_median <- phi_grouped$phi_median
+  phi_use <- if (is.finite(phi_grouped_median) && phi_grouped_median > 0 && phi_grouped_median < 500) {
+    round(phi_grouped_median, 1)
   } else {
     cfg$phi_fixed
   }
   stan_data$phi <- phi_use
   cat(sprintf(
-    "phi fixed at %.1f (empirical from zero-case cells; cfg fallback = %.1f)\n",
+    "phi fixed at %.1f (grouped median across n_bt bins; cfg fallback = %.1f)\n",
     phi_use, cfg$phi_fixed
   ))
+  cfg$phi_used <- phi_use
 }
 
 
@@ -414,7 +390,7 @@ if (cfg$plot_random_effects) {
 
 if (cfg$plot_ppc) {
   cat("Generating posterior predictive check plot...\n")
-  save_ppc(df, post$y_pred, plots_output_dir, run_suffix)
+  save_ppc(df, fit, plots_output_dir, run_suffix)
 }
 
 # giving me an error about Error in `select_parameters()`:
