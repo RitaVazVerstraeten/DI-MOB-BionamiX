@@ -2,6 +2,7 @@
 # =====================================================
 # Plot functions for GLMM entomological model
 # =====================================================
+library(patchwork)
 #' Save GLMM Probability Time Series Plot (Mean Across Blocks)
 #'
 #' Plots mean observed and fitted probabilities (with 95% CI ribbon for p_bt_fitted) and total cases over time.
@@ -668,24 +669,80 @@ save_random_effects <- function(u_post, v_post, output_dir, run_suffix) {
 
 #' Save Posterior Predictive Check Plot
 #'
-#' Creates a scatter plot of observed vs predicted y_bt values with a 1:1 reference line.
-#' Skips plotting if predictions are all NA.
+#' Posterior predictive check with three panels:
+#'   1. Proportion of zeros across replicated datasets vs observed
+#'   2. Distribution of non-zero counts: observed histogram overlaid with
+#'      a sample of replicated datasets
+#'   3. Fitted vs observed scatter using posterior mean (for bias diagnosis)
 #'
 #' @param df Data frame containing observed y_bt values
-#' @param y_pred Numeric vector of predicted y_bt values (posterior means)
+#' @param fit CmdStan fit object (used to extract y_pred draws)
 #' @param output_dir Character string path to output directory
 #' @param run_suffix Character string suffix for filename
-#' @return NULL (saves plot to PNG file or returns invisibly if predictions are NA)
-save_ppc <- function(df, y_pred, output_dir, run_suffix) {
-  if (all(is.na(y_pred))) return(invisible(NULL))
+#' @param n_draws_overlay Number of replicated datasets to overlay in panel 2
+#' @return NULL (saves plot to PNG file)
+save_ppc <- function(df, fit, output_dir, run_suffix, n_draws_overlay = 50) {
+  y_pred_draws <- fit$draws("y_pred", format = "matrix")  # S x N matrix
+  y_obs        <- df$y_bt
 
-  p <- ggplot(data.frame(observed = df$y_bt, predicted = y_pred), aes(observed, predicted)) +
-    geom_point(alpha = 0.5) +
-    geom_abline(slope = 1, intercept = 0, color = "red") +
-    labs(x = "Observed y_bt", y = "Predicted y_bt (posterior mean)", title = "Posterior Predictive Check") +
+  # --- Panel 1: proportion of zeros ---
+  prop_zero_rep <- rowMeans(y_pred_draws == 0)
+  prop_zero_obs <- mean(y_obs == 0)
+
+  p1 <- ggplot(data.frame(prop_zero = prop_zero_rep), aes(x = prop_zero)) +
+    geom_histogram(bins = 40, fill = "steelblue", alpha = 0.7) +
+    geom_vline(xintercept = prop_zero_obs, colour = "red", linewidth = 1) +
+    annotate("text", x = prop_zero_obs, y = Inf,
+             label = sprintf("observed\n%.2f", prop_zero_obs),
+             colour = "red", hjust = -0.1, vjust = 1.5, size = 3) +
+    labs(title = "Proportion of zeros",
+         subtitle = "Histogram = replicated datasets; red = observed",
+         x = "Proportion of zeros", y = "Count") +
     theme_minimal()
 
-  ggsave(file.path(output_dir, paste0("posterior_predictive_check_", run_suffix, ".png")), p, width = 8, height = 6)
+  # --- Panel 2: distribution of non-zero counts ---
+  nonzero_obs <- y_obs[y_obs > 0]
+  draw_idx    <- sample(nrow(y_pred_draws), min(n_draws_overlay, nrow(y_pred_draws)))
+
+  rep_nonzero_df <- do.call(rbind, lapply(draw_idx, function(i) {
+    vals <- y_pred_draws[i, ][y_pred_draws[i, ] > 0]
+    if (length(vals) == 0) return(NULL)
+    data.frame(count = vals, draw = i)
+  }))
+
+  p2 <- ggplot() +
+    geom_histogram(
+      data = rep_nonzero_df,
+      aes(x = count, group = draw),
+      bins = 30, fill = "steelblue", alpha = 0.05, position = "identity"
+    ) +
+    geom_histogram(
+      data = data.frame(count = nonzero_obs),
+      aes(x = count),
+      bins = 30, fill = "red", alpha = 0.6, position = "identity"
+    ) +
+    labs(title = "Distribution of non-zero counts",
+         subtitle = sprintf("Blue = %d replicated datasets; red = observed", n_draws_overlay),
+         x = "y_bt (non-zero only)", y = "Count") +
+    theme_minimal()
+
+  # --- Panel 3: fitted vs observed (posterior mean) ---
+  post_mean <- colMeans(y_pred_draws)
+
+  p3 <- ggplot(data.frame(observed = y_obs, predicted = post_mean),
+               aes(observed, predicted)) +
+    geom_point(alpha = 0.3, size = 0.8) +
+    geom_abline(slope = 1, intercept = 0, colour = "red") +
+    labs(title = "Fitted vs observed (posterior mean)",
+         x = "Observed y_bt", y = "Posterior mean y_pred") +
+    theme_minimal()
+
+  p_combined <- p1 + p2 + p3 + patchwork::plot_layout(ncol = 3)
+
+  ggsave(
+    file.path(output_dir, paste0("posterior_predictive_check_", run_suffix, ".png")),
+    p_combined, width = 15, height = 5, dpi = 150
+  )
 }
 
 #' Save MCMC Trace Plots

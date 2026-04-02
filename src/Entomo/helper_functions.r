@@ -149,8 +149,15 @@ standardize_matrix <- function(x) {
 build_stan_data <- function(cfg) {
   input_data <- load_base_data(cfg$data_file)
   idx <- index_and_subset(input_data, cfg$n_blocks)
+
+  # Standardize numeric vars on the raw time series before lagging,
+  # so all lags of the same variable share the same mean/sd
+  vars_to_std <- intersect(cfg$numeric_vars, names(idx$df))
+  idx$df[, vars_to_std] <- standardize_matrix(as.matrix(idx$df[, vars_to_std]))
+
   lag <- build_lag_design(idx$df, cfg$lag_vars, idx$B, cfg$max_lag)
-  unl <- prepare_unlagged(lag$df, cfg$unlagged_vars, cfg$binary_unlagged_vars)
+  binary_unlagged_vars <- setdiff(cfg$unlagged_vars, cfg$numeric_vars)
+  unl <- prepare_unlagged(lag$df, cfg$unlagged_vars, binary_unlagged_vars)
 
   list(
     stan_data = list(
@@ -158,7 +165,7 @@ build_stan_data <- function(cfg) {
       y = unl$df$y_bt,
       K = lag$K,
       Lp1 = lag$Lp1,
-      X_lag_flat = standardize_matrix(lag$X_lag_flat),
+      X_lag_flat = lag$X_lag_flat,
       Ku = unl$Ku,
       X_unlagged = unl$X_unlagged_std,
       B = idx$B,
@@ -282,28 +289,6 @@ save_random_effects <- function(u_post, v_post, output_dir, run_suffix) {
 
   par(mfrow = c(1, 1))
   dev.off()
-}
-
-#' Save Posterior Predictive Check Plot
-#'
-#' Creates a scatter plot of observed vs predicted y_bt values with a 1:1 reference line.
-#' Skips plotting if predictions are all NA.
-#'
-#' @param df Data frame containing observed y_bt values
-#' @param y_pred Numeric vector of predicted y_bt values (posterior means)
-#' @param output_dir Character string path to output directory
-#' @param run_suffix Character string suffix for filename
-#' @return NULL (saves plot to PNG file or returns invisibly if predictions are NA)
-save_ppc <- function(df, y_pred, output_dir, run_suffix) {
-  if (all(is.na(y_pred))) return(invisible(NULL))
-
-  p <- ggplot(data.frame(observed = df$y_bt, predicted = y_pred), aes(observed, predicted)) +
-    geom_point(alpha = 0.5) +
-    geom_abline(slope = 1, intercept = 0, color = "red") +
-    labs(x = "Observed y_bt", y = "Predicted y_bt (posterior mean)", title = "Posterior Predictive Check") +
-    theme_minimal()
-
-  ggsave(file.path(output_dir, paste0("posterior_predictive_check_", run_suffix, ".png")), p, width = 8, height = 6)
 }
 
 #' Save MCMC Trace Plots
