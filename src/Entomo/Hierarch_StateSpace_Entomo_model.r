@@ -70,7 +70,7 @@ cfg <- list(
   # MCMC
   chains = 2,
   iter_warmup = 500,
-  iter_sampling = 500,
+  iter_sampling = 1000,
   # thin = 2,
   adapt_delta = 0.95,
   max_treedepth = 12,
