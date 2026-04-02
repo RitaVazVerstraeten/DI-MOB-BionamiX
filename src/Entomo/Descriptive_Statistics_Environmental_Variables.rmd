@@ -1696,8 +1696,8 @@ We will test this two ways:
 2. On proportions Houses_Pos_IS/Inspected_houses
 3. Ideally on model residuals -> this will have to wait until after fitting 
 
-### Moran's I
-```{r join mosquito data with shapefile}
+### Moran's I (global, inverse-squared-distance weighting)
+```{r data prep: join mosquito data with shapefile}
 mosquito_manzana <- env_epi_ento %>%
   select(manzana, Houses_pos_IS, Inspected_houses, cases) %>%
   drop_na() %>%
@@ -1732,9 +1732,9 @@ if (st_is_longlat(manzanas_mosquito)) {
 }
 ```
 
-Create the spatial neighbors matrix 
-
-```{r spatial neighbors creation}
+#### Inverse Squared Distance weights
+Create the spatial matrix 
+```{r create squared inverse distance weights_matrix}
 library(spdep)
 
 # Get centroids (keep only geometry, drop attributes)
@@ -1793,6 +1793,7 @@ weights_matrix <- listw2mat(weights_idw)
 weights_matrix_clean <- weights_matrix[valid_idx, valid_idx]
 weights_idw_clean <- mat2listw(weights_matrix_clean, style = "W")
 
+# Kernel: w_ij = 1 / d_ij^2  (inverse squared distance, row-normalised)
 moran_global <- moran.test(positivity_clean,
                            weights_idw_clean,
                            na.action = na.exclude,
@@ -1924,7 +1925,7 @@ pair_distances <- dist_matrix_valid[upper.tri(dist_matrix_valid, diag = FALSE)]
 pair_distances <- pair_distances[!is.na(pair_distances)]
 
 # Bin into 50m groups from 0 to 2000m
-breaks_2km  <- seq(0, 2000, by = 50)
+breaks_1km  <- seq(0, 1000, by = 50)
 dist_binned <- cut(pair_distances,
                    breaks = breaks_2km,
                    include.lowest = TRUE,
@@ -1932,7 +1933,7 @@ dist_binned <- cut(pair_distances,
 
 dist_df <- data.frame(
   distance_band = dist_binned,
-  distance_upper = breaks_2km[as.integer(dist_binned) + 1]  # right edge of each band
+  distance_upper = breaks_1km[as.integer(dist_binned) + 1]  # right edge of each band
 ) %>%
   dplyr::count(distance_band, distance_upper, name = "n_pairs") %>%
   dplyr::arrange(distance_upper) %>%
@@ -1940,22 +1941,26 @@ dist_df <- data.frame(
 
 n_total <- length(pair_distances)
 cat(sprintf("Total block pairs:      %d\n", n_total))
+cat(sprintf("Pairs within  100m:  %d (%.1f%%)\n",
+    sum(pair_distances <=  100, na.rm = TRUE),
+    100 * mean(pair_distances <=  100, na.rm = TRUE)))
+cat(sprintf("Pairs within  200m:  %d (%.1f%%)\n",
+    sum(pair_distances <=  200, na.rm = TRUE),
+    100 * mean(pair_distances <=  200, na.rm = TRUE)))
 cat(sprintf("Pairs within  400m:  %d (%.1f%%)\n",
     sum(pair_distances <=  400, na.rm = TRUE),
     100 * mean(pair_distances <=  400, na.rm = TRUE)))
-cat(sprintf("Pairs within 1000m:  %d (%.1f%%)\n",
-    sum(pair_distances <= 1000, na.rm = TRUE),
-    100 * mean(pair_distances <= 1000, na.rm = TRUE)))
 
 p_dist <- ggplot(dist_df, aes(x = distance_upper, y = cum_pairs)) +
   geom_step(colour = "steelblue", linewidth = 1) +
+  geom_vline(xintercept =  200, linetype = "dashed", colour = "red",    linewidth = 0.8) +
   geom_vline(xintercept =  400, linetype = "dashed", colour = "red",    linewidth = 0.8) +
-  geom_vline(xintercept = 1000, linetype = "dashed", colour = "orange", linewidth = 0.8) +
+
+  annotate("text", x =  220, y = n_total * 0.95,
+           label = "200m cap", hjust = 0, colour = "red",    size = 3.5) +
   annotate("text", x =  420, y = n_total * 0.95,
            label = "400m cap", hjust = 0, colour = "red",    size = 3.5) +
-  annotate("text", x = 1020, y = n_total * 0.85,
-           label = "1000m",   hjust = 0, colour = "orange",  size = 3.5) +
-  scale_x_continuous(breaks = seq(0, 2000, by = 200)) +
+  scale_x_continuous(breaks = seq(0, 1000, by = 100)) +
   scale_y_continuous(
     labels = scales::comma,
     sec.axis = sec_axis(~ . / n_total * 100, name = "% of all pairs")
@@ -1976,7 +1981,7 @@ ggsave(file.path(output_dir, "15b_block_pair_distance_distribution.png"),
 ```{r morans i exponential weighting}
 # Test at non-cumulative distance bands (annuli), for multiple exponential decay values
 distance_breaks <- seq(0, 1000, by = 50)  # 0-50, 50-100, ..., 950-1000 m
-phi_values <- c(100, 200, 400, 800)
+phi_values <- c(50, 100, 200, 400, 800)
 
 moran_by_distance <- data.frame()
 
@@ -2054,8 +2059,126 @@ print(p_moran_phi)
 ggsave(file.path(output_dir, "16_exp_moransI_correlogram_multi_phi.png"), p_moran_phi, width = 11, height = 7, dpi = 300)
 ```
 
+### Moran's I correlogram by year (exponential kernel, φ = 400 m)
 
-### Variogram 
+Using φ = 400 m (maximum *Aedes aegypti* flight range) to match the biologically motivated length-scale and the exponential kernel assumed by the spatial GP in the Stan model. Stratified by year to match the format of the model residual diagnostics.
+
+```{r morans_i_by_year_exponential}
+phi_bio <- 150  # metres ~ to stan model output 
+
+moran_year_df <- data.frame()
+
+years_avail <- sort(unique(lubridate::year(
+  as.Date(paste0(gsub("_", "-", as.character(env_epi_ento$year_month)), "-01"))
+)))
+
+for (yr in years_avail) {
+
+  mosquito_yr <- env_epi_ento %>%
+    mutate(year_val = lubridate::year(
+      as.Date(paste0(gsub("_", "-", as.character(year_month)), "-01"))
+    )) %>%
+    filter(year_val == yr) %>%
+    select(manzana, Houses_pos_IS, Inspected_houses) %>%
+    drop_na() %>%
+    group_by(manzana) %>%
+    summarise(
+      pos_rate = sum(Houses_pos_IS) / sum(Inspected_houses) * 100,
+      .groups = "drop"
+    )
+
+  manzanas_yr <- manzanas %>%
+    left_join(mosquito_yr, by = c("CODIGO_" = "manzana"))
+
+  valid_yr <- !is.na(manzanas_yr$pos_rate)
+  if (sum(valid_yr) < 10) next
+
+  centroids_yr <- st_geometry(manzanas_yr) %>% st_centroid()
+  dist_yr <- units::drop_units(as.matrix(st_distance(centroids_yr[valid_yr])))
+  diag(dist_yr) <- NA_real_
+  pos_yr <- manzanas_yr$pos_rate[valid_yr]
+
+  distance_breaks <- seq(0, 1000, by = 50)
+
+  for (i in 2:length(distance_breaks)) {
+    d_low  <- distance_breaks[i - 1]
+    d_high <- distance_breaks[i]
+
+    w <- exp(-dist_yr / phi_bio)
+    diag(w) <- 0
+    w[is.na(dist_yr)] <- 0
+    w[dist_yr <= d_low | dist_yr > d_high] <- 0
+
+    if (sum(w > 0, na.rm = TRUE) == 0) {
+      moran_year_df <- rbind(moran_year_df, data.frame(
+        year = yr, d_low = d_low, d_high = d_high,
+        d_mid = (d_low + d_high) / 2,
+        morans_I = NA_real_, p_value = NA_real_, significant = NA
+      ))
+      next
+    }
+
+    lw <- mat2listw(w, style = "W", zero.policy = TRUE)
+    mt <- tryCatch(
+      moran.test(pos_yr, lw, zero.policy = TRUE),
+      error = function(e) NULL
+    )
+    if (is.null(mt)) {
+      moran_year_df <- rbind(moran_year_df, data.frame(
+        year = yr, d_low = d_low, d_high = d_high,
+        d_mid = (d_low + d_high) / 2,
+        morans_I = NA_real_, p_value = NA_real_, significant = NA
+      ))
+      next
+    }
+    moran_year_df <- rbind(moran_year_df, data.frame(
+      year        = yr,
+      d_low       = d_low, d_high = d_high,
+      d_mid       = (d_low + d_high) / 2,
+      morans_I    = unname(mt$estimate[["Moran I statistic"]]),
+      p_value     = mt$p.value,
+      significant = mt$p.value < 0.05
+    ))
+  }
+}
+
+moran_year_df <- moran_year_df %>%
+  filter(!is.na(morans_I)) %>%
+  mutate(year = factor(year))
+
+p_moran_by_year <- ggplot(
+  moran_year_df,
+  aes(x = d_mid, y = morans_I, colour = year, group = year)
+) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "gray50") +
+  geom_line(linewidth = 0.8) +
+  geom_point(aes(shape = significant), size = 3) +
+  scale_shape_manual(
+    values   = c("TRUE" = 16, "FALSE" = 1),
+    labels   = c("TRUE" = "p < 0.05", "FALSE" = "p >= 0.05"),
+    na.value = 1
+  ) +
+  scale_x_continuous(breaks = seq(0, 1000, by = 100)) +
+  labs(
+    title    = "Moran's I correlogram by year — raw positivity rate",
+    subtitle = sprintf("Exponential kernel w = exp(-d / %dm); 50m annuli", phi_bio),
+    x        = "Distance band midpoint (m)",
+    y        = "Moran's I",
+    colour   = "Year", shape = NULL
+  ) +
+  theme_minimal()
+
+print(p_moran_by_year)
+ggsave(
+  file.path(output_dir, "16b_exp_moransI_by_year.png"),
+  p_moran_by_year, width = 11, height = 5, dpi = 300
+)
+```
+
+This plot uses the same visual format as the model residual Moran's I correlogram, making the two directly comparable: raw spatial autocorrelation (here) vs. residual spatial autocorrelation after fitting the Stan model.
+
+
+### Variogram
 ```{r variogram_positivity_rate, fig.cap="Empirical variogram of mosquito positivity rate across manzanas", fig.width=10, fig.height=6}
 # library(sf)
 library(gstat)
