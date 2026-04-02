@@ -682,10 +682,10 @@ save_random_effects <- function(u_post, v_post, output_dir, run_suffix) {
 #' @param n_draws_overlay Number of replicated datasets to overlay in panel 2
 #' @return NULL (saves plot to PNG file)
 save_ppc <- function(df, fit, output_dir, run_suffix, n_draws_overlay = 50) {
-  y_pred_draws <- fit$draws("y_pred", format = "matrix")  # S x N matrix
+  y_pred_draws <- fit$draws("y_pred", format = "matrix")  # chains x iterations matrix
   y_obs        <- df$y_bt
 
-  # --- Panel 1: proportion of zeros ---
+  # --- Panel 1: proportion of y_bt == zeros ---
   prop_zero_rep <- rowMeans(y_pred_draws == 0)
   prop_zero_obs <- mean(y_obs == 0)
 
@@ -700,7 +700,7 @@ save_ppc <- function(df, fit, output_dir, run_suffix, n_draws_overlay = 50) {
          x = "Proportion of zeros", y = "Count") +
     theme_minimal()
 
-  # --- Panel 2: distribution of non-zero counts ---
+  # --- Panel 2: distribution of non-zero y_bt counts ---
   nonzero_obs <- y_obs[y_obs > 0]
   draw_idx    <- sample(nrow(y_pred_draws), min(n_draws_overlay, nrow(y_pred_draws)))
 
@@ -710,21 +710,36 @@ save_ppc <- function(df, fit, output_dir, run_suffix, n_draws_overlay = 50) {
     data.frame(count = vals, draw = i)
   }))
 
+  obs_counts <- as.data.frame(table(count = nonzero_obs))
+  obs_counts$count <- as.integer(as.character(obs_counts$count))
+
   p2 <- ggplot() +
     geom_histogram(
       data = rep_nonzero_df,
       aes(x = count, group = draw),
-      bins = 30, fill = "steelblue", alpha = 0.05, position = "identity"
+      binwidth = 1, center = 1, fill = "steelblue", alpha = 0.05, position = "identity"
     ) +
-    geom_histogram(
-      data = data.frame(count = nonzero_obs),
-      aes(x = count),
-      bins = 30, fill = "red", alpha = 0.6, position = "identity"
+    geom_point(
+      data = obs_counts,
+      aes(x = count, y = Freq),
+      colour = "red", size = 1.5
+    ) +
+    geom_line(
+      data = obs_counts,
+      aes(x = count, y = Freq),
+      colour = "red", linewidth = 0.6
     ) +
     labs(title = "Distribution of non-zero counts",
          subtitle = sprintf("Blue = %d replicated datasets; red = observed", n_draws_overlay),
          x = "y_bt (non-zero only)", y = "Count") +
-    theme_minimal()
+    scale_x_continuous(
+      breaks = function(x) seq(ceiling(x[1]), floor(x[2]), by = 1),
+      labels = function(x) ifelse(x %% 5 == 0, x, ""),
+      minor_breaks = NULL
+    ) +
+    coord_cartesian(xlim = c(1, NA)) +
+    theme_minimal() +
+    theme(panel.grid.major.x = element_line(colour = "grey85", linewidth = 0.3))
 
   # --- Panel 3: fitted vs observed (posterior mean) ---
   post_mean <- colMeans(y_pred_draws)
