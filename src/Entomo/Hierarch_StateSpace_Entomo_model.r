@@ -23,7 +23,7 @@ script_dir <- tryCatch({
   if (requireNamespace("rstudioapi", quietly = TRUE)) {
     if (rstudioapi::isAvailable()) {
       dirname(rstudioapi::getActiveDocumentContext()$path)
-    } else {
+    } else { 
       getwd()
     }
   } else {
@@ -60,9 +60,9 @@ cfg <- list(
   sf_block_col = "CODIGO_",
 
   # data prep
-  n_blocks = 100, # set NULL for all blocks
+  n_blocks = NULL, # set NULL for all blocks
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
-  max_lag = 1,
+  max_lag = 2,
   kappa = 2,
   unlagged_vars = c("is_urban", "is_WUI"),
   numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
