@@ -48,7 +48,7 @@ cfg <- list(
 
   # model variant
   use_temporal_AR = TRUE,
-  use_hsgp        = TRUE,   # TRUE = HSGP approx (faster); FALSE = exact Cholesky GP
+  use_hsgp        = FALSE,   # TRUE = HSGP approx (faster); FALSE = exact Cholesky GP
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
 
@@ -92,7 +92,7 @@ cfg <- list(
 
 # ========== Output directory structure =============
 date_suffix <- format(Sys.Date(), "%Y%m%d")
-ar1_suffix <- ifelse(cfg$use_temporal_AR, "AR1-block", "noAR1")
+ar1_suffix <- ifelse(cfg$use_temporal_AR, "AR1-global", "noAR1")
 gp_type_suffix <- ifelse(isTRUE(cfg$use_hsgp), "HSGP", "GP")
 spatial_gp_suffix <- ifelse(is.null(cfg$use_spatial_gp) || cfg$use_spatial_gp, gp_type_suffix, "noGP")
 model_tag <- ifelse(cfg$use_temporal_AR, "withTimeRE", "noTimeRE")
@@ -107,7 +107,7 @@ predictor_spec <- paste0(
   "lag-", paste(cfg$lag_vars, collapse = "-"),
   "_unlag-", paste(cfg$unlagged_vars, collapse = "-")
 )
-run_suffix <- paste0(date_suffix, "phi_increased")
+run_suffix <- paste0(date_suffix)
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
 run_output_dir    <- file.path(model_output_dir, run_suffix)
