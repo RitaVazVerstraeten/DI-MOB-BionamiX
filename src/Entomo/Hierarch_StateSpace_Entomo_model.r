@@ -124,7 +124,7 @@ cfg$stan_file <- if (isTRUE(cfg$use_hsgp)) {
   if (isTRUE(cfg$use_block_dev)) {
     "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space_hsgp.stan"
   } else {
-    "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space_hsgp_no_block_dev.stan"
+    "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space_hsgp_no_block_RE.stan"
   }
 } else {
   "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space.stan"
@@ -352,7 +352,8 @@ fit$save_object(file.path(run_output_dir, paste0("fit_", run_suffix, ".rds")))
 
 summary_vars <- c("alpha", "sigma_gp", "rho_gp", "delta0", "delta1", "w")
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
-if (cfg$use_temporal_AR) summary_vars <- c(summary_vars, "sigma_v", "sigma_block_dev", "rho")
+if (cfg$use_temporal_AR) summary_vars <- c(summary_vars, "sigma_v", "rho")
+if (isTRUE(cfg$use_block_dev)) summary_vars <- c(summary_vars, "sigma_block_dev")
 
 summary_output <- capture.output(print(fit$summary(variables = summary_vars)))
 writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", run_suffix, ".txt")))
