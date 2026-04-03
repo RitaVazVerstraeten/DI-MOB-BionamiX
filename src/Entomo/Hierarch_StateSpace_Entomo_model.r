@@ -48,9 +48,10 @@ cfg <- list(
 
   # model variant
   use_temporal_AR = TRUE,
-  use_hsgp        = FALSE,   # TRUE = HSGP approx (faster); FALSE = exact Cholesky GP
+  use_hsgp        = TRUE,   # TRUE = HSGP approx (faster); FALSE = exact Cholesky GP
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
+  use_block_dev   = FALSE,   # TRUE = include per-block deviation from global AR1; FALSE = drop it
 
   # spatial
   shapefile_path = if (hostname == "frietjes")
@@ -98,8 +99,9 @@ spatial_gp_suffix <- ifelse(is.null(cfg$use_spatial_gp) || cfg$use_spatial_gp, g
 model_tag <- ifelse(cfg$use_temporal_AR, "withTimeRE", "noTimeRE")
 
 # Model spec and predictor spec (mimic GLMM.r logic)
+block_dev_suffix <- ifelse(isTRUE(cfg$use_block_dev), "blockDev", "noBlockDev")
 model_spec <- paste0(
-  "space-", spatial_gp_suffix, "_", ar1_suffix,
+  "space-", spatial_gp_suffix, "_", ar1_suffix, "_", block_dev_suffix,
   "_lag", cfg$max_lag,
   "_k", cfg$kappa
 )
@@ -119,7 +121,11 @@ dir.create(resid_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 cfg$data_file <- file.path(cfg$data_dir, cfg$data_file_name)
 cfg$stan_file <- if (isTRUE(cfg$use_hsgp)) {
-  "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space_hsgp.stan"
+  if (isTRUE(cfg$use_block_dev)) {
+    "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space_hsgp.stan"
+  } else {
+    "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space_hsgp_no_block_dev.stan"
+  }
 } else {
   "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space.stan"
 }
