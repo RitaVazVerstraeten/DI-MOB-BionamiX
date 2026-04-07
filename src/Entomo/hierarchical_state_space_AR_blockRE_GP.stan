@@ -142,7 +142,7 @@ model {
   // Beta-binomial relaxes the binomial variance assumption, allowing overdispersion.
   // Mean is identical to binomial (n * pi); variance = n*pi*(1-pi)*(n+phi)/(1+phi).
   for (i in 1:N) {
-    y[i] ~ beta_binomial(n_bt[i], pi[i] * phi, (1 - pi[i]) * phi);
+    y[i] ~ beta_binomial(n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6));
   }
 }
 
@@ -153,13 +153,13 @@ generated quantities {
   vector[B] u_gp_out          = u_gp;
   vector[T] v_global_out      = v_global;
   vector[B] v_block_dev_out   = v_block_dev;
-  
+
   // Posterior predictive checks
   array[N] int<lower=0> y_pred;
   vector[N] log_lik;
-  
+
   for (i in 1:N) {
-    y_pred[i] = beta_binomial_rng(n_bt[i], pi[i] * phi, (1 - pi[i]) * phi);
-    log_lik[i] = beta_binomial_lpmf(y[i] | n_bt[i], pi[i] * phi, (1 - pi[i]) * phi);
+    y_pred[i] = beta_binomial_rng(n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6));
+    log_lik[i] = beta_binomial_lpmf(y[i] | n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6));
   }
 }

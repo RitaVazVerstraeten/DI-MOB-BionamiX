@@ -88,7 +88,8 @@ Crucially, dengue cases do not enter this equation. This equation defines the qu
 \begin{equation}
 \text{logit}(p_{bt}^R) = \text{logit}(p_{bt}) + \delta_0 + \delta_1 \log(C_{bt}) \quad \text{for } C_{bt} > 0,
 \end{equation}
-where $\delta_0$ represents baseline targeting bias (reactive vs systematic), and $\delta_1$ captures increased targeting as outbreak intensity increases. This affects only the observation process, not ecology.
+where $\delta_0$ represents baseline targeting bias (reactive vs systematic), and $\delta_1$ captures increased targeting as outbreak intensity increases. This affects only the observation process, not ecology.\\ 
+The log of cases is taken because a block going from 0→1 case triggers a surveillance response (teams are sent). Going from 50→51 cases adds almost nothing — the block is already under intense surveillance. log($C_{bt}$) captures this saturation: each doubling of cases adds a fixed increment to surveillance intensity, rather than a fixed absolute increase. Furthermore, $p^R$ is mapped on the logit scale, so we create a log-log relationship between cases and probability of positive inspection (typical in epi). 
 
 \subsection{Combining Systematic and Reactive Surveillance}
 
@@ -153,6 +154,43 @@ This decomposition avoids fitting a fully block-specific AR(1) (which would requ
 
 Several factors drive autocorrelation in $p_{bt}$. Slowly varying environments (NDVI, urban form), seasonal climate, block-level structural risk, and imperfect control effectiveness all tend to increase temporal correlation. Conversely, larvae removal upon detection, targeted interventions during outbreaks, and reactive surveillance activities tend to reset states and reduce autocorrelation. Despite these opposing forces, we expect environmental suitability to dominate: Aedes recolonization is rapid, so monthly aggregation smoothens the effects of removal, and blocks remain ecologically suitable even after larvae are removed (high-risk remains high-risk).
 
+\subsection{Spatial Gaussian Process: HSGP Approximation}
+
+The spatial random effect $u_b^{GP}$ is a zero-mean Gaussian process (GP) over block centroid locations with an exponential covariance kernel:
+\begin{equation}
+  \text{Cov}(u_b, u_{b'}) = \sigma_{GP}^2 \exp\!\left(-\frac{d_{bb'}}{\rho_{GP}}\right),
+\end{equation}
+where $d_{bb'}$ is the Euclidean distance between block centroids (metres). Direct inference requires factorising a $B \times B$ covariance matrix (e.g.\ via Cholesky decomposition), costing $\mathcal{O}(B^3)$ per HMC step. The Hilbert Space Gaussian Process (HSGP) approximation (Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression. Stat Comput 30, 419–446 (2020). https://doi.org/10.1007/s11222-019-09886-w) replaces this with a basis-function expansion that costs $\mathcal{O}(BM^2)$, where $M \ll B$ is the number of basis functions per spatial dimension.
+
+\subsubsection{Basis Functions and Eigenvalues}
+
+The HSGP is defined on a rectangular domain $[-L_1, L_1] \times [-L_2, L_2]$ chosen to contain all block centroids with a boundary inflation factor $c > 1$ (i.e.\ $L_j = c \cdot \frac{\max(x_j) - \min(x_j)}{2}$). The 2D eigenfunctions and eigenvalues of the Dirichlet Laplacian on this rectangle factorise into 1D terms:
+\begin{align}
+  \phi_{m_1,m_2}(\mathbf{x}) &= \frac{1}{\sqrt{L_1}}\sin\!\left(\frac{m_1\pi (x_1 + L_1)}{2L_1}\right) \cdot \frac{1}{\sqrt{L_2}}\sin\!\left(\frac{m_2\pi (x_2 + L_2)}{2L_2}\right), \\
+  \lambda_{m_1,m_2} &= \left(\frac{m_1\pi}{2L_1}\right)^2 + \left(\frac{m_2\pi}{2L_2}\right)^2.
+\end{align}
+All $M^2$ pairs $(m_1, m_2) \in \{1,\ldots,M\}^2$ are enumerated and the corresponding matrix $\boldsymbol{\Phi} \in \mathbb{R}^{B \times M^2}$ and vector $\boldsymbol{\lambda} \in \mathbb{R}^{M^2}$ are precomputed once in the \texttt{transformed data} block of the Stan model.
+
+\subsubsection{Spectral Scaling}
+
+The key insight is that for a stationary kernel, the GP can be approximated by weighting each eigenfunction by the square root of the kernel's spectral density evaluated at $\sqrt{\lambda_m}$. For the 2D exponential kernel the spectral density is:
+\begin{equation}
+  S(\|\boldsymbol{\omega}\|) = \frac{2\pi\,\sigma_{GP}^2}{\rho_{GP}} \left(\frac{1}{\rho_{GP}^2} + \|\boldsymbol{\omega}\|^2\right)^{-3/2},
+\end{equation}
+giving the diagonal scaling factors:
+\begin{equation}
+  \widetilde{S}(\sqrt{\lambda_m}) = \sigma_{GP}\sqrt{\frac{2\pi}{\rho_{GP}}} \left(\frac{1}{\rho_{GP}^2} + \lambda_m\right)^{-3/4}.
+\end{equation}
+
+\subsubsection{Approximation and Computational Cost}
+
+The spatial random effect is then approximated as:
+\begin{equation}
+  u_b^{GP} \approx \sum_{m=1}^{M^2} \widetilde{S}(\sqrt{\lambda_m})\,\phi_m(\mathbf{x}_b)\,\beta_m = \boldsymbol{\Phi}\left(\widetilde{\mathbf{S}} \odot \boldsymbol{\beta}\right),
+\end{equation}
+where $\beta_m \sim \text{Normal}(0,1)$ are non-centred basis coefficients and $\odot$ denotes elementwise multiplication. Because $\boldsymbol{\Phi}$ is precomputed, the only per-HMC-step cost is the matrix--vector product $\boldsymbol{\Phi}(\widetilde{\mathbf{S}} \odot \boldsymbol{\beta})$, which is $\mathcal{O}(BM^2)$ compared with $\mathcal{O}(B^3)$ for a Cholesky decomposition.
+
+The approximation quality improves with $M$ and degrades near the domain boundary (hence $c > 1$). In the current implementation, $M = 20$ basis functions per dimension ($M^2 = 400$ total) with boundary factor $c = 1.5$ are used.
 
 
 \section{Implementation}

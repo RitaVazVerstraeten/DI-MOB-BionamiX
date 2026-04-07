@@ -86,7 +86,7 @@ model {
   delta1     ~ normal(0, 0.2);
 
   for (i in 1:N) {
-    y[i] ~ beta_binomial(n_bt[i], pi[i] * phi, (1 - pi[i]) * phi);
+    y[i] ~ beta_binomial(n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6));
   }
 }
 
@@ -98,7 +98,7 @@ generated quantities {
   vector[N] log_lik;
 
   for (i in 1:N) {
-    y_pred[i]  = beta_binomial_rng(n_bt[i], pi[i] * phi, (1 - pi[i]) * phi);
-    log_lik[i] = beta_binomial_lpmf(y[i] | n_bt[i], pi[i] * phi, (1 - pi[i]) * phi);
+    y_pred[i]  = beta_binomial_rng(n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6));
+    log_lik[i] = beta_binomial_lpmf(y[i] | n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6));
   }
 }
