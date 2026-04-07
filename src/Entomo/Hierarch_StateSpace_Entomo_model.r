@@ -6,7 +6,7 @@
 if (!require("cmdstanr", quietly = TRUE)) {
   install.packages("cmdstanr", repos = c("https://mc-stan.org/r-packages/", getOption("repos")))
 }
-renv::restore()
+renv::restore(prompt = FALSE)
 
 library(cmdstanr)
 library(dplyr)
@@ -44,14 +44,14 @@ hostname <- Sys.info()["nodename"]
 cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/",
   data_file_name = "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv",
-  output_dir = "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
+  output_dir = if (hostname == "frietjes") "/home/rita/data/Entomo/fitting/stan" else "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
   use_temporal_AR = TRUE,
   use_hsgp        = TRUE,   # TRUE = HSGP approx (faster); FALSE = exact Cholesky GP
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
-  use_block_dev   = FALSE,   # TRUE = include per-block deviation from global AR1; FALSE = drop it
+  use_block_dev   = TRUE,   # TRUE = include per-block deviation from global AR1; FALSE = drop it
 
   # spatial
   shapefile_path = if (hostname == "frietjes")
@@ -343,12 +343,13 @@ fit <- mod$sample(
   init = make_init_fun(stan_data, cfg$use_temporal_AR, use_hsgp = isTRUE(cfg$use_hsgp)),
   adapt_delta = cfg$adapt_delta,
   max_treedepth = cfg$max_treedepth,
-  parallel_chains = cfg$parallel_chains
+  parallel_chains = cfg$parallel_chains,
+  output_dir = run_output_dir   # write chain CSVs here instead of /tmp
 )
 
 
-# Save .rds and .txt to run_output_dir (not plots dir)
-fit$save_object(file.path(run_output_dir, paste0("fit_", run_suffix, ".rds")))
+# CSV chain files are already in run_output_dir; skip .rds to save disk space
+# (re-load later with: fit <- as_cmdstan_fit(list.files(run_output_dir, "*.csv", full.names=TRUE)))
 
 summary_vars <- c("alpha", "sigma_gp", "rho_gp", "delta0", "delta1", "w")
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
