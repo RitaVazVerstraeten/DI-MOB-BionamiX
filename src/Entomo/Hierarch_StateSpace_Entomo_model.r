@@ -47,11 +47,13 @@ cfg <- list(
   output_dir = if (hostname == "frietjes") "/home/rita/data/Entomo/fitting/stan" else "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
-  use_temporal_AR = TRUE,
-  use_hsgp        = TRUE,   # TRUE = HSGP approx (faster); FALSE = exact Cholesky GP
+  use_time_RE     = TRUE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
+  use_temporal_AR = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = global AR1 trend
+  use_spatial_AC  = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = spatial GP
+  use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE) TRUE = HSGP; FALSE = exact GP
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
-  use_block_dev   = TRUE,   # TRUE = include per-block deviation from global AR1; FALSE = drop it
+  use_block_dev   = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
 
   # spatial
   shapefile_path = if (hostname == "frietjes")
@@ -84,7 +86,7 @@ cfg <- list(
   run_prior_predictive = FALSE,
 
   # outputs (individual plot toggles)
-  plot_traceplots = FALSE,
+  plot_traceplots = TRUE,
   plot_random_effects = TRUE,
   plot_ppc = TRUE,
   plot_timeseries = TRUE,
@@ -93,23 +95,24 @@ cfg <- list(
 
 # ========== Output directory structure =============
 date_suffix <- format(Sys.Date(), "%Y%m%d")
-ar1_suffix <- ifelse(cfg$use_temporal_AR, "AR1-global", "noAR1")
-gp_type_suffix <- ifelse(isTRUE(cfg$use_hsgp), "HSGP", "GP")
-spatial_gp_suffix <- ifelse(is.null(cfg$use_spatial_gp) || cfg$use_spatial_gp, gp_type_suffix, "noGP")
-model_tag <- ifelse(cfg$use_temporal_AR, "withTimeRE", "noTimeRE")
-
-# Model spec and predictor spec (mimic GLMM.r logic)
-block_dev_suffix <- ifelse(isTRUE(cfg$use_block_dev), "blockDev", "noBlockDev")
-model_spec <- paste0(
-  "space-", spatial_gp_suffix, "_", ar1_suffix, "_", block_dev_suffix,
-  "_lag", cfg$max_lag,
-  "_k", cfg$kappa
-)
+model_spec <- if (isTRUE(cfg$use_time_RE)) {
+  paste0("timeRE_blockRE_lag", cfg$max_lag, "_k", cfg$kappa)
+} else {
+  ar1_suffix <- ifelse(isTRUE(cfg$use_temporal_AR), "AR1", "noAR1")
+  gp_suffix  <- if (!isTRUE(cfg$use_spatial_AC)) "noGP"
+                else if (isTRUE(cfg$use_hsgp))   "HSGP"
+                else                              "GP"
+  re_suffix  <- ifelse(isTRUE(cfg$use_block_dev), "blockRE", "noBlockRE")
+  paste0(ar1_suffix, "_", gp_suffix, "_", re_suffix,
+         "_lag", cfg$max_lag, "_k", cfg$kappa)
+}
+model_tag <- ifelse(isTRUE(cfg$use_time_RE), "timeRE_blockRE",
+             ifelse(isTRUE(cfg$use_temporal_AR), "withAR1", "noAR1"))
 predictor_spec <- paste0(
   "lag-", paste(cfg$lag_vars, collapse = "-"),
   "_unlag-", paste(cfg$unlagged_vars, collapse = "-")
 )
-run_suffix <- paste0(date_suffix)
+run_suffix <- paste0(date_suffix, "_", model_tag)
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
 run_output_dir    <- file.path(model_output_dir, run_suffix)
@@ -120,24 +123,38 @@ dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(resid_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 cfg$data_file <- file.path(cfg$data_dir, cfg$data_file_name)
-cfg$stan_file <- if (isTRUE(cfg$use_hsgp)) {
+stan_dir <- "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo"
+cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
+  # iid time RE + iid block RE (no AR1, no GP)
+  file.path(stan_dir, "hierarchical_state_space_timeRE_blockRE.stan")
+} else if (!isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_spatial_AC)) {
+  # Base: no AR, no GP, no blockRE
+  file.path(stan_dir, "hierarchical_state_space.stan")
+} else if (!isTRUE(cfg$use_spatial_AC)) {
+  # AR only variants (no GP)
   if (isTRUE(cfg$use_block_dev)) {
-    "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space_hsgp.stan"
+    file.path(stan_dir, "hierarchical_state_space_AR_blockRE.stan")
   } else {
-    "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space_hsgp_no_block_RE.stan"
+    file.path(stan_dir, "hierarchical_state_space_AR.stan")
+  }
+} else if (isTRUE(cfg$use_hsgp)) {
+  # HSGP variants
+  if (isTRUE(cfg$use_block_dev)) {
+    file.path(stan_dir, "hierarchical_state_space_AR_blockRE_HSGP.stan")
+  } else {
+    file.path(stan_dir, "hierarchical_state_space_AR_HSGP.stan")
   }
 } else {
-  "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space.stan"
+  # Exact GP variant
+  file.path(stan_dir, "hierarchical_state_space_AR_blockRE_GP.stan")
 }
+cat("Stan file:", cfg$stan_file, "\n")
 # cfg$stan_file <- if (cfg$use_temporal_AR) {
 #   "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space.stan"
 # } else {
 #   "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo/hierarchical_state_space_no_time_re.stan"
 # }
 
-date_suffix <- format(Sys.Date(), "%Y%m%d")
-model_tag <- ifelse(cfg$use_temporal_AR, "withTimeRE", "noTimeRE")
-run_suffix <- paste0(date_suffix, "_stand_", model_tag)
 
 options(mc.cores = if (hostname == "frietjes") 6 else 2)
 dir.create(cfg$output_dir, recursive = TRUE, showWarnings = FALSE)
@@ -179,16 +196,25 @@ coords_sf  <- sf_blocks %>%
   select(block_chr, x, y) %>%
   distinct(block_chr, .keep_all = TRUE)
 
-if (isTRUE(cfg$use_hsgp)) {
-  stan_data$coords_block <- as.matrix(coords_sf[, c("x", "y")])
-  stan_data$M            <- cfg$hsgp_m
-  stan_data$c_boundary   <- cfg$hsgp_c
-  cat(sprintf("HSGP: %d blocks, M=%d per dim (%d basis functions total), c=%.1f\n",
-              nrow(stan_data$coords_block), cfg$hsgp_m, cfg$hsgp_m^2, cfg$hsgp_c))
+if (isTRUE(cfg$use_spatial_AC)) {
+  if (isTRUE(cfg$use_hsgp)) {
+    stan_data$coords_block <- as.matrix(coords_sf[, c("x", "y")])
+    stan_data$M            <- cfg$hsgp_m
+    stan_data$c_boundary   <- cfg$hsgp_c
+    cat(sprintf(
+      "HSGP: %d blocks, M=%d per dim (%d basis functions total), c=%.1f\n",
+      nrow(stan_data$coords_block), cfg$hsgp_m, cfg$hsgp_m^2, cfg$hsgp_c
+    ))
+  } else {
+    dist_mat <- as.matrix(dist(coords_sf[, c("x", "y")]))
+    stan_data$dist_block <- dist_mat
+    cat(sprintf(
+      "Exact GP: distance matrix %d x %d blocks\n",
+      nrow(dist_mat), ncol(dist_mat)
+    ))
+  }
 } else {
-  dist_mat <- as.matrix(dist(coords_sf[, c("x", "y")]))
-  stan_data$dist_block <- dist_mat
-  cat(sprintf("Exact GP: distance matrix %d × %d blocks\n", nrow(dist_mat), ncol(dist_mat)))
+  cat("No spatial GP: skipping coordinate/distance matrix setup.\n")
 }
 
 
@@ -351,10 +377,16 @@ fit <- mod$sample(
 # CSV chain files are already in run_output_dir; skip .rds to save disk space
 # (re-load later with: fit <- as_cmdstan_fit(list.files(run_output_dir, "*.csv", full.names=TRUE)))
 
-summary_vars <- c("alpha", "sigma_gp", "rho_gp", "delta0", "delta1", "w")
+summary_vars <- c("alpha", "delta0", "delta1", "w", "sigma_w", "w_unlagged")
+if (isTRUE(cfg$use_time_RE)) {
+  summary_vars <- c(summary_vars, "sigma_time", "sigma_block")
+} else {
+  if (isTRUE(cfg$use_spatial_AC))  summary_vars <- c(summary_vars, "sigma_gp", "rho_gp")
+  if (isTRUE(cfg$use_temporal_AR)) summary_vars <- c(summary_vars, "sigma_v", "rho")
+  if (isTRUE(cfg$use_block_dev))   summary_vars <- c(summary_vars, "sigma_block_dev")
+}
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
-if (cfg$use_temporal_AR) summary_vars <- c(summary_vars, "sigma_v", "rho")
-if (isTRUE(cfg$use_block_dev)) summary_vars <- c(summary_vars, "sigma_block_dev")
+if (isTRUE(cfg$use_block_dev))   summary_vars <- c(summary_vars, "sigma_block_dev")
 
 summary_output <- capture.output(print(fit$summary(variables = summary_vars)))
 writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", run_suffix, ".txt")))

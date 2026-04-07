@@ -1,5 +1,5 @@
-// Base model: covariates + reactive surveillance only
-// No temporal AR1, no spatial GP, no per-block random effect
+// Two-way iid random effects: time RE + block RE
+// No AR1 autocorrelation in time, no spatial GP autocorrelation in space
 data {
   int<lower=1> N;
   array[N] int<lower=0> y;
@@ -26,6 +26,10 @@ parameters {
   matrix[K, Lp1] w;
   vector<lower=0>[K] sigma_w;
   vector[Ku] w_unlagged;
+  vector[T] v_time_raw;        // non-centred iid time random effects
+  real<lower=0> sigma_time;    // SD of time random effects
+  vector[B] u_block_raw;       // non-centred iid block random effects
+  real<lower=0> sigma_block;   // SD of block random effects
   real delta0;
   real delta1;
 }
@@ -36,6 +40,8 @@ transformed parameters {
   vector[N] omega;
   vector[N] pi;
   vector[N] x_effect;
+  vector[T] v_time  = sigma_time  * v_time_raw;   // iid time RE
+  vector[B] u_block = sigma_block * u_block_raw;   // iid block RE
 
   // 1. Environmental effects
   x_effect = X_lag_flat * to_vector(w) + X_unlagged * w_unlagged;
@@ -43,7 +49,7 @@ transformed parameters {
   // 2. Linear predictor and latent ecological probability
   vector[N] eta;
   for (i in 1:N) {
-    eta[i] = alpha + x_effect[i];
+    eta[i] = alpha + x_effect[i] + v_time[time[i]] + u_block[block[i]];
   }
   p_bt = inv_logit(eta);
 
@@ -80,10 +86,14 @@ model {
       w[k, l] ~ normal(w[k, l-1], sigma_w[k]);
     }
   }
-  sigma_w    ~ exponential(2);
-  w_unlagged ~ normal(0, 0.5);
-  delta0     ~ normal(0.3, 0.4);
-  delta1     ~ normal(0, 0.2);
+  sigma_w      ~ exponential(2);
+  w_unlagged   ~ normal(0, 0.5);
+  v_time_raw   ~ normal(0, 1);
+  sigma_time   ~ exponential(1);
+  u_block_raw  ~ normal(0, 1);
+  sigma_block  ~ exponential(2);
+  delta0       ~ normal(0.3, 0.4);
+  delta1       ~ normal(0, 0.2);
 
   for (i in 1:N) {
     y[i] ~ beta_binomial(n_bt[i], pi[i] * phi, (1 - pi[i]) * phi);
@@ -91,8 +101,10 @@ model {
 }
 
 generated quantities {
-  vector[N] p_bt_out = p_bt;
-  vector[N] p_R_out  = p_R;
+  vector[N] p_bt_out    = p_bt;
+  vector[N] p_R_out     = p_R;
+  vector[T] v_time_out  = v_time;
+  vector[B] u_block_out = u_block;
 
   array[N] int<lower=0> y_pred;
   vector[N] log_lik;

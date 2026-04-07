@@ -1,5 +1,3 @@
-// Base model: covariates + reactive surveillance only
-// No temporal AR1, no spatial GP, no per-block random effect
 data {
   int<lower=1> N;
   array[N] int<lower=0> y;
@@ -26,6 +24,9 @@ parameters {
   matrix[K, Lp1] w;
   vector<lower=0>[K] sigma_w;
   vector[Ku] w_unlagged;
+  vector[T] v_global_raw;
+  real<lower=0> sigma_v;
+  real<lower=-1,upper=1> rho;
   real delta0;
   real delta1;
 }
@@ -35,19 +36,26 @@ transformed parameters {
   vector[N] p_R;
   vector[N] omega;
   vector[N] pi;
+  vector[T] v_global;
   vector[N] x_effect;
 
-  // 1. Environmental effects
+  // 1. Global AR(1) trend only (no spatial GP, no per-block deviation)
+  v_global[1] = sigma_v * v_global_raw[1] / sqrt(fmax(1e-6, 1 - rho^2));
+  for (t in 2:T) {
+    v_global[t] = rho * v_global[t-1] + sigma_v * v_global_raw[t];
+  }
+
+  // 2. Environmental effects
   x_effect = X_lag_flat * to_vector(w) + X_unlagged * w_unlagged;
 
-  // 2. Linear predictor and latent ecological probability
+  // 3. Linear predictor and latent ecological probability
   vector[N] eta;
   for (i in 1:N) {
-    eta[i] = alpha + x_effect[i];
+    eta[i] = alpha + x_effect[i] + v_global[time[i]];
   }
   p_bt = inv_logit(eta);
 
-  // 3. Reactive surveillance probability
+  // 4. Reactive surveillance probability
   for (i in 1:N) {
     if (C_bt[i] > 0) {
       p_R[i] = inv_logit(eta[i] + delta0 + delta1 * log(C_bt[i]));
@@ -56,7 +64,7 @@ transformed parameters {
     }
   }
 
-  // 4. Effective observation probability
+  // 5. Effective observation probability
   for (i in 1:N) {
     if (n_bt[i] == 0) {
       omega[i] = 0;
@@ -80,10 +88,13 @@ model {
       w[k, l] ~ normal(w[k, l-1], sigma_w[k]);
     }
   }
-  sigma_w    ~ exponential(2);
-  w_unlagged ~ normal(0, 0.5);
-  delta0     ~ normal(0.3, 0.4);
-  delta1     ~ normal(0, 0.2);
+  sigma_w      ~ exponential(2);
+  w_unlagged   ~ normal(0, 0.5);
+  v_global_raw ~ normal(0, 1);
+  sigma_v      ~ exponential(1);
+  rho          ~ normal(0.4, 0.2);
+  delta0       ~ normal(0.3, 0.4);
+  delta1       ~ normal(0, 0.2);
 
   for (i in 1:N) {
     y[i] ~ beta_binomial(n_bt[i], pi[i] * phi, (1 - pi[i]) * phi);
@@ -91,8 +102,9 @@ model {
 }
 
 generated quantities {
-  vector[N] p_bt_out = p_bt;
-  vector[N] p_R_out  = p_R;
+  vector[N] p_bt_out     = p_bt;
+  vector[N] p_R_out      = p_R;
+  vector[T] v_global_out = v_global;
 
   array[N] int<lower=0> y_pred;
   vector[N] log_lik;
