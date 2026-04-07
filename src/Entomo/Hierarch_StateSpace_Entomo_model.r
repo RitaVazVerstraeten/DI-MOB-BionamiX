@@ -73,7 +73,7 @@ cfg <- list(
   # MCMC
   chains = 2,
   iter_warmup = 500,
-  iter_sampling = 1000,
+  iter_sampling = 500,
   # thin = 2,
   adapt_delta = 0.95,
   max_treedepth = 12,
@@ -366,7 +366,12 @@ fit <- mod$sample(
   iter_warmup = cfg$iter_warmup,
   iter_sampling = cfg$iter_sampling,
   thin = if (!is.null(cfg$thin)) cfg$thin else 1,
-  init = make_init_fun(stan_data, cfg$use_temporal_AR, use_hsgp = isTRUE(cfg$use_hsgp)),
+  init = make_init_fun(
+    stan_data, cfg$use_temporal_AR,
+    use_hsgp      = isTRUE(cfg$use_hsgp),
+    use_time_RE   = isTRUE(cfg$use_time_RE),
+    use_spatial_AC = isTRUE(cfg$use_spatial_AC)
+  ),
   adapt_delta = cfg$adapt_delta,
   max_treedepth = cfg$max_treedepth,
   parallel_chains = cfg$parallel_chains,
@@ -386,7 +391,6 @@ if (isTRUE(cfg$use_time_RE)) {
   if (isTRUE(cfg$use_block_dev))   summary_vars <- c(summary_vars, "sigma_block_dev")
 }
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
-if (isTRUE(cfg$use_block_dev))   summary_vars <- c(summary_vars, "sigma_block_dev")
 
 summary_output <- capture.output(print(fit$summary(variables = summary_vars)))
 writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", run_suffix, ".txt")))
@@ -415,7 +419,7 @@ if (cfg$plot_random_effects) {
     # Plot only temporal AR effects
     png(file.path(plots_output_dir, paste0("random_effects_temporal_only_", run_suffix, ".png")), width = 800, height = 600)
     par(mfrow = c(1, 2))
-    plot(post$v, type = "b", main = "Temporal Random Effects (v_t) with AR(1)",
+    plot(post$v, type = "b", main = "Temporal Random Effects (v_t)",
          xlab = "Time", ylab = "Effect", col = "red", pch = 19)
     abline(h = 0, lty = 2, col = "gray")
     acf(post$v, main = "ACF of Temporal Effects", col = "darkred")
@@ -450,6 +454,7 @@ if (cfg$plot_traceplots) {
     scalar_include <- c("alpha", "sigma_gp", "rho_gp",
                         "delta0", "delta1",
                         "sigma_v", "rho", "sigma_block_dev",
+                        "sigma_time", "sigma_block",
                         "phi")
     scalar_params <- available_params[
       available_params %in% scalar_include |

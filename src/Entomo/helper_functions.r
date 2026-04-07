@@ -192,31 +192,42 @@ build_stan_data <- function(cfg) {
 #' @param stan_data List containing Stan data (used to determine dimensions)
 #' @param use_temporal_re Logical flag indicating whether temporal RE is enabled in the model
 #' @return Function that returns a list of initial values for one MCMC chain
-make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE) {
+make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
+                          use_time_RE = FALSE, use_spatial_AC = TRUE) {
   function() {
     init_vals <- list(
       alpha      = rnorm(1, -4.5, 0.4),
       w          = matrix(rnorm(stan_data$K * stan_data$Lp1, 0, 0.08), stan_data$K, stan_data$Lp1),
       sigma_w    = runif(stan_data$K, 0.1, 0.3),
       w_unlagged = rnorm(stan_data$Ku, 0, 0.1),
-      sigma_gp   = runif(1, 0.1, 0.5),
-      rho_gp     = runif(1, 50, 200),
       delta0     = rnorm(1, 0.3, 0.2),
       delta1     = rnorm(1, 0, 0.1)
     )
 
-    if (isTRUE(use_hsgp)) {
-      init_vals$beta_gp <- rnorm(stan_data$M^2, 0, 0.1)
+    if (isTRUE(use_time_RE)) {
+      # iid time RE + iid block RE model
+      init_vals$v_time_raw  <- rnorm(stan_data$T, 0, 0.3)
+      init_vals$sigma_time  <- runif(1, 0.05, 0.3)
+      init_vals$u_block_raw <- rnorm(stan_data$B, 0, 0.3)
+      init_vals$sigma_block <- runif(1, 0.05, 0.3)
     } else {
-      init_vals$z_gp <- rnorm(stan_data$B, 0, 0.1)
-    }
-
-    if (use_temporal_re) {
-      init_vals$v_global_raw    <- rnorm(stan_data$T, 0, 0.3)
-      init_vals$v_block_dev_raw <- rnorm(stan_data$B, 0, 0.3)
-      init_vals$sigma_v         <- runif(1, 0.1, 0.5)
-      init_vals$sigma_block_dev <- runif(1, 0.05, 0.3)
-      init_vals$rho             <- rnorm(1, 0.3, 0.15)
+      # AR1 / GP model variants
+      if (isTRUE(use_spatial_AC)) {
+        init_vals$sigma_gp <- runif(1, 0.1, 0.5)
+        init_vals$rho_gp   <- runif(1, 50, 200)
+        if (isTRUE(use_hsgp)) {
+          init_vals$beta_gp <- rnorm(stan_data$M^2, 0, 0.1)
+        } else {
+          init_vals$z_gp <- rnorm(stan_data$B, 0, 0.1)
+        }
+      }
+      if (isTRUE(use_temporal_re)) {
+        init_vals$v_global_raw    <- rnorm(stan_data$T, 0, 0.3)
+        init_vals$v_block_dev_raw <- rnorm(stan_data$B, 0, 0.3)
+        init_vals$sigma_v         <- runif(1, 0.1, 0.5)
+        init_vals$sigma_block_dev <- runif(1, 0.05, 0.3)
+        init_vals$rho             <- rnorm(1, 0.3, 0.15)
+      }
     }
 
     init_vals
@@ -278,7 +289,7 @@ save_random_effects <- function(u_post, v_post, output_dir, run_suffix) {
   qqline(u_post, col = "red", lwd = 2)
 
   if (!all(is.na(v_post))) {
-    plot(v_post, type = "b", main = "Temporal Random Effects (v_t) with AR(1)",
+    plot(v_post, type = "b", main = "Temporal Random Effects (v_t)",
          xlab = "Time", ylab = "Effect", col = "red", pch = 19)
     abline(h = 0, lty = 2, col = "gray")
     acf(v_post, main = "ACF of Temporal Effects", col = "darkred")
