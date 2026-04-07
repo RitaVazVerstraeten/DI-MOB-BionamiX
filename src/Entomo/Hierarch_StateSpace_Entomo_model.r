@@ -84,7 +84,7 @@ cfg <- list(
   run_prior_predictive = FALSE,
 
   # outputs (individual plot toggles)
-  plot_traceplots = TRUE,
+  plot_traceplots = FALSE,
   plot_random_effects = TRUE,
   plot_ppc = TRUE,
   plot_timeseries = TRUE,
