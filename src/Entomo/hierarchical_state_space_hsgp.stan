@@ -126,7 +126,7 @@ transformed parameters {
       omega[i] = 0;
       pi[i] = 0;
     } else if (C_bt[i] > 0) {
-      omega[i] = fmin(1.0, (kappa * C_bt[i]) / n_bt[i]); \\cap omega to max 1
+      omega[i] = fmin(1.0, (kappa * C_bt[i]) / n_bt[i]); // cap omega to max 1
       pi[i] = (1 - omega[i]) * p_bt[i] + omega[i] * p_R[i];
     } else {
       omega[i] = 0;
