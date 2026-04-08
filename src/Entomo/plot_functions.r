@@ -828,64 +828,97 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
   # Create output directory
   timeseries_dir <- output_dir  
 
-  # --- Add uncertainty ribbon using posterior draws if available ---
-  # Try to extract posterior draws for fitted probabilities (p_bt_out)
+  # --- Extract posterior draws for p_bt_out and y_pred if fit is available ---
   p1 <- NULL
   draws_ok <- FALSE
   if ("fit" %in% ls(envir = .GlobalEnv)) {
     fit_obj <- get("fit", envir = .GlobalEnv)
     if (inherits(fit_obj, "CmdStanMCMC")) {
-      # Try to get p_bt_out draws
-      draws <- tryCatch(fit_obj$draws("p_bt_out", format = "matrix"), error = function(e) NULL)
-      if (!is.null(draws)) {
+      draws_p    <- tryCatch(fit_obj$draws("p_bt_out", format = "matrix"), error = function(e) NULL)
+      draws_pred <- tryCatch(fit_obj$draws("y_pred",   format = "matrix"), error = function(e) NULL)
+      if (!is.null(draws_p)) {
         draws_ok <- TRUE
-        # Get df index for each observation
-        df_idx <- df %>% select(year_month_date, block)
-        # For each time point, average across blocks for each posterior draw
         time_points <- sort(unique(df$year_month_date))
-        n_draws <- nrow(draws)
-        agg_draws <- sapply(time_points, function(tp) {
-          idx <- which(df$year_month_date == tp)
-          if (length(idx) == 0) return(rep(NA, n_draws))
-          rowMeans(draws[, idx, drop = FALSE], na.rm = TRUE)
-        })
-        # agg_draws: n_draws x n_time
-        agg_draws <- t(agg_draws) # n_time x n_draws
-        # Compute mean, 2.5%, 97.5% for each time
-        agg_summary <- data.frame(
-          year_month_date = time_points,
-          fitted_mean = apply(agg_draws, 1, mean, na.rm = TRUE),
-          fitted_lower = apply(agg_draws, 1, quantile, probs = 0.025, na.rm = TRUE),
-          fitted_upper = apply(agg_draws, 1, quantile, probs = 0.975, na.rm = TRUE)
-        )
-        # Observed mean
+        n_draws     <- nrow(draws_p)
+
+        # Helper: aggregate draws across blocks per time point
+        agg_draws_by_time <- function(draws_mat, scale_by = NULL) {
+          mat <- sapply(time_points, function(tp) {
+            idx <- which(df$year_month_date == tp)
+            if (length(idx) == 0) return(rep(NA, n_draws))
+            vals <- draws_mat[, idx, drop = FALSE]
+            if (!is.null(scale_by)) vals <- vals / matrix(scale_by[idx], nrow = n_draws, ncol = length(idx), byrow = TRUE)
+            rowMeans(vals, na.rm = TRUE)
+          })
+          t(mat)  # n_time x n_draws
+        }
+
+        agg_p    <- agg_draws_by_time(draws_p)
+        agg_pred <- if (!is.null(draws_pred)) agg_draws_by_time(draws_pred, scale_by = df$n_bt) else NULL
+
+        summarise_draws <- function(mat) {
+          data.frame(
+            mean  = apply(mat, 1, mean,     na.rm = TRUE),
+            lower = apply(mat, 1, quantile, probs = 0.025, na.rm = TRUE),
+            upper = apply(mat, 1, quantile, probs = 0.975, na.rm = TRUE)
+          )
+        }
+
+        p_summ    <- summarise_draws(agg_p)
+        pred_summ <- if (!is.null(agg_pred)) summarise_draws(agg_pred) else NULL
+
         obs_summary <- df %>%
           group_by(year_month_date) %>%
           summarise(observed_mean = mean(observed_p_bt, na.rm = TRUE), .groups = "drop")
-        plot_df <- left_join(agg_summary, obs_summary, by = "year_month_date")
+
+        plot_df <- data.frame(
+          year_month_date = time_points,
+          p_mean          = p_summ$mean,
+          p_lower         = p_summ$lower,
+          p_upper         = p_summ$upper,
+          observed_mean   = obs_summary$observed_mean
+        )
+        if (!is.null(pred_summ)) {
+          plot_df$pred_mean  <- pred_summ$mean
+          plot_df$pred_lower <- pred_summ$lower
+          plot_df$pred_upper <- pred_summ$upper
+        }
+
         p1 <- ggplot(plot_df, aes(x = year_month_date)) +
-          geom_ribbon(aes(ymin = fitted_lower, ymax = fitted_upper), fill = "blue", alpha = 0.18) +
-          geom_line(aes(y = fitted_mean, color = "fitted_mean"), linewidth = 1) +
-          geom_point(aes(y = fitted_mean, color = "fitted_mean"), size = 1.5) +
-          geom_line(aes(y = observed_mean, color = "observed_mean"), linewidth = 1) +
-          geom_point(aes(y = observed_mean, color = "observed_mean"), size = 1.5) +
-          scale_color_manual(values = c("fitted_mean" = "blue", "observed_mean" = "red"),
-                             labels = c("Fitted p_bt", "Observed p_bt")) +
-          labs(x = "Time", y = "Probability",
-               title = "Time Series: Observed vs Fitted Mosquito Probability (Mean Across Blocks)",
+          geom_ribbon(aes(ymin = p_lower, ymax = p_upper), fill = "blue", alpha = 0.18) +
+          geom_line(aes(y = p_mean,        color = "Fitted p_bt"),   linewidth = 1) +
+          geom_point(aes(y = p_mean,       color = "Fitted p_bt"),   size = 1.5) +
+          geom_line(aes(y = observed_mean, color = "Observed y/n"),  linewidth = 1) +
+          geom_point(aes(y = observed_mean, color = "Observed y/n"), size = 1.5)
+
+        if (!is.null(pred_summ))
+          p1 <- p1 +
+            geom_ribbon(aes(ymin = pred_lower, ymax = pred_upper), fill = "#E69F00", alpha = 0.2) +
+            geom_line(aes(y = pred_mean,  color = "Predicted y_pred/n"), linewidth = 1, linetype = "dashed") +
+            geom_point(aes(y = pred_mean, color = "Predicted y_pred/n"), size = 1.5)
+
+        p1 <- p1 +
+          scale_color_manual(
+            values = c("Fitted p_bt"       = "blue",
+                       "Observed y/n"       = "red",
+                       "Predicted y_pred/n" = "#E69F00"),
+            breaks = c("Observed y/n", "Predicted y_pred/n", "Fitted p_bt")
+          ) +
+          labs(x = "Time", y = "Probability / Rate",
+               title = "Time Series: observed rate, predicted rate, and fitted p_bt (mean across blocks)",
                color = NULL,
-               caption = "Shaded ribbon: 95% credible interval for fitted probability (posterior draws)") +
+               caption = "Shaded ribbons: 95% CI for p_bt (blue) and y_pred/n_bt (orange)") +
           theme_minimal() +
           theme(legend.position = "bottom")
       }
     }
   }
   if (!draws_ok) {
-    # Fallback: plot without uncertainty
+    # Fallback: plot without uncertainty, no y_pred
     p1 <- df %>%
       group_by(year_month_date) %>%
       summarise(
-        fitted_mean = mean(fitted_p_bt, na.rm = TRUE),
+        fitted_mean   = mean(fitted_p_bt,   na.rm = TRUE),
         observed_mean = mean(observed_p_bt, na.rm = TRUE),
         .groups = "drop"
       ) %>%
@@ -894,14 +927,14 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
       geom_line(linewidth = 1) +
       geom_point(size = 1.5) +
       scale_color_manual(values = c("fitted_mean" = "blue", "observed_mean" = "red"),
-                         labels = c("Fitted p_bt", "Observed p_bt")) +
+                         labels = c("Fitted p_bt", "Observed y/n")) +
       labs(x = "Time", y = "Probability",
            title = "Time Series: Observed vs Fitted Mosquito Probability (Mean Across Blocks)",
            color = NULL) +
       theme_minimal() +
       theme(legend.position = "bottom")
   }
-  ggsave(file.path(timeseries_dir, paste0("timeseries_aggregate_", run_suffix, ".png")), 
+  ggsave(file.path(timeseries_dir, paste0("timeseries_aggregate_", run_suffix, ".png")),
          p1, width = 12, height = 6, dpi = 150)
   
   # Plot 2: Block-specific time series (first n_blocks_facet blocks)

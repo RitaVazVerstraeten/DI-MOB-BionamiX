@@ -463,11 +463,13 @@ y_pred_draws <- fit$draws("y_pred_mat", format = "matrix")
 # Flatten B×T → index mapping: Stan uses column-major (b varies fastest for matrix[B,T])
 bt_idx <- function(b, t, B) (t - 1) * B + b
 
-df_obs$p_occ_mean <- NA_real_
-df_obs$p_occ_q05  <- NA_real_
-df_obs$p_occ_q95  <- NA_real_
-df_obs$q_occ_mean <- NA_real_
+df_obs$p_occ_mean  <- NA_real_
+df_obs$p_occ_q05   <- NA_real_
+df_obs$p_occ_q95   <- NA_real_
+df_obs$q_occ_mean  <- NA_real_
 df_obs$y_pred_mean <- NA_real_
+df_obs$y_pred_q05  <- NA_real_
+df_obs$y_pred_q95  <- NA_real_
 df_obs$observed_rate <- df_obs$y_bt / df_obs$n_bt
 
 for (i in seq_len(nrow(df_obs))) {
@@ -486,7 +488,10 @@ for (i in seq_len(nrow(df_obs))) {
     df_obs$q_occ_mean[i] <- mean(q_occ_draws[, col_q])
   }
   if (col_pred %in% colnames(y_pred_draws)) {
-    df_obs$y_pred_mean[i] <- mean(y_pred_draws[, col_pred])
+    draws_pred <- y_pred_draws[, col_pred] / df_obs$n_bt[i]
+    df_obs$y_pred_mean[i] <- mean(draws_pred)
+    df_obs$y_pred_q05[i]  <- quantile(draws_pred, 0.05)
+    df_obs$y_pred_q95[i]  <- quantile(draws_pred, 0.95)
   }
 }
 
@@ -498,35 +503,68 @@ for (i in seq_len(nrow(df_obs))) {
 ts_agg <- df_obs %>%
   group_by(year_month_date) %>%
   summarise(
-    obs_mean   = mean(observed_rate, na.rm = TRUE),
-    p_occ_mean = mean(p_occ_mean,    na.rm = TRUE),
-    p_occ_q05  = mean(p_occ_q05,     na.rm = TRUE),
-    p_occ_q95  = mean(p_occ_q95,     na.rm = TRUE),
-    q_occ_mean = mean(q_occ_mean,    na.rm = TRUE),
+    obs_mean       = mean(observed_rate, na.rm = TRUE),
+    y_pred_mean    = mean(y_pred_mean,   na.rm = TRUE),
+    y_pred_q05     = mean(y_pred_q05,    na.rm = TRUE),
+    y_pred_q95     = mean(y_pred_q95,    na.rm = TRUE),
+    p_occ_mean     = mean(p_occ_mean,    na.rm = TRUE),
+    p_occ_q05      = mean(p_occ_q05,     na.rm = TRUE),
+    p_occ_q95      = mean(p_occ_q95,     na.rm = TRUE),
+    q_occ_mean     = mean(q_occ_mean,    na.rm = TRUE),
     .groups = "drop"
   )
 
+# Plot 1: aggregate timeseries — y_pred/n_bt vs y_observed/n_bt
 p_ts_agg <- ggplot(ts_agg, aes(x = year_month_date)) +
-  geom_ribbon(aes(ymin = p_occ_q05, ymax = p_occ_q95), fill = "#378ADD", alpha = 0.25) +
-  geom_line(aes(y = p_occ_mean, colour = "p_bt (mosquito presence)"), linewidth = 0.9) +
-  geom_line(aes(y = q_occ_mean, colour = "q_bt (visit prob)"),        linewidth = 0.9, linetype = "dashed") +
-  geom_line(aes(y = obs_mean,   colour = "Observed rate"),            linewidth = 0.7) +
-  geom_point(aes(y = obs_mean,  colour = "Observed rate"),            size = 1.5) +
+  geom_ribbon(aes(ymin = y_pred_q05, ymax = y_pred_q95), fill = "#185FA5", alpha = 0.2) +
+  geom_line(aes(y = y_pred_mean, colour = "Predicted rate (y_pred/n_bt)"), linewidth = 0.9) +
+  geom_line(aes(y = obs_mean,    colour = "Observed rate (y/n_bt)"),       linewidth = 0.7) +
+  geom_point(aes(y = obs_mean,   colour = "Observed rate (y/n_bt)"),       size = 1.5) +
   scale_colour_manual(values = c(
-    "p_bt (mosquito presence)" = "#185FA5",
-    "q_bt (visit prob)"        = "#2CA02C",
-    "Observed rate"            = "#D85A30"
+    "Predicted rate (y_pred/n_bt)" = "#185FA5",
+    "Observed rate (y/n_bt)"       = "#D85A30"
   )) +
   labs(
-    title    = "Mean-field occupancy: p_bt, q_bt and observed detection rate",
-    subtitle = paste0("B = ", B, " | r_bt = p_bt × q_bt | ", cfg$iter_sampling, " post-warmup samples"),
-    x = "Time", y = "Probability", colour = NULL
+    title    = "Aggregate time series: observed vs predicted detection rate",
+    subtitle = paste0("B = ", B, " | y_pred ~ Binomial(n_bt, r_bt) | shaded = 90% CI"),
+    x = "Time", y = "Detection rate (positives / inspections)", colour = NULL
   ) +
   theme_minimal()
 
 ggsave(
   file.path(cfg$output_dir, paste0("timeseries_aggregate_", run_suffix, ".png")),
   p_ts_agg, width = 12, height = 5, dpi = 150
+)
+
+# Plot 2: latent states p_bt and q_bt
+# Dual-axis: p_bt on left, q_bt on right (different scales).
+left_max  <- max(ts_agg$p_occ_q95, na.rm = TRUE) * 1.1
+right_max <- max(ts_agg$q_occ_mean, na.rm = TRUE) * 1.1
+q_scale   <- left_max / right_max
+
+p_ts_pq <- ggplot(ts_agg, aes(x = year_month_date)) +
+  geom_ribbon(aes(ymin = p_occ_q05, ymax = p_occ_q95), fill = "#378ADD", alpha = 0.25) +
+  geom_line(aes(y = p_occ_mean, colour = "p_bt (mosquito presence)"), linewidth = 0.9) +
+  geom_line(aes(y = q_occ_mean * q_scale), colour = "#2CA02C", linewidth = 0.9, linetype = "dashed") +
+  scale_y_continuous(
+    name     = "p_bt (mosquito presence probability)",
+    limits   = c(0, left_max),
+    sec.axis = sec_axis(~ . / q_scale, name = "q_bt (visit probability)")
+  ) +
+  scale_colour_manual(values = c("p_bt (mosquito presence)" = "#185FA5")) +
+  annotate("text", x = min(ts_agg$year_month_date), y = left_max * 0.97,
+           label = "- - q_bt (visit prob)", colour = "#2CA02C", hjust = 0, size = 3) +
+  labs(
+    title    = "Latent states: p_bt (occupancy) and q_bt (visit probability)",
+    subtitle = paste0("B = ", B, " | shaded = 90% CI for p_bt"),
+    x = "Time", colour = NULL
+  ) +
+  theme_minimal() +
+  theme(axis.title.y.right = element_text(colour = "#2CA02C"))
+
+ggsave(
+  file.path(cfg$output_dir, paste0("timeseries_pq_", run_suffix, ".png")),
+  p_ts_pq, width = 12, height = 5, dpi = 150
 )
 
 # --- By-block time series (random sample) ---
@@ -536,14 +574,14 @@ p_ts_block <- df_obs %>%
   filter(block_idx %in% sample_blocks) %>%
   ggplot(aes(x = year_month_date)) +
   geom_ribbon(aes(ymin = p_occ_q05, ymax = p_occ_q95), fill = "#378ADD", alpha = 0.2) +
-  geom_line(aes(y = p_occ_mean,    colour = "Fitted"),   linewidth = 0.7) +
-  geom_line(aes(y = observed_rate, colour = "Observed"), linewidth = 0.6) +
-  geom_point(aes(y = observed_rate, colour = "Observed"), size = 1.0) +
-  scale_colour_manual(values = c("Fitted" = "#185FA5", "Observed" = "#D85A30")) +
+  geom_line(aes(y = p_occ_mean,    colour = "p_bt (fitted)"),        linewidth = 0.7) +
+  geom_line(aes(y = observed_rate, colour = "Observed rate (y/n)"),  linewidth = 0.6) +
+  geom_point(aes(y = observed_rate, colour = "Observed rate (y/n)"), size = 1.0) +
+  scale_colour_manual(values = c("p_bt (fitted)" = "#185FA5", "Observed rate (y/n)" = "#D85A30")) +
   facet_wrap(~block_idx, scales = "free_y") +
   labs(
-    title  = "HMP occupancy by block: observed rate vs P(occupied | data)",
-    x = "Time", y = "Probability", colour = NULL
+    title  = "HMP occupancy by block: observed detection rate vs fitted p_bt",
+    x = "Time", y = "Probability / Rate", colour = NULL
   ) +
   theme_minimal(base_size = 10)
 
