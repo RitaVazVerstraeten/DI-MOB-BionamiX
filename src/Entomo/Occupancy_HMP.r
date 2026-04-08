@@ -55,11 +55,15 @@ cfg <- list(
 
   # Data prep
   n_blocks  = 100,           # NULL = all blocks; use 100 for testing
-  lag_vars  = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
   max_lag   = 1,             # lags 0 and 1 → Lp1 = 2
   kappa     = 4,
-  unlagged_vars = c("is_urban", "is_WUI"),
-  numeric_vars  = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
+  numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
+
+  # Covariates per process (can differ between colonisation and persistence)
+  lag_vars_gamma    = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
+  lag_vars_phi      = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
+  unlagged_vars_gamma = c("is_urban", "is_WUI"),
+  unlagged_vars_phi   = c("is_urban", "is_WUI"),
 
   # Fixed false-positive rate for the emission model
   epsilon = 0.001,
@@ -124,9 +128,10 @@ for (var in cfg$numeric_vars) {
   }
 }
 
-# Create lagged covariates per block
+# Create lagged covariates per block (union of gamma and phi vars)
 L <- cfg$max_lag
-for (var in cfg$lag_vars) {
+all_lag_vars <- union(cfg$lag_vars_gamma, cfg$lag_vars_phi)
+for (var in all_lag_vars) {
   for (l in 0:L) {
     lag_col <- paste0(var, "_lag", l)
     df_raw <- df_raw %>%
@@ -137,7 +142,7 @@ for (var in cfg$lag_vars) {
   }
 }
 
-lagged_cols <- unlist(lapply(cfg$lag_vars, function(v) paste0(v, "_lag", 0:L)))
+lagged_cols <- unlist(lapply(all_lag_vars, function(v) paste0(v, "_lag", 0:L)))
 
 # Block and time indices (computed on the FULL data, before any n_bt filter)
 block_levels <- sort(unique(as.character(df_raw$manzana)))
@@ -164,21 +169,26 @@ cat("B =", B, "| T =", T, "| N =", nrow(df_obs), "\n")
 # 3) BUILD COVARIATE MATRICES (N-indexed, observed cells only)
 # =========================
 Lp1 <- L + 1
-K   <- length(cfg$lag_vars)
-Ku  <- length(cfg$unlagged_vars)
+Kg  <- length(cfg$lag_vars_gamma)
+Kp  <- length(cfg$lag_vars_phi)
+Kug <- length(cfg$unlagged_vars_gamma)
+Kup <- length(cfg$unlagged_vars_phi)
 
-X_lag_list <- vector("list", Lp1)
-for (l in 0:L) {
-  cols <- paste0(cfg$lag_vars, "_lag", l)
-  X_lag_list[[l + 1]] <- as.matrix(df_obs[, cols])
+make_lag_flat <- function(vars, df) {
+  do.call(cbind, lapply(0:L, function(l) as.matrix(df[, paste0(vars, "_lag", l)])))
 }
-X_lag_flat <- do.call(cbind, X_lag_list)
-stopifnot(ncol(X_lag_flat) == K * Lp1)
+make_unlagged <- function(vars, df) {
+  X <- as.matrix(df[, vars])
+  for (j in seq_len(ncol(X))) if (is.logical(X[, j])) X[, j] <- as.numeric(X[, j])
+  X
+}
 
-X_unlagged <- as.matrix(df_obs[, cfg$unlagged_vars])
-for (j in seq_len(ncol(X_unlagged))) {
-  if (is.logical(X_unlagged[, j])) X_unlagged[, j] <- as.numeric(X_unlagged[, j])
-}
+X_lag_gamma    <- make_lag_flat(cfg$lag_vars_gamma,    df_obs)
+X_lag_phi      <- make_lag_flat(cfg$lag_vars_phi,      df_obs)
+X_unlag_gamma  <- make_unlagged(cfg$unlagged_vars_gamma, df_obs)
+X_unlag_phi    <- make_unlagged(cfg$unlagged_vars_phi,   df_obs)
+
+stopifnot(ncol(X_lag_gamma) == Kg * Lp1, ncol(X_lag_phi) == Kp * Lp1)
 
 # =========================
 # 4) BUILD COMPLETE B×T GRID (for HMM forward algorithm)
@@ -240,21 +250,25 @@ if (isTRUE(cfg$use_hsgp)) {
 # =========================
 stan_data <- list(
   # Dimensions
-  N    = nrow(df_obs),
-  B    = B,
-  T    = T,
-  K    = K,
-  Lp1  = Lp1,
-  Ku   = Ku,
+  N   = nrow(df_obs),
+  B   = B,
+  T   = T,
+  Kg  = Kg,
+  Kp  = Kp,
+  Lp1 = Lp1,
+  Kug = Kug,
+  Kup = Kup,
 
   # N-indexed observed cells (for environmental covariate computation)
-  y          = as.integer(df_obs$y_bt),
-  n_bt       = as.integer(df_obs$n_bt),
-  C_bt       = as.integer(df_obs$C_bt),
-  block      = as.integer(df_obs$block_idx),
-  time       = as.integer(df_obs$time_idx),
-  X_lag_flat = X_lag_flat,
-  X_unlagged = X_unlagged,
+  y             = as.integer(df_obs$y_bt),
+  n_bt          = as.integer(df_obs$n_bt),
+  C_bt          = as.integer(df_obs$C_bt),
+  block         = as.integer(df_obs$block_idx),
+  time          = as.integer(df_obs$time_idx),
+  X_lag_gamma   = X_lag_gamma,
+  X_lag_phi     = X_lag_phi,
+  X_unlag_gamma = X_unlag_gamma,
+  X_unlag_phi   = X_unlag_phi,
 
   # Complete B×T grid for mean-field forward recursion
   y_mat = y_mat,
@@ -280,9 +294,11 @@ cat("Stan data assembled and validated\n")
 make_init <- function(stan_data, use_hsgp = TRUE) {
   B   <- stan_data$B
   T   <- stan_data$T
-  K   <- stan_data$K
+  Kg  <- stan_data$Kg
+  Kp  <- stan_data$Kp
   Lp1 <- stan_data$Lp1
-  Ku  <- stan_data$Ku
+  Kug <- stan_data$Kug
+  Kup <- stan_data$Kup
 
   function() {
     init <- list(
@@ -294,14 +310,12 @@ make_init <- function(stan_data, use_hsgp = TRUE) {
       alpha1           =  2.0,
       alpha2           =  0.5,
 
-      w_gamma          = matrix(c(-0.15, -0.15,  0.10, -0.15,
-                                   0.10,  0.15, -0.05, -0.10),
-                                nrow = K, ncol = Lp1),
-      w_phi            = matrix(0, nrow = K, ncol = Lp1),
-      sigma_w_gamma    = rep(0.2, K),
-      sigma_w_phi      = rep(0.2, K),
-      w_unlagged_gamma = rep(0, Ku),
-      w_unlagged_phi   = rep(0, Ku),
+      w_gamma          = matrix(0, nrow = Kg, ncol = Lp1),
+      w_phi            = matrix(0, nrow = Kp, ncol = Lp1),
+      sigma_w_gamma    = rep(0.2, Kg),
+      sigma_w_phi      = rep(0.2, Kp),
+      w_unlagged_gamma = rep(0, Kug),
+      w_unlagged_phi   = rep(0, Kup),
 
       # Temporal
       v_global_raw = rep(0, T),

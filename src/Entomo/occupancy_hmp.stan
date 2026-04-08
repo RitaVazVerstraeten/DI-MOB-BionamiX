@@ -50,9 +50,11 @@ data {
   int<lower=1> N;             // observed (b,t) pairs with n_bt > 0
   int<lower=1> B;             // blocks
   int<lower=1> T;             // time periods
-  int<lower=1> K;             // lagged environmental covariates
+  int<lower=1> Kg;            // lagged covariates for colonisation (gamma)
+  int<lower=1> Kp;            // lagged covariates for persistence (phi)
   int<lower=1> Lp1;           // lags + 1 (lag 0..L)
-  int<lower=1> Ku;            // unlagged covariates
+  int<lower=1> Kug;           // unlagged covariates for colonisation
+  int<lower=1> Kup;           // unlagged covariates for persistence
 
   // ----- Observation-indexed data (N rows, n_bt > 0 only) -----
   array[N] int<lower=0>         y;        // positives per block-time
@@ -60,8 +62,10 @@ data {
   array[N] int<lower=0>         C_bt;     // dengue cases
   array[N] int<lower=1,upper=B> block;    // block index for row i
   array[N] int<lower=1,upper=T> time;     // time index for row i
-  matrix[N, K*Lp1] X_lag_flat;            // flattened lagged covariates
-  matrix[N, Ku]    X_unlagged;            // unlagged covariates
+  matrix[N, Kg*Lp1] X_lag_gamma;          // flattened lagged covariates for colonisation
+  matrix[N, Kp*Lp1] X_lag_phi;            // flattened lagged covariates for persistence
+  matrix[N, Kug]    X_unlag_gamma;         // unlagged covariates for colonisation
+  matrix[N, Kup]    X_unlag_phi;           // unlagged covariates for persistence
 
   // ----- Complete B×T grid -----
   // n_mat[b,t] = 0 for months with no inspections
@@ -105,12 +109,12 @@ parameters {
   // --- Ecological process (z_bt: mosquito presence) ---
   real alpha_gamma;                        // colonisation baseline (logit scale)
   real alpha_phi;                          // persistence baseline (logit scale)
-  matrix[K, Lp1] w_gamma;                 // distributed lag weights for colonisation
-  matrix[K, Lp1] w_phi;                   // distributed lag weights for persistence
-  vector<lower=0>[K] sigma_w_gamma;        // random walk SD per covariate (colonisation)
-  vector<lower=0>[K] sigma_w_phi;          // random walk SD per covariate (persistence)
-  vector[Ku] w_unlagged_gamma;             // unlagged covariate effects on colonisation
-  vector[Ku] w_unlagged_phi;              // unlagged covariate effects on persistence
+  matrix[Kg, Lp1] w_gamma;                 // distributed lag weights for colonisation
+  matrix[Kp, Lp1] w_phi;                   // distributed lag weights for persistence
+  vector<lower=0>[Kg] sigma_w_gamma;        // random walk SD per covariate (colonisation)
+  vector<lower=0>[Kp] sigma_w_phi;          // random walk SD per covariate (persistence)
+  vector[Kug] w_unlagged_gamma;             // unlagged covariate effects on colonisation
+  vector[Kup] w_unlagged_phi;              // unlagged covariate effects on persistence
 
   // --- Intervention effect on persistence ---
   // phi_eff = inv_logit(logit(phi_bt) - theta) when a household was visited AND found
@@ -159,8 +163,8 @@ transformed parameters {
   vector[B] u_block = sigma_block * u_block_raw;
 
   // --- Environmental effects (N-indexed, observed cells only) ---
-  vector[N] xeff_gamma = X_lag_flat * to_vector(w_gamma) + X_unlagged * w_unlagged_gamma;
-  vector[N] xeff_phi   = X_lag_flat * to_vector(w_phi)   + X_unlagged * w_unlagged_phi;
+  vector[N] xeff_gamma = X_lag_gamma * to_vector(w_gamma) + X_unlag_gamma * w_unlagged_gamma;
+  vector[N] xeff_phi   = X_lag_phi   * to_vector(w_phi)   + X_unlag_phi   * w_unlagged_phi;
 
   // --- B×T linear predictors for colonisation and persistence ---
   // Unobserved cells retain baseline RE; observed cells get full covariate effects.
@@ -235,13 +239,13 @@ model {
   alpha_phi   ~ normal(-1.0, 1.5);   // ~30% persistence:  logit(0.3)  ≈ -0.85
 
   // Distributed lag weights (random walk prior for smoothness across lags)
-  for (k in 1:K) {
+  for (k in 1:Kg) {
     w_gamma[k, 1] ~ normal(0, 0.5);
-    w_phi[k, 1]   ~ normal(0, 0.5);
-    for (l in 2:Lp1) {
-      w_gamma[k, l] ~ normal(w_gamma[k, l-1], sigma_w_gamma[k]);
-      w_phi[k, l]   ~ normal(w_phi[k, l-1],   sigma_w_phi[k]);
-    }
+    for (l in 2:Lp1) w_gamma[k, l] ~ normal(w_gamma[k, l-1], sigma_w_gamma[k]);
+  }
+  for (k in 1:Kp) {
+    w_phi[k, 1] ~ normal(0, 0.5);
+    for (l in 2:Lp1) w_phi[k, l] ~ normal(w_phi[k, l-1], sigma_w_phi[k]);
   }
   sigma_w_gamma ~ exponential(2);
   sigma_w_phi   ~ exponential(2);
