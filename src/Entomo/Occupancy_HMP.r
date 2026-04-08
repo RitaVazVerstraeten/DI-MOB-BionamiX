@@ -88,12 +88,22 @@ cfg$stan_file <- ifelse(isTRUE(cfg$use_hsgp),
   file.path(src_dir, "occupancy_hmp.stan"),
   file.path(src_dir, "occupancy_ARglobal_REblock.stan"))
 
-b_label     <- if (is.null(cfg$n_blocks)) "B_All" else paste0("B", cfg$n_blocks)
 date_suffix <- format(Sys.Date(), "%Y%m%d")
-re_label    <- if (isTRUE(cfg$use_hsgp)) paste0("HSGP_M", cfg$hsgp_m) else "REblock"
-run_label   <- paste0("MeanField_", re_label, "_", b_label)
-run_suffix  <- paste0(date_suffix, "_", run_label)
-cfg$output_dir <- file.path(cfg$base_output_dir, run_label)
+
+# Layer 1: predictor spec — which variables drive gamma vs phi
+predictor_spec <- paste0(
+  "gamma-", paste(cfg$lag_vars_gamma, collapse = "-"),
+  "_unlag-", paste(cfg$unlagged_vars_gamma, collapse = "-"),
+  "__phi-", paste(cfg$lag_vars_phi, collapse = "-"),
+  "_unlag-", paste(cfg$unlagged_vars_phi, collapse = "-")
+)
+
+# Layer 2: model spec — RE / spatial structure
+model_spec <- if (isTRUE(cfg$use_hsgp)) "HSGP_ARglobal_REblock" else "ARglobal_REblock"
+
+# Layer 3: date folder
+run_suffix     <- date_suffix
+cfg$output_dir <- file.path(cfg$base_output_dir, predictor_spec, model_spec, date_suffix)
 dir.create(cfg$output_dir, recursive = TRUE, showWarnings = FALSE)
 
 cat(sprintf("Stan: %s\n", basename(cfg$stan_file)))
@@ -340,14 +350,15 @@ make_init <- function(stan_data, use_hsgp = TRUE) {
 # 8) MODEL SPEC + FIT
 # =========================
 cat(paste(rep("=", 55), collapse = ""), "\n")
-cat("MODEL SPECIFICATION — Mean-Field Occupancy (slides 15-22)\n")
+cat("MODEL SPECIFICATION — Mean-Field Occupancy \n")
 cat(paste(rep("=", 55), collapse = ""), "\n")
 cat(sprintf("  Blocks (B):          %d\n", B))
 cat(sprintf("  Time periods (T):    %d\n", T))
 cat(sprintf("  Observations (N):    %d\n", nrow(df_obs)))
 cat(sprintf("  Unobserved cells:    %d / %d\n", sum(n_mat == 0), B * T))
-cat(sprintf("  Lag covariates (K):  %d  (L=%d)\n", K, L))
-cat(sprintf("  Unlagged covars:     %d\n", Ku))
+cat(sprintf("  Lag covariates:      gamma=%d  phi=%d  (L=%d)\n", Kg, Kp, L))
+cat(sprintf("  Unlagged covars:     gamma=%d  phi=%d\n", Kug, Kup))
+cat(sprintf("  Predictor spec:      %s\n", predictor_spec))
 if (isTRUE(cfg$use_hsgp))
   cat(sprintf("  Spatial RE:          HSGP (M=%d per dim, M_total=%d, c=%.1f) + block offset\n",
               cfg$hsgp_m, cfg$hsgp_m^2, cfg$hsgp_c)) else
