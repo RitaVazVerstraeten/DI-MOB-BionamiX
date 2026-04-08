@@ -47,8 +47,8 @@ cfg <- list(
   output_dir = if (hostname == "frietjes") "/home/rita/data/Entomo/fitting/stan" else "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
-  use_time_RE     = TRUE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
-  use_temporal_AR = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = global AR1 trend
+  use_time_RE     = FALSE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
+  use_temporal_AR = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = global AR1 trend
   use_spatial_AC  = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = spatial GP
   use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE) TRUE = HSGP; FALSE = exact GP
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)

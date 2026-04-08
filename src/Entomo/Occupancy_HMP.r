@@ -98,8 +98,12 @@ predictor_spec <- paste0(
   "_unlag-", paste(cfg$unlagged_vars_phi, collapse = "-")
 )
 
-# Layer 2: model spec — RE / spatial structure
-model_spec <- if (isTRUE(cfg$use_hsgp)) "HSGP_ARglobal_REblock" else "ARglobal_REblock"
+# Layer 2: model spec — RE / spatial structure + block count
+b_label    <- if (is.null(cfg$n_blocks)) "B_All" else paste0("B", cfg$n_blocks)
+model_spec <- paste0(
+  if (isTRUE(cfg$use_hsgp)) "HSGP_ARglobal_REblock" else "ARglobal_REblock",
+  "_", b_label
+)
 
 # Layer 3: date folder
 run_suffix     <- date_suffix
@@ -400,10 +404,35 @@ summary_vars <- c(
 )
 
 fit_summary <- fit$summary(variables = summary_vars)
-print(fit_summary)
+print(fit_summary, n = Inf)
 writeLines(
-  capture.output(print(fit_summary)),
+  capture.output(print(fit_summary, n = Inf)),
   file.path(cfg$output_dir, paste0("model_summary_", run_suffix, ".txt"))
+)
+
+# Back-transformed summary: apply plogis() to logit-scale intercepts
+# alpha_gamma → baseline colonisation probability
+# alpha_phi   → baseline persistence probability  (unvisited, no covariates)
+# alpha0      → baseline visit probability
+# alpha1, alpha2, theta stay on log-odds-difference scale (plogis not meaningful)
+logit_params <- c("alpha_gamma", "alpha_phi", "alpha0")
+prob_cols    <- c("mean", "median", "sd", "mad", "q5", "q95")
+fit_summary_bt <- fit_summary %>%
+  mutate(across(
+    all_of(prob_cols),
+    ~ if_else(variable %in% logit_params, plogis(.), .)
+  )) %>%
+  mutate(variable = if_else(
+    variable %in% logit_params,
+    paste0(variable, " [prob]"),
+    variable
+  ))
+writeLines(
+  c("# Back-transformed summary",
+    "# logit-scale intercepts (alpha_gamma, alpha_phi, alpha0) converted via plogis()",
+    "# all other parameters unchanged",
+    capture.output(print(fit_summary_bt, n = Inf))),
+  file.path(cfg$output_dir, paste0("model_summary_backtransformed_", run_suffix, ".txt"))
 )
 
 bad_rhat <- fit_summary %>% filter(rhat > 1.05)
