@@ -115,7 +115,7 @@ predictor_spec <- paste0(
 run_suffix <- paste0(date_suffix, "_", model_tag)
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
-run_output_dir    <- file.path(model_output_dir, run_suffix)
+run_output_dir    <- file.path(run_suffix)
 plots_output_dir  <- file.path(run_output_dir, "plots")
 resid_output_dir  <- file.path(run_output_dir, "residuals_check")
 dir.create(run_output_dir,   recursive = TRUE, showWarnings = FALSE)
