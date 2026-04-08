@@ -38,10 +38,10 @@ cfg <- list(
   data_dir  = if (hostname == "frietjes") "~/data/Entomo"
               else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/",
   data_file_name = "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv",
-  base_output_dir = paste0(
-    "/home/rita/PyProjects/DI-MOB-BionamiX/results/",
-    "Entomo/fitting/stan_occupancy_hmp"
-  ),
+  base_output_dir = if (hostname == "frietjes")
+    "~/data/Entomo/fitting/stan_occupancy_hmp"
+  else
+    "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan_occupancy_hmp",
   # Random effects configuration
   # use_hsgp = TRUE  → HSGP spatial GP + block RE + global AR(1)  [occupancy_hmp.stan]
   # use_hsgp = FALSE → block RE + global AR(1) only               [occupancy_ARglobal_REblock.stan]
