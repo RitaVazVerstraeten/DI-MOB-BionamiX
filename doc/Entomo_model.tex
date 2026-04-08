@@ -160,7 +160,7 @@ The spatial random effect $u_b^{GP}$ is a zero-mean Gaussian process (GP) over b
 \begin{equation}
   \text{Cov}(u_b, u_{b'}) = \sigma_{GP}^2 \exp\!\left(-\frac{d_{bb'}}{\rho_{GP}}\right),
 \end{equation}
-where $d_{bb'}$ is the Euclidean distance between block centroids (metres). Direct inference requires factorising a $B \times B$ covariance matrix (e.g.\ via Cholesky decomposition), costing $\mathcal{O}(B^3)$ per HMC step. The Hilbert Space Gaussian Process (HSGP) approximation (Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression. Stat Comput 30, 419–446 (2020). https://doi.org/10.1007/s11222-019-09886-w) replaces this with a basis-function expansion that costs $\mathcal{O}(BM^2)$, where $M \ll B$ is the number of basis functions per spatial dimension.
+where $d_{bb'}$ is the Euclidean distance between block centroids (metres). Direct inference requires factorising a $B \times B$ covariance matrix (e.g.\ via Cholesky decomposition), costing $\mathcal{O}(B^3)$ per HMC step. The Hilbert Space Gaussian Process (HSGP) approximation (Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression. Stat Comput 30, 419–446 (2020)) replaces this with a basis-function expansion that costs $\mathcal{O}(BM^2)$, where $M \ll B$ is the number of basis functions per spatial dimension.
 
 \subsubsection{Basis Functions and Eigenvalues}
 
