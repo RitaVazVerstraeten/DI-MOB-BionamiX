@@ -381,6 +381,8 @@ fit <- mod$sample(
 
 # CSV chain files are already in run_output_dir; skip .rds to save disk space
 # (re-load later with: fit <- as_cmdstan_fit(list.files(run_output_dir, "*.csv", full.names=TRUE)))
+# Remove CmdStan auxiliary files (config/metric JSONs) — not needed for post-processing
+invisible(file.remove(list.files(run_output_dir, pattern = "_(config|metric)\\.json$", full.names = TRUE)))
 
 summary_vars <- c("alpha", "delta0", "delta1", "w", "sigma_w", "w_unlagged")
 if (isTRUE(cfg$use_time_RE)) {
@@ -392,7 +394,7 @@ if (isTRUE(cfg$use_time_RE)) {
 }
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
 
-summary_output <- capture.output(print(fit$summary(variables = summary_vars)))
+summary_output <- capture.output(print(fit$summary(variables = summary_vars), n = Inf))
 writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", run_suffix, ".txt")))
 
 post <- extract_means(fit, nrow(df))
