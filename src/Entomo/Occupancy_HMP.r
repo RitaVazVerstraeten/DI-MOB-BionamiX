@@ -45,7 +45,7 @@ cfg <- list(
   # Random effects configuration
   # use_hsgp = TRUE  → HSGP spatial GP + block RE + global AR(1)  [occupancy_hmp.stan]
   # use_hsgp = FALSE → block RE + global AR(1) only               [occupancy_ARglobal_REblock.stan]
-  use_hsgp  = TRUE,
+  use_hsgp  = FALSE,
 
   shapefile_path = if (hostname == "frietjes")
     "/home/rita/data/Entomo/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp"
@@ -102,7 +102,7 @@ predictor_spec <- paste0(
 b_label    <- if (is.null(cfg$n_blocks)) "B_All" else paste0("B", cfg$n_blocks)
 model_spec <- paste0(
   if (isTRUE(cfg$use_hsgp)) "HSGP_ARglobal_REblock" else "ARglobal_REblock",
-  "_", b_label
+  "_k", cfg$kappa, "_", b_label
 )
 
 # Layer 3: date folder
@@ -410,12 +410,16 @@ writeLines(
   file.path(cfg$output_dir, paste0("model_summary_", run_suffix, ".txt"))
 )
 
-# Back-transformed summary: apply plogis() to logit-scale intercepts
+# Back-transformed summary: apply plogis() to all log-odds scale parameters
 # alpha_gamma → baseline colonisation probability
-# alpha_phi   → baseline persistence probability  (unvisited, no covariates)
+# alpha_phi   → baseline persistence probability (unvisited, no covariates)
 # alpha0      → baseline visit probability
-# alpha1, alpha2, theta stay on log-odds-difference scale (plogis not meaningful)
-logit_params <- c("alpha_gamma", "alpha_phi", "alpha0")
+# alpha1      → plogis(alpha1): probability-scale effect of one extra dengue case on visit prob
+# alpha2      → plogis(alpha2): probability-scale revisit bonus
+# theta       → plogis(theta): probability-scale reduction in persistence after a visit
+# Note: alpha1, alpha2, theta are log-odds differences — plogis() gives their
+#       probability-scale equivalent but they should be interpreted relative to the intercept
+logit_params <- c("alpha_gamma", "alpha_phi", "alpha0", "alpha1", "alpha2", "theta")
 prob_cols    <- c("mean", "median", "sd", "mad", "q5", "q95")
 fit_summary_bt <- fit_summary %>%
   mutate(across(
@@ -429,8 +433,10 @@ fit_summary_bt <- fit_summary %>%
   ))
 writeLines(
   c("# Back-transformed summary",
-    "# logit-scale intercepts (alpha_gamma, alpha_phi, alpha0) converted via plogis()",
-    "# all other parameters unchanged",
+    "# all log-odds scale parameters converted via plogis() = logit^-1()",
+    "# alpha_gamma/phi/alpha0: probability-scale intercepts (directly interpretable)",
+    "# alpha1/alpha2/theta: probability-scale of log-odds differences (interpret relative to intercept)",
+    "# sigma_*, rho, rho_gp: unchanged (not on logit scale)",
     capture.output(print(fit_summary_bt, n = Inf))),
   file.path(cfg$output_dir, paste0("model_summary_backtransformed_", run_suffix, ".txt"))
 )
@@ -467,6 +473,8 @@ df_obs$p_occ_mean  <- NA_real_
 df_obs$p_occ_q05   <- NA_real_
 df_obs$p_occ_q95   <- NA_real_
 df_obs$q_occ_mean  <- NA_real_
+df_obs$q_occ_q05   <- NA_real_
+df_obs$q_occ_q95   <- NA_real_
 df_obs$y_pred_mean <- NA_real_
 df_obs$y_pred_q05  <- NA_real_
 df_obs$y_pred_q95  <- NA_real_
@@ -485,7 +493,10 @@ for (i in seq_len(nrow(df_obs))) {
     df_obs$p_occ_q95[i]  <- quantile(draws_p, 0.95)
   }
   if (col_q %in% colnames(q_occ_draws)) {
-    df_obs$q_occ_mean[i] <- mean(q_occ_draws[, col_q])
+    draws_q <- q_occ_draws[, col_q]
+    df_obs$q_occ_mean[i] <- mean(draws_q)
+    df_obs$q_occ_q05[i]  <- quantile(draws_q, 0.05)
+    df_obs$q_occ_q95[i]  <- quantile(draws_q, 0.95)
   }
   if (col_pred %in% colnames(y_pred_draws)) {
     draws_pred <- y_pred_draws[, col_pred] / df_obs$n_bt[i]
@@ -511,6 +522,8 @@ ts_agg <- df_obs %>%
     p_occ_q05      = mean(p_occ_q05,     na.rm = TRUE),
     p_occ_q95      = mean(p_occ_q95,     na.rm = TRUE),
     q_occ_mean     = mean(q_occ_mean,    na.rm = TRUE),
+    q_occ_q05      = mean(q_occ_q05,     na.rm = TRUE),
+    q_occ_q95      = mean(q_occ_q95,     na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -539,11 +552,12 @@ ggsave(
 # Plot 2: latent states p_bt and q_bt
 # Dual-axis: p_bt on left, q_bt on right (different scales).
 left_max  <- max(ts_agg$p_occ_q95, na.rm = TRUE) * 1.1
-right_max <- max(ts_agg$q_occ_mean, na.rm = TRUE) * 1.1
+right_max <- max(ts_agg$q_occ_q95, na.rm = TRUE) * 1.1
 q_scale   <- left_max / right_max
 
 p_ts_pq <- ggplot(ts_agg, aes(x = year_month_date)) +
   geom_ribbon(aes(ymin = p_occ_q05, ymax = p_occ_q95), fill = "#378ADD", alpha = 0.25) +
+  geom_ribbon(aes(ymin = q_occ_q05 * q_scale, ymax = q_occ_q95 * q_scale), fill = "#2CA02C", alpha = 0.2) +
   geom_line(aes(y = p_occ_mean, colour = "p_bt (mosquito presence)"), linewidth = 0.9) +
   geom_line(aes(y = q_occ_mean * q_scale), colour = "#2CA02C", linewidth = 0.9, linetype = "dashed") +
   scale_y_continuous(
@@ -556,7 +570,7 @@ p_ts_pq <- ggplot(ts_agg, aes(x = year_month_date)) +
            label = "- - q_bt (visit prob)", colour = "#2CA02C", hjust = 0, size = 3) +
   labs(
     title    = "Latent states: p_bt (occupancy) and q_bt (visit probability)",
-    subtitle = paste0("B = ", B, " | shaded = 90% CI for p_bt"),
+    subtitle = paste0("B = ", B, " | shaded = 90% CI (blue = p_bt, green = q_bt)"),
     x = "Time", colour = NULL
   ) +
   theme_minimal() +
@@ -573,15 +587,18 @@ sample_blocks <- sample(unique(df_obs$block_idx), min(9, B))
 p_ts_block <- df_obs %>%
   filter(block_idx %in% sample_blocks) %>%
   ggplot(aes(x = year_month_date)) +
-  geom_ribbon(aes(ymin = p_occ_q05, ymax = p_occ_q95), fill = "#378ADD", alpha = 0.2) +
-  geom_line(aes(y = p_occ_mean,    colour = "p_bt (fitted)"),        linewidth = 0.7) +
-  geom_line(aes(y = observed_rate, colour = "Observed rate (y/n)"),  linewidth = 0.6) +
-  geom_point(aes(y = observed_rate, colour = "Observed rate (y/n)"), size = 1.0) +
-  scale_colour_manual(values = c("p_bt (fitted)" = "#185FA5", "Observed rate (y/n)" = "#D85A30")) +
+  geom_ribbon(aes(ymin = y_pred_q05, ymax = y_pred_q95), fill = "#185FA5", alpha = 0.2) +
+  geom_line(aes(y = y_pred_mean,  colour = "Predicted rate (y_pred/n)"),  linewidth = 0.7) +
+  geom_line(aes(y = observed_rate, colour = "Observed rate (y/n)"),        linewidth = 0.6) +
+  geom_point(aes(y = observed_rate, colour = "Observed rate (y/n)"),       size = 1.0) +
+  scale_colour_manual(values = c(
+    "Predicted rate (y_pred/n)" = "#185FA5",
+    "Observed rate (y/n)"       = "#D85A30"
+  )) +
   facet_wrap(~block_idx, scales = "free_y") +
   labs(
-    title  = "HMP occupancy by block: observed detection rate vs fitted p_bt",
-    x = "Time", y = "Probability / Rate", colour = NULL
+    title  = "HMP occupancy by block: observed vs predicted detection rate",
+    x = "Time", y = "Detection rate (positives / inspections)", colour = NULL
   ) +
   theme_minimal(base_size = 10)
 

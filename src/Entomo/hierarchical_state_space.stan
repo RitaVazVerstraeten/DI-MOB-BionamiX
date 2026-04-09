@@ -94,7 +94,7 @@ generated quantities {
   vector[N] p_bt_out = p_bt;
   vector[N] p_R_out  = p_R;
 
-  array[N] int<lower=0> y_pred;
+  array[N] int<lower=0> y_pred; 
   vector[N] log_lik;
 
   for (i in 1:N) {

@@ -939,17 +939,19 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
   
   # Plot 2: Block-specific time series (first n_blocks_facet blocks)
   block_ids <- sort(unique(df$block))[seq_len(min(n_blocks_facet, length(unique(df$block))))]
-  p2 <- df %>%
-    filter(block %in% block_ids) %>%
-    pivot_longer(cols = c(fitted_p_bt, observed_p_bt), names_to = "type", values_to = "probability") %>%
-    ggplot(aes(x = year_month_date, y = probability, color = type)) +
-    geom_line(alpha = 0.7) +
-    geom_point(size = 0.8, alpha = 0.7) +
+  p2_df <- df %>% filter(block %in% block_ids)
+  p2 <- ggplot(p2_df, aes(x = year_month_date)) +
+    geom_ribbon(aes(ymin = y_pred_rate_q05, ymax = y_pred_rate_q95), fill = "blue", alpha = 0.2) +
+    geom_line(aes(y = y_pred_rate,  color = "Predicted rate (y_pred/n)"), alpha = 0.8, linewidth = 0.7) +
+    geom_line(aes(y = observed_p_bt, color = "Observed rate (y/n)"),      alpha = 0.8, linewidth = 0.6) +
+    geom_point(aes(y = observed_p_bt, color = "Observed rate (y/n)"),     size = 0.8, alpha = 0.7) +
     facet_wrap(~block, ncol = 3, scales = "free_y") +
-    scale_color_manual(values = c("fitted_p_bt" = "blue", "observed_p_bt" = "red"),
-                       labels = c("Fitted", "Observed")) +
-    labs(x = "Time", y = "Probability",
-         title = "Time Series by Block: Observed vs Fitted Mosquito Probability",
+    scale_color_manual(values = c(
+      "Predicted rate (y_pred/n)" = "blue",
+      "Observed rate (y/n)"       = "red"
+    )) +
+    labs(x = "Time", y = "Detection rate (positives / inspections)",
+         title = "Time Series by Block: observed vs predicted detection rate",
          color = NULL) +
     theme_minimal() +
     theme(legend.position = "bottom", axis.text.x = element_text(angle = 45, hjust = 1, size = 7))

@@ -192,6 +192,155 @@ where $\beta_m \sim \text{Normal}(0,1)$ are non-centred basis coefficients and $
 
 The approximation quality improves with $M$ and degrades near the domain boundary (hence $c > 1$). In the current implementation, $M = 20$ basis functions per dimension ($M^2 = 400$ total) with boundary factor $c = 1.5$ are used.
 
+\subsubsection{Is HSGP Appropriate for This Dataset?}
+
+The HSGP works well when the domain is not too large relative to the spatial length-scale being estimated. Intuitively, $M$ basis functions can only capture spatial patterns down to a certain scale --- the larger the domain and the smaller the target length-scale, the more basis functions are needed to represent the spatial variation faithfully. If $M$ is too small, the HSGP can only ``see'' broad, city-wide patterns and is blind to the local clustering that the GP is meant to capture.
+
+A rough rule of thumb is that the finest spatial pattern resolvable by $M$ basis functions across a domain of extent $D$ is:
+\begin{equation}
+  \text{minimum resolvable scale} \approx \frac{c \cdot D}{M},
+\end{equation}
+and this must be smaller than the expected length-scale $\rho_{GP}$.
+
+For the Cienfuegos block dataset, the domain spans roughly 22\,km $\times$ 20\,km across 1{,}336 blocks with a median nearest-neighbour distance of 94\,m. The ecologically expected length-scale is $\rho_{GP} \sim 100$--$300$\,m. With $M = 20$:
+\begin{equation}
+  \text{minimum resolvable scale} \approx \frac{1.5 \times 22{,}000}{20} \approx 1{,}650\,\text{m}.
+\end{equation}
+This means the current HSGP configuration cannot resolve any spatial pattern finer than $\sim$1.7\,km --- roughly 18 times coarser than the block spacing (94\,m) and the expected clustering scale. The approximation is therefore too coarse to capture the relevant local spatial structure, which almost certainly contributes to the poor identification of $\rho_{GP}$.
+
+To resolve structure at the 150\,m scale, one would need approximately $M \approx 220$ basis functions per dimension (roughly $M^2 \approx 50{,}000$ total), at which point the HSGP is no longer computationally advantageous. For a dataset of this size and spatial configuration, alternatives that directly exploit local neighbourhood structure are more appropriate:
+
+\begin{description}
+  \item[Nearest-Neighbour GP (NNGP):] Each block is modelled conditionally on its 10--15 nearest neighbours only. The resulting sparse factorisation scales as $\mathcal{O}(B \times m^2)$ with $m$ neighbours, and directly targets the local correlation structure at the block scale.
+  \item[CAR or ICAR:] 
+\end{description}
+
+\subsection{CAR and iCAR with spatial neighbours}
+
+\noindent\textit{Source: \href{https://mc-stan.org/learn-stan/case-studies/icar_stan.html}{Exact sparse CAR models in Stan} (Stan case study).}
+
+We have city blocks - physical regions of space, each with their boundary. Each block produces one value per month ($y_{bt}$). This is areal data - aggregate measures per spatial region (as opposed to point data).  
+
+What spatial correlation means for my data. I believe that if block A has a lot of mosquitoes this month, then the blocks around A are more likely to have mosquitoes for multiple reasons: 
+\begin{itemize}
+  \item \textit{Aedes aegypti} fly short distances (± 100m) and cross into adjacent blocks
+  \item human behaviour - you are likely to copy the preventive measures of your neighbours
+  \item landscape \& topography 
+\end{itemize}
+
+\subsubsection{Principles behind CAR and ICAR}
+CAR models, introduced by Besag (1974), model areal spatial data by specifying the \textbf{conditional} distribution of each block's random effect $u_b$ given all others ($u_{-b}$, meaning all values except block $b$), rather than one large joint multivariate normal. This is the Markov property: each block depends only on its immediate neighbours, giving $B$ simpler univariate conditionals instead of one $B$-dimensional distribution.
+
+For $B$ spatial units, the relationships are encoded in a $B \times B$ binary adjacency matrix $W$, where $W[b,b'] = 1$ if blocks $b$ and $b'$ share a boundary and 0 otherwise. The matrix is symmetric and has zeros on the diagonal. CAR has a parameter $\rho \in [0,1]$ controlling how strongly each block is pulled towards its neighbours:
+$$ u_b \mid u_{-b} \sim \text{Normal}(\rho \cdot \bar{u}_b,\; \sigma^2/n_b), $$
+When $\rho = 0$: no spatial correlation, blocks are independent.\\
+When $\rho = 1$: maximum spatial smoothing --- this is the \textbf{intrinsic CAR (ICAR)}, which has one fewer free parameter (no $\rho$ to estimate) and enforces strong spatial smoothing.
+
+\subsubsection{The conditional distribution}
+For block b, the CAR model says: 
+$$ u_b | u_{-b} \sim Normal(\mu_b, \tau_b^2), $$
+where: 
+$$ \bar{u}_b = \frac {\sum_{j \in \mathcal{N}(b)} w_{bj} \cdot u_j}{\sum_{j \in \mathcal{N}(b)} w_{bj}}  $$
+
+$$ \tau_b^2 = \frac {\sigma^2}{\sum_{j \in \mathcal{N}(b)} w_{bj}}  $$
+
+\noindent $\bar{u}_b$ is the \textbf{weighted average of b's neighbours' values}. $w_{bj}$ is the weight between block b and neighbour j - usually just 1 for all neighbours (binary adjacency). 
+
+\noindent $\tau_b^2$ is the \textbf{conditional variance} - it strinks as block b has more neighbours (intuitively: if a block has more neighbours, you have more information about what its value should be). 
+
+\noindent So the model says \textbf{given what all the neighbours are doing, the value is expected to be close to their average, with decreasing uncertainty as there are more neighbours.}
+
+\subsubsection{Writing it as precision matrix}
+For convenience you can work with the precision matrix $Q = \Sigma^{-1}$ (the inverse of the covariance matrix) rather than the covariance itself. The joint distribution then becomes: 
+
+$$ u \sim MVN(0,\cdot Q^{-1}) $$
+
+\noindent Where $Q$ has a specific structure: 
+$ Q[b,b] = n_b / \sigma^2$ (diagonal: number of neighbours of block b)
+$ Q[b,b'] = -w_{bb'} / \sigma^2$ (off-diagonal: 1 for nieghbours, 0 otherwise)
+
+In plain, the diagonal entries count how many neighbours each block has. The off-diagonal entries are -1 for neighouring pairs and 0 for non-neighbouring pairs. This is why CAR is computationally efficient. 
+
+\subsubsection{introduction $\rho$ spatial autcorrelation parameter}
+In the basic CAR model, the $\rho$ parameter controls \textbf{how strongly} the blocks are pulled towards their neighbouring values. 
+$$ u_b | u_{-b} ~ Normal(\rho \cdot \bar{u}_b, \sigma^2/n_b), $$
+where $\bar{u}_b$ is the simple average of the neighbours (assuming binary weights), which is what we will do in the model. 
+
+The precision matrix becomes: 
+$$Q = (D - \rho \cdot W)/ \sigma^2$$ 
+
+Where: 
+\begin{itemize}
+  \item D is the diagnoal matrix $D[b,b] = n_b$ (number of neighbours)
+  \item W is the adjacency matrix ($W[b,b']$ = 1 if neighbours, 0 otherwise)
+  \item $\rho$ scales how much the off-diagonal (neighbour) structure matters
+\end{itemize}
+
+\textbf{What $\rho$ controls:} 
+When $\rho$ = 0: $Q = D/\sigma^2$, D is diagonal, so Q is diagonal, meaning all blocks are independent. Each $u_b \sim Normal(0, \sigma^2/n_b)$.   
+When $\rho \rightarrow 1$: $Q = (D-W)/\sigma^2$, this is maximum spatial smoothing, this limiting case is ICAR.  
+When $\rho$ is between 0 and 1: This is between independence and spatial smoothing. $\rho$ can be estated from the data.    
+
+
+
+\subsubsection{The log probability under CAR}
+The joint distribution of \(u=(u_1,\ldots,u_B)\) is multivariate normal: 
+$$ u \sim MVN(0, \sigma^2 \cdot(D-\rho \cdot W)^{-1}), $$  
+\noindent The precision matrix is: 
+
+$$Q = (D- \rho \cdot W)/\sigma^2$$
+
+The log-probabiliy of an MVN is: 
+
+$$\log(p(u)) = -B/2 \cdot \log(2\pi) + 1/2 \log|Q| - 1/2 \cdot u^T \cdot Q \cdot u,$$
+
+\noindent Where $-B/2 \cdot \log(2\pi)$ is a normalizing constant, $1/2 \log|Q| = 1/2 \log(|(D - \rho \cdot W)\sigma^2|) =  1/2 \log(|D- \rho \cdot W|) - B\cdot \log(\sigma^2)$. The $\log(|D- \rho \cdot W|)$ is the hard part. This is the log-determinant of a \(B\times B\) sparse matrix. Computing it naively requires factorising $(D- \rho \cdot W)$ -- $O(B^3)$ operations for a dense matrix and taking the log of the product of diagonal elements. For B = 1336 this is $\pm$ 2.4 billion operations per HMC step.  
+\paragraph{Why eigenvalues must be precomputed carefully.}
+A common shortcut is to say ``precompute eigenvalues in R, then the log-determinant is $O(B)$ per HMC step.'' This is true but requires care, because the eigenvalues of $(D - \rho W)$ depend on $\rho$, which is sampled at every HMC step --- they cannot be precomputed directly.
+
+What \emph{can} be precomputed are the eigenvalues of the $\rho$-free matrix $D^{-1/2} W D^{-1/2}$. Denote these $e_1, \ldots, e_B$. The eigenvalues of $(D - \rho W)$ are then:
+\begin{equation}
+  \lambda_m(\rho) = d_m \cdot (1 - \rho \cdot e_m),
+\end{equation}
+so the log-determinant decomposes as:
+\begin{equation}
+  \log|D - \rho W| = \underbrace{\sum_{m=1}^B \log(d_m)}_{\text{constant, precomputed}} + \underbrace{\sum_{m=1}^B \log(1 - \rho \cdot e_m)}_{O(B) \text{ per HMC step}}.
+\end{equation}
+The second sum depends on $\rho$ but only through a simple $O(B)$ loop over precomputed scalars $e_m$.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+Operation & Cost & When \\
+\midrule
+Eigendecomposition of $D^{-1/2}WD^{-1/2}$ & $O(B^3)$ & Once in R --- never in Stan \\
+Log-determinant given precomputed $e_m$ & $O(B)$ & Every HMC step \\
+Quadratic form $u^\top Q u$ & $O(\text{edges}) \approx O(B)$ & Every HMC step \\
+\bottomrule
+\end{tabular}
+\caption{Computational cost breakdown for the CAR log-probability.}
+\end{table}
+
+\subsubsection{Computational Complexity Summary}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Method} & \textbf{Precomputation (once in R)} & \textbf{Per HMC step in Stan} \\
+\midrule
+Full GP & None & $O(B^3)$ - dense matrix factorization/inversion \\
+HSGP & $O(B\cdot M^2)$ --- build basis matrix  & $O(B\cdot M^2)$ \\
+CAR (with eigenvalues) & $O(B^3)$ --- eigendecomposition & $O(B)$ \\
+ICAR & None & $O(\text{edges}) \approx O(B)$ \\
+\bottomrule
+\end{tabular}
+\caption{Computational scaling comparison across spatial methods.}
+\label{tab:complexity_summary}
+\end{table}
 
 \section{Implementation}
 

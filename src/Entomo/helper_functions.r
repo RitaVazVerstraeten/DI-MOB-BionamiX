@@ -146,6 +146,48 @@ standardize_matrix <- function(x) {
 #' @param cfg List containing all configuration parameters (data_file, n_blocks, lag_vars,
 #'            max_lag, unlagged_vars, binary_unlagged_vars, kappa)
 #' @return List with stan_data (list ready for Stan) and df (processed data frame)
+#' Build ICAR Edge List from Block Polygons
+#'
+#' Uses spdep::poly2nb() with a snap tolerance to define neighbours between
+#' block polygons that may not share perfectly touching borders. Returns
+#' deduplicated undirected edge pairs (node1 < node2) in the same ordering
+#' as block_ids.
+#'
+#' @param sf_blocks sf object of block polygons (already loaded)
+#' @param block_ids Character vector of block IDs in model order
+#' @param sf_block_col Name of the block ID column in sf_blocks
+#' @param snap_m Snap distance in metres (default 100)
+#' @return List with N_edges, node1, node2
+build_icar_edges <- function(sf_blocks, block_ids, sf_block_col, snap_m = 100) {
+  sf_model <- sf_blocks %>%
+    mutate(block_chr = as.character(.data[[sf_block_col]])) %>%
+    filter(block_chr %in% block_ids) %>%
+    arrange(match(block_chr, block_ids))
+
+  if (st_is_longlat(sf_model))
+    sf_model <- st_transform(sf_model, 3857)
+
+  nb <- suppressWarnings(spdep::poly2nb(sf_model, snap = snap_m))
+  n_islands <- sum(sapply(nb, function(x) length(x) == 1L && x == 0L))
+  cat(sprintf("poly2nb (snap=%dm): %d blocks, %d islands\n",
+              snap_m, length(nb), n_islands))
+
+  edges <- do.call(rbind, lapply(seq_along(nb), function(i) {
+    nbrs <- nb[[i]]
+    if (length(nbrs) == 1L && nbrs == 0L) return(NULL)
+    data.frame(node1 = i, node2 = nbrs)
+  }))
+
+  node1_v      <- pmin(edges$node1, edges$node2)
+  node2_v      <- pmax(edges$node1, edges$node2)
+  unique_edges <- !duplicated(paste(node1_v, node2_v, sep = "_"))
+  list(
+    N_edges = sum(unique_edges),
+    node1   = node1_v[unique_edges],
+    node2   = node2_v[unique_edges]
+  )
+}
+
 build_stan_data <- function(cfg) {
   input_data <- load_base_data(cfg$data_file)
   idx <- index_and_subset(input_data, cfg$n_blocks)
@@ -193,7 +235,7 @@ build_stan_data <- function(cfg) {
 #' @param use_temporal_re Logical flag indicating whether temporal RE is enabled in the model
 #' @return Function that returns a list of initial values for one MCMC chain
 make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
-                          use_time_RE = FALSE, use_spatial_AC = TRUE) {
+                          use_icar = FALSE, use_time_RE = FALSE, use_spatial_AC = TRUE) {
   function() {
     init_vals <- list(
       alpha      = rnorm(1, -4.5, 0.4),
@@ -211,14 +253,19 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
       init_vals$u_block_raw <- rnorm(stan_data$B, 0, 0.3)
       init_vals$sigma_block <- runif(1, 0.05, 0.3)
     } else {
-      # AR1 / GP model variants
+      # AR1 / GP / ICAR model variants
       if (isTRUE(use_spatial_AC)) {
-        init_vals$sigma_gp <- runif(1, 0.1, 0.5)
-        init_vals$rho_gp   <- runif(1, 50, 200)
-        if (isTRUE(use_hsgp)) {
-          init_vals$beta_gp <- rnorm(stan_data$M^2, 0, 0.1)
+        if (isTRUE(use_icar)) {
+          init_vals$u_icar_raw <- rnorm(stan_data$B, 0, 0.1)
+          init_vals$sigma_icar <- runif(1, 0.1, 0.4)
         } else {
-          init_vals$z_gp <- rnorm(stan_data$B, 0, 0.1)
+          init_vals$sigma_gp <- runif(1, 0.1, 0.5)
+          init_vals$rho_gp   <- runif(1, 50, 200)
+          if (isTRUE(use_hsgp)) {
+            init_vals$beta_gp <- rnorm(stan_data$M^2, 0, 0.1)
+          } else {
+            init_vals$z_gp <- rnorm(stan_data$B, 0, 0.1)
+          }
         }
       }
       if (isTRUE(use_temporal_re)) {

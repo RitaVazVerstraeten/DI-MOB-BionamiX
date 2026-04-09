@@ -49,21 +49,22 @@ cfg <- list(
   # model variant
   use_time_RE     = FALSE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
   use_temporal_AR = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = global AR1 trend
-  use_spatial_AC  = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = spatial GP
-  use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE) TRUE = HSGP; FALSE = exact GP
+  use_spatial_AC  = TRUE,    # (ignored if use_time_RE = TRUE) TRUE = spatial AC
+  use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE and use_icar = FALSE) TRUE = HSGP; FALSE = exact GP
+  use_icar        = TRUE,    # (only if use_spatial_AC = TRUE) TRUE = ICAR neighbour-based; overrides use_hsgp
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
   use_block_dev   = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
 
   # spatial
   shapefile_path = if (hostname == "frietjes")
-    "/home/rita/data/Entomo/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp"
+    "/home/rita/data/Entomo"
   else
-    "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp",
+    "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders",
   sf_block_col = "CODIGO_",
 
   # data prep
-  n_blocks = NULL, # set NULL for all blocks
+  n_blocks = 100, # set NULL for all blocks
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
   max_lag = 2,
   kappa = 2,
@@ -99,8 +100,9 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
   paste0("timeRE_blockRE_lag", cfg$max_lag, "_k", cfg$kappa)
 } else {
   ar1_suffix <- ifelse(isTRUE(cfg$use_temporal_AR), "AR1", "noAR1")
-  gp_suffix  <- if (!isTRUE(cfg$use_spatial_AC)) "noGP"
-                else if (isTRUE(cfg$use_hsgp))   "HSGP"
+  gp_suffix  <- if (!isTRUE(cfg$use_spatial_AC))  "noGP"
+                else if (isTRUE(cfg$use_icar))    "ICAR"
+                else if (isTRUE(cfg$use_hsgp))    "HSGP"
                 else                              "GP"
   re_suffix  <- ifelse(isTRUE(cfg$use_block_dev), "blockRE", "noBlockRE")
   paste0(ar1_suffix, "_", gp_suffix, "_", re_suffix,
@@ -123,6 +125,8 @@ dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(resid_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 cfg$data_file <- file.path(cfg$data_dir, cfg$data_file_name)
+
+# ================= selection stan file ============================
 stan_dir <- "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo"
 cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   # iid time RE + iid block RE (no AR1, no GP)
@@ -137,6 +141,9 @@ cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   } else {
     file.path(stan_dir, "hierarchical_state_space_AR.stan")
   }
+} else if (isTRUE(cfg$use_icar)) {
+  # ICAR neighbour-based spatial RE
+  file.path(stan_dir, "hierarchical_state_space_AR_blockRE_ICAR.stan")
 } else if (isTRUE(cfg$use_hsgp)) {
   # HSGP variants
   if (isTRUE(cfg$use_block_dev)) {
@@ -160,7 +167,7 @@ options(mc.cores = if (hostname == "frietjes") 6 else 2)
 dir.create(cfg$output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # =========================
-# 2) MAIN
+# information on host, data source and model variant
 # =========================
 cat("Using hostname:", hostname, "\n")
 cat("Data directory:", cfg$data_dir, "\n")
@@ -168,7 +175,7 @@ cat("Model variant:" , "Predictors: ", predictor_spec, "\n","RE and AR: ", model
 
 
 # =========================
-# 1b) STANDARDIZE NUMERIC COVARIATES - done in helper functions
+# STANDARDIZE NUMERIC COVARIATES - done in helper functions
 # =========================
 
 prep <- build_stan_data(cfg)
@@ -177,9 +184,9 @@ df <- prep$df
 
 
 # =========================
-# 2b) SPATIAL DISTANCE MATRIX
+# SPATIAL DISTANCE MATRIX
 # =========================
-sf_blocks  <- st_read(cfg$shapefile_path, quiet = TRUE)
+sf_blocks  <- st_read(file.path(cfg$shapefile_path, "Manzanas_cleaned_05032026", "Mz_CMF_Correcto_2022026.shp"), quiet = TRUE)
 pts        <- suppressWarnings(st_point_on_surface(sf_blocks))
 if (st_is_longlat(pts)) pts <- st_transform(pts, 3857)
 
@@ -196,8 +203,16 @@ coords_sf  <- sf_blocks %>%
   select(block_chr, x, y) %>%
   distinct(block_chr, .keep_all = TRUE)
 
+# ======================== spatial data prep ====================================
 if (isTRUE(cfg$use_spatial_AC)) {
-  if (isTRUE(cfg$use_hsgp)) {
+  if (isTRUE(cfg$use_icar)) {
+    icar_edges <- build_icar_edges(sf_blocks, block_ids, cfg$sf_block_col, snap_m = 100)
+    stan_data$N_edges <- icar_edges$N_edges
+    stan_data$node1   <- icar_edges$node1
+    stan_data$node2   <- icar_edges$node2
+    cat(sprintf("ICAR: %d blocks, %d unique edges\n", length(block_ids), stan_data$N_edges))
+
+  } else if (isTRUE(cfg$use_hsgp)) {
     stan_data$coords_block <- as.matrix(coords_sf[, c("x", "y")])
     stan_data$M            <- cfg$hsgp_m
     stan_data$c_boundary   <- cfg$hsgp_c
@@ -214,7 +229,7 @@ if (isTRUE(cfg$use_spatial_AC)) {
     ))
   }
 } else {
-  cat("No spatial GP: skipping coordinate/distance matrix setup.\n")
+  cat("No spatial AC: skipping coordinate/distance/neighbour setup.\n")
 }
 
 
@@ -228,18 +243,14 @@ disp_df <- df %>%
   ) %>%
   filter(n_bt > 0) %>%
   mutate(
-    y_rate  = y_bt / n_bt,
-    C_group = cut(C_bt,
-                  breaks = c(-Inf, 0, 2, 5, Inf),
-                  labels = c("0", "1-2", "3-5", ">5"),
-                  right  = TRUE)
+    y_rate  = y_bt / n_bt
   )
 
 phi_grouped <- disp_df %>%
-  filter(n_bt > 0) %>%
+  filter(n_bt > 0) %>% 
   mutate(y_rate = y_bt / n_bt) %>%
   group_by(n_bt) %>%
-  filter(n() >= 30)  %>%  # only bins with enough cells to estimate variance
+  filter(n() >= 30)  %>%  # only bins with enough cells to estimate variance (at least 30 measures though time with n_bt number of households - can be repeats of same block or different blocks)
   summarise(
     n_cells      = n(),
     p_bar        = mean(y_rate),
@@ -275,25 +286,6 @@ disp_df %>%
        title = "Observed variance vs binomial expectation",
        subtitle = "Blue dots above red line = overdispersion")
 
-# # Does overdispersion vary with dengue case load?
-# disp_df %>%
-#   group_by(C_group) %>%
-#   summarise(
-#     n            = n(),
-#     p_bar        = mean(y_rate),
-#     var_observed = var(y_rate),
-#     var_binomial = p_bar * (1 - p_bar) / mean(n_bt),
-#     dispersion   = var_observed / var_binomial,
-#     .groups      = "drop"
-#   ) %>%
-#   ggplot(aes(x = C_group, y = dispersion)) +
-#   geom_col(fill = "steelblue") +
-#   geom_hline(yintercept = 1, linetype = "dashed", colour = "red") +
-#   geom_text(aes(label = paste0("n=", n)), vjust = -0.4, size = 3) +
-#   labs(x = "Dengue cases (C_bt)", y = "Dispersion ratio (obs / binomial)",
-#        title = "Overdispersion by dengue case load",
-#        subtitle = "Ratio > 1 = overdispersed; red dashed = binomial baseline")
-
        
 # Pass phi as fixed data when fix_phi = TRUE
 if (isTRUE(cfg$fix_phi)) {
@@ -311,13 +303,12 @@ if (isTRUE(cfg$fix_phi)) {
   cfg$phi_used <- phi_use
 }
 
-
-
+# ================== compile stan model ==========================
 mod <- cmdstan_model(cfg$stan_file,
   force_recompile = hostname == "frietjes")
 
 # =========================
-# 2c) PRIOR PREDICTIVE CHECK
+# PRIOR PREDICTIVE CHECK
 # =========================
 # Run with fixed_param = TRUE to sample from the prior only (no likelihood).
 # Check that implied prevalence is plausible (target ~0.5–5% positivity).
@@ -360,6 +351,7 @@ if (isTRUE(cfg$run_prior_predictive)) {
   stop("Prior predictive check complete. Set run_prior_predictive = FALSE to proceed with the real fit.")
 }
 
+# ========================= MCMC sampling =======================================
 fit <- mod$sample(
   data = stan_data,
   chains = cfg$chains,
@@ -368,8 +360,9 @@ fit <- mod$sample(
   thin = if (!is.null(cfg$thin)) cfg$thin else 1,
   init = make_init_fun(
     stan_data, cfg$use_temporal_AR,
-    use_hsgp      = isTRUE(cfg$use_hsgp),
-    use_time_RE   = isTRUE(cfg$use_time_RE),
+    use_hsgp       = isTRUE(cfg$use_hsgp) && !isTRUE(cfg$use_icar),
+    use_icar       = isTRUE(cfg$use_icar),
+    use_time_RE    = isTRUE(cfg$use_time_RE),
     use_spatial_AC = isTRUE(cfg$use_spatial_AC)
   ),
   adapt_delta = cfg$adapt_delta,
@@ -384,11 +377,15 @@ fit <- mod$sample(
 # Remove CmdStan auxiliary files (config/metric JSONs) — not needed for post-processing
 invisible(file.remove(list.files(run_output_dir, pattern = "_(config|metric)\\.json$", full.names = TRUE)))
 
+# ======================= make model summary ============================
 summary_vars <- c("alpha", "delta0", "delta1", "w", "sigma_w", "w_unlagged")
 if (isTRUE(cfg$use_time_RE)) {
   summary_vars <- c(summary_vars, "sigma_time", "sigma_block")
 } else {
-  if (isTRUE(cfg$use_spatial_AC))  summary_vars <- c(summary_vars, "sigma_gp", "rho_gp")
+  if (isTRUE(cfg$use_spatial_AC)) {
+    if (isTRUE(cfg$use_icar))   summary_vars <- c(summary_vars, "sigma_icar")
+    else                         summary_vars <- c(summary_vars, "sigma_gp", "rho_gp")
+  }
   if (isTRUE(cfg$use_temporal_AR)) summary_vars <- c(summary_vars, "sigma_v", "rho")
   if (isTRUE(cfg$use_block_dev))   summary_vars <- c(summary_vars, "sigma_block_dev")
 }
@@ -397,19 +394,24 @@ if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
 summary_output <- capture.output(print(fit$summary(variables = summary_vars), n = Inf))
 writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", run_suffix, ".txt")))
 
+# =========================== posterior draws for plotting ===========================
+
 post <- extract_means(fit, nrow(df))
 
 # Prepare data for plotting
-df$n_bt          <- stan_data$n_bt
-df$fitted_p_bt   <- post$p_bt
-df$observed_p_bt <- df$y_bt / df$n_bt
+df$n_bt              <- stan_data$n_bt
+df$fitted_p_bt       <- post$p_bt
+df$observed_p_bt     <- df$y_bt / df$n_bt
+df$y_pred_rate       <- colMeans(fit$draws("y_pred", format = "matrix")) / df$n_bt
+y_pred_draws_mat     <- fit$draws("y_pred", format = "matrix")
+df$y_pred_rate_q05   <- apply(y_pred_draws_mat, 2, quantile, probs = 0.05) / df$n_bt
+df$y_pred_rate_q95   <- apply(y_pred_draws_mat, 2, quantile, probs = 0.95) / df$n_bt
+rm(y_pred_draws_mat)
 
 
 # =========================
 # 3) GENERATE PLOTS
 # =========================
-
-# not showing
 
 # Robust random effects plotting for spatial GP and/or temporal AR
 if (cfg$plot_random_effects) {
@@ -432,15 +434,11 @@ if (cfg$plot_random_effects) {
   }
 }
 
-# works: 
 
 if (cfg$plot_ppc) {
   cat("Generating posterior predictive check plot...\n")
   save_ppc(df, fit, plots_output_dir, run_suffix)
 }
-
-# giving me an error about Error in `select_parameters()`:
-# ! Some 'pars' don't match parameter names: sigma_u FALSE
 
 # Robust traceplot generation: only plot parameters that exist in the fit object
 if (cfg$plot_traceplots) {
@@ -453,7 +451,7 @@ if (cfg$plot_traceplots) {
     available_params <- fit$summary()$variable
 
     # Whitelist: scalar model parameters worth tracing
-    scalar_include <- c("alpha", "sigma_gp", "rho_gp",
+    scalar_include <- c("alpha", "sigma_gp", "rho_gp", "sigma_icar",
                         "delta0", "delta1",
                         "sigma_v", "rho", "sigma_block_dev",
                         "sigma_time", "sigma_block",
