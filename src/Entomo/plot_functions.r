@@ -959,29 +959,31 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
   p2_df <- df %>% filter(block %in% block_ids)
 
   # Scale factor for cases: map max cases to max predicted rate across selected blocks
-  left_max_b  <- max(c(p2_df$y_pred_rate_q95, p2_df$observed_p_bt), na.rm = TRUE)
+  left_max_b  <- max(c(p2_df$y_pred_rate_q95, p2_df$observed_p_bt, p2_df$fitted_p_bt), na.rm = TRUE)
   cases_max_b <- max(p2_df$C_bt, na.rm = TRUE)
   c_scale_b   <- if (cases_max_b > 0) left_max_b / cases_max_b else 1
 
   p2 <- ggplot(p2_df, aes(x = year_month_date)) +
     geom_bar(aes(y = C_bt * c_scale_b), stat = "identity", fill = "grey70", alpha = 0.5) +
-    geom_ribbon(aes(ymin = y_pred_rate_q05, ymax = y_pred_rate_q95), fill = "blue", alpha = 0.2) +
+    geom_ribbon(aes(ymin = y_pred_rate_q05, ymax = y_pred_rate_q95), fill = "#E69F00", alpha = 0.2) +
     geom_line(aes(y = y_pred_rate,   color = "Predicted rate (y_pred/n)"), alpha = 0.8, linewidth = 0.7) +
+    geom_line(aes(y = fitted_p_bt,   color = "Fitted p_bt"),               alpha = 0.8, linewidth = 0.7, linetype = "dashed") +
     geom_line(aes(y = observed_p_bt, color = "Observed rate (y/n)"),       alpha = 0.8, linewidth = 0.6) +
     geom_point(aes(y = observed_p_bt, color = "Observed rate (y/n)"),      size = 0.8, alpha = 0.7) +
     facet_wrap(~block, ncol = 3) +
     scale_y_continuous(
-      name     = "Detection rate (positives / inspections)",
+      name     = "Detection rate / Probability",
       sec.axis = sec_axis(~ . / c_scale_b, name = "Dengue cases (block)")
     ) +
     scale_color_manual(values = c(
-      "Predicted rate (y_pred/n)" = "blue",
+      "Predicted rate (y_pred/n)" = "#E69F00",
+      "Fitted p_bt"               = "blue",
       "Observed rate (y/n)"       = "red"
     )) +
     labs(x = "Time",
-         title = "Time Series by Block: observed vs predicted detection rate",
+         title = "Time Series by Block: observed rate, predicted rate, and fitted p_bt",
          color = NULL,
-         caption = "Blue ribbon: 95% CI of y_pred/n. Grey bars: dengue cases per block (right axis).") +
+         caption = "Orange ribbon: 95% CI of y_pred/n. Grey bars: dengue cases per block (right axis).") +
     theme_minimal() +
     theme(legend.position = "bottom", axis.text.x = element_text(angle = 45, hjust = 1, size = 7))
   
