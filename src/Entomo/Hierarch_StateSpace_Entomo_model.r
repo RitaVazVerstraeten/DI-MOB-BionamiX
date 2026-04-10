@@ -378,7 +378,7 @@ fit <- mod$sample(
 invisible(file.remove(list.files(run_output_dir, pattern = "_(config|metric)\\.json$", full.names = TRUE)))
 
 # ======================= make model summary ============================
-summary_vars <- c("alpha", "delta0", "delta1", "w", "sigma_w", "w_unlagged")
+summary_vars <- c("alpha", "delta1", "w", "sigma_w", "w_unlagged")
 if (isTRUE(cfg$use_time_RE)) {
   summary_vars <- c(summary_vars, "sigma_time", "sigma_block")
 } else {
@@ -392,7 +392,7 @@ if (isTRUE(cfg$use_time_RE)) {
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
 
 summary_output <- capture.output(print(fit$summary(variables = summary_vars), n = Inf))
-writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", run_suffix, ".txt")))
+writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", model_spec, ".txt")))
 
 # =========================== posterior draws for plotting ===========================
 
@@ -421,7 +421,7 @@ if (cfg$plot_random_effects) {
   } else if (!all(is.na(post$v)) && length(post$v) > 0) {
     cat("\nNo spatial random effects found. Plotting only temporal AR effects...\n")
     # Plot only temporal AR effects
-    png(file.path(plots_output_dir, paste0("random_effects_temporal_only_", run_suffix, ".png")), width = 800, height = 600)
+    png(file.path(plots_output_dir, paste0("random_effects_temporal_only_", model_spec, ".png")), width = 800, height = 600)
     par(mfrow = c(1, 2))
     plot(post$v, type = "b", main = "Temporal Random Effects (v_t)",
          xlab = "Time", ylab = "Effect", col = "red", pch = 19)
@@ -437,7 +437,7 @@ if (cfg$plot_random_effects) {
 
 if (cfg$plot_ppc) {
   cat("Generating posterior predictive check plot...\n")
-  save_ppc(df, fit, plots_output_dir, run_suffix)
+  save_ppc(df, fit, plots_output_dir, model_spec)
 }
 
 # Robust traceplot generation: only plot parameters that exist in the fit object
@@ -452,7 +452,7 @@ if (cfg$plot_traceplots) {
 
     # Whitelist: scalar model parameters worth tracing
     scalar_include <- c("alpha", "sigma_gp", "rho_gp", "sigma_icar",
-                        "delta0", "delta1",
+                        "delta1",
                         "sigma_v", "rho", "sigma_block_dev",
                         "sigma_time", "sigma_block",
                         "phi")
@@ -470,7 +470,7 @@ if (cfg$plot_traceplots) {
       chunks <- split(vars, ceiling(seq_along(vars) / chunk_size))
       for (i in seq_along(chunks)) {
         ggsave(
-          file.path(plots_output_dir, paste0(file_prefix, "_part", i, "_", run_suffix, ".png")),
+          file.path(plots_output_dir, paste0(file_prefix, "_part", i, "_", model_spec, ".png")),
           mcmc_trace(draws_arr, pars = chunks[[i]]), width = w, height = h
         )
       }
@@ -501,7 +501,7 @@ if (cfg$plot_traceplots) {
 
 if (cfg$plot_timeseries) {
   cat("Generating time series plots...\n")
-  save_timeseries_plots(df, plots_output_dir, run_suffix, cfg$n_blocks_facet)
+  save_timeseries_plots(df, plots_output_dir, model_spec, cfg$n_blocks_facet)
 }
 
 
@@ -613,14 +613,14 @@ if (requireNamespace("spdep", quietly = TRUE)) {
 
   ggsave(
     file.path(plots_output_dir,
-              paste0("moransI_stan_by_year_", run_suffix, ".png")),
+              paste0("moransI_stan_by_year_", model_spec, ".png")),
     p_moran_stan, width = 11, height = 5, dpi = 150
   )
 
   write.csv(
     moran_stan_df,
     file.path(plots_output_dir,
-              paste0("moransI_stan_by_year_", run_suffix, ".csv")),
+              paste0("moransI_stan_by_year_", model_spec, ".csv")),
     row.names = FALSE
   )
   cat("Stan Moran's I correlogram saved to:", plots_output_dir, "\n")

@@ -35,8 +35,7 @@ parameters {
   real<lower=0> sigma_v;           // SD of global temporal trend
   real<lower=-1,upper=1> rho;      // AR(1) coefficient
   real<lower=0> sigma_block_dev;   // SD of per-block deviations
-  real delta0;             // baseline targeting bias (reactive surveillance)
-  real delta1;             // log-linear increase with outbreak intensity
+  real<lower=0> delta1;    // linear increase in detection probability with dengue cases
 
   // ----- ICAR spatial random effects -----
   // u_icar has an improper ICAR prior (pairwise differences);
@@ -78,9 +77,11 @@ transformed parameters {
   p_bt = inv_logit(eta);
 
   // 5. Reactive surveillance probability
+  // Linear effect of case count on the log-odds of detection during reactive visits.
+  // When C_bt = 0, p_R = p_bt (no reactive bias).
   for (i in 1:N) {
     if (C_bt[i] > 0) {
-      p_R[i] = inv_logit(eta[i] + delta0 + delta1 * log(C_bt[i]));
+      p_R[i] = inv_logit(eta[i] + delta1 * C_bt[i]);
     } else {
       p_R[i] = p_bt[i];
     }
@@ -118,8 +119,7 @@ model {
   sigma_v         ~ exponential(1);
   sigma_block_dev ~ exponential(2);
   rho             ~ normal(0.4, 0.2);
-  delta0      ~ normal(0.3, 0.4);
-  delta1      ~ normal(0, 0.2);
+  delta1      ~ normal(0, 0.1);  // half-normal (lower=0): positive bias expected
 
   // ICAR prior: pairwise differences penalise spatial discontinuity
   // it is equivalent to a proper intrinsic CAR with all weights = 1.
