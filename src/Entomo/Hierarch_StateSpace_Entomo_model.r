@@ -67,7 +67,7 @@ cfg <- list(
   n_blocks = 100, # set NULL for all blocks
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
   max_lag = 2,
-  kappa = 2,
+  kappa = 4,
   unlagged_vars = c("is_urban", "is_WUI"),
   numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
 
@@ -108,16 +108,16 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
   paste0(ar1_suffix, "_", gp_suffix, "_", re_suffix,
          "_lag", cfg$max_lag, "_k", cfg$kappa)
 }
-model_tag <- ifelse(isTRUE(cfg$use_time_RE), "timeRE_blockRE",
-             ifelse(isTRUE(cfg$use_temporal_AR), "withAR1", "noAR1"))
+# model_tag <- ifelse(isTRUE(cfg$use_time_RE), "timeRE_blockRE",
+#              ifelse(isTRUE(cfg$use_temporal_AR), "withAR1", "noAR1"))
 predictor_spec <- paste0(
   "lag-", paste(cfg$lag_vars, collapse = "-"),
   "_unlag-", paste(cfg$unlagged_vars, collapse = "-")
 )
-run_suffix <- paste0(date_suffix, "_", model_tag)
+# run_suffix <- paste0(date_suffix)
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
-run_output_dir    <- file.path(run_suffix)
+run_output_dir    <- file.path(model_output_dir, date_suffix)
 plots_output_dir  <- file.path(run_output_dir, "plots")
 resid_output_dir  <- file.path(run_output_dir, "residuals_check")
 dir.create(run_output_dir,   recursive = TRUE, showWarnings = FALSE)

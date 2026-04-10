@@ -869,14 +869,19 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
 
         obs_summary <- df %>%
           group_by(year_month_date) %>%
-          summarise(observed_mean = mean(observed_p_bt, na.rm = TRUE), .groups = "drop")
+          summarise(
+            observed_mean = mean(observed_p_bt, na.rm = TRUE),
+            total_cases   = sum(C_bt,           na.rm = TRUE),
+            .groups = "drop"
+          )
 
         plot_df <- data.frame(
           year_month_date = time_points,
           p_mean          = p_summ$mean,
           p_lower         = p_summ$lower,
           p_upper         = p_summ$upper,
-          observed_mean   = obs_summary$observed_mean
+          observed_mean   = obs_summary$observed_mean,
+          total_cases     = obs_summary$total_cases
         )
         if (!is.null(pred_summ)) {
           plot_df$pred_mean  <- pred_summ$mean
@@ -884,30 +889,42 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
           plot_df$pred_upper <- pred_summ$upper
         }
 
+        # Scale factor to map cases onto the left (probability) axis
+        left_max  <- max(c(plot_df$p_upper, plot_df$pred_upper,
+                           plot_df$observed_mean), na.rm = TRUE)
+        cases_max <- max(plot_df$total_cases, na.rm = TRUE)
+        c_scale   <- if (cases_max > 0) left_max / cases_max else 1
+
         p1 <- ggplot(plot_df, aes(x = year_month_date)) +
+          geom_bar(aes(y = total_cases * c_scale), stat = "identity",
+                   fill = "grey70", alpha = 0.5) +
           geom_ribbon(aes(ymin = p_lower, ymax = p_upper), fill = "blue", alpha = 0.18) +
           geom_line(aes(y = p_mean,        color = "Fitted p_bt"),   linewidth = 1) +
-          geom_point(aes(y = p_mean,       color = "Fitted p_bt"),   size = 1.5) +
+          geom_point(aes(y = p_mean,       color = "Fitted p_bt"),   size = 2) +
           geom_line(aes(y = observed_mean, color = "Observed y/n"),  linewidth = 1) +
-          geom_point(aes(y = observed_mean, color = "Observed y/n"), size = 1.5)
+          geom_point(aes(y = observed_mean, color = "Observed y/n"), size = 2)
 
         if (!is.null(pred_summ))
           p1 <- p1 +
             geom_ribbon(aes(ymin = pred_lower, ymax = pred_upper), fill = "#E69F00", alpha = 0.2) +
             geom_line(aes(y = pred_mean,  color = "Predicted y_pred/n"), linewidth = 1, linetype = "dashed") +
-            geom_point(aes(y = pred_mean, color = "Predicted y_pred/n"), size = 1.5)
+            geom_point(aes(y = pred_mean, color = "Predicted y_pred/n"), size = 2)
 
         p1 <- p1 +
+          scale_y_continuous(
+            name     = "Probability / Rate",
+            sec.axis = sec_axis(~ . / c_scale, name = "Total dengue cases (municipality)")
+          ) +
           scale_color_manual(
             values = c("Fitted p_bt"       = "blue",
                        "Observed y/n"       = "red",
                        "Predicted y_pred/n" = "#E69F00"),
             breaks = c("Observed y/n", "Predicted y_pred/n", "Fitted p_bt")
           ) +
-          labs(x = "Time", y = "Probability / Rate",
+          labs(x = "Time",
                title = "Time Series: observed rate, predicted rate, and fitted p_bt (mean across blocks)",
                color = NULL,
-               caption = "Shaded ribbons: 95% CI for p_bt (blue) and y_pred/n_bt (orange)") +
+               caption = "Shaded ribbons: 95% CI for p_bt (blue) and y_pred/n_bt (orange). Grey bars: total dengue cases.") +
           theme_minimal() +
           theme(legend.position = "bottom")
       }
@@ -940,19 +957,31 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
   # Plot 2: Block-specific time series (first n_blocks_facet blocks)
   block_ids <- sort(unique(df$block))[seq_len(min(n_blocks_facet, length(unique(df$block))))]
   p2_df <- df %>% filter(block %in% block_ids)
+
+  # Scale factor for cases: map max cases to max predicted rate across selected blocks
+  left_max_b  <- max(c(p2_df$y_pred_rate_q95, p2_df$observed_p_bt), na.rm = TRUE)
+  cases_max_b <- max(p2_df$C_bt, na.rm = TRUE)
+  c_scale_b   <- if (cases_max_b > 0) left_max_b / cases_max_b else 1
+
   p2 <- ggplot(p2_df, aes(x = year_month_date)) +
+    geom_bar(aes(y = C_bt * c_scale_b), stat = "identity", fill = "grey70", alpha = 0.5) +
     geom_ribbon(aes(ymin = y_pred_rate_q05, ymax = y_pred_rate_q95), fill = "blue", alpha = 0.2) +
-    geom_line(aes(y = y_pred_rate,  color = "Predicted rate (y_pred/n)"), alpha = 0.8, linewidth = 0.7) +
-    geom_line(aes(y = observed_p_bt, color = "Observed rate (y/n)"),      alpha = 0.8, linewidth = 0.6) +
-    geom_point(aes(y = observed_p_bt, color = "Observed rate (y/n)"),     size = 0.8, alpha = 0.7) +
-    facet_wrap(~block, ncol = 3, scales = "free_y") +
+    geom_line(aes(y = y_pred_rate,   color = "Predicted rate (y_pred/n)"), alpha = 0.8, linewidth = 0.7) +
+    geom_line(aes(y = observed_p_bt, color = "Observed rate (y/n)"),       alpha = 0.8, linewidth = 0.6) +
+    geom_point(aes(y = observed_p_bt, color = "Observed rate (y/n)"),      size = 0.8, alpha = 0.7) +
+    facet_wrap(~block, ncol = 3) +
+    scale_y_continuous(
+      name     = "Detection rate (positives / inspections)",
+      sec.axis = sec_axis(~ . / c_scale_b, name = "Dengue cases (block)")
+    ) +
     scale_color_manual(values = c(
       "Predicted rate (y_pred/n)" = "blue",
       "Observed rate (y/n)"       = "red"
     )) +
-    labs(x = "Time", y = "Detection rate (positives / inspections)",
+    labs(x = "Time",
          title = "Time Series by Block: observed vs predicted detection rate",
-         color = NULL) +
+         color = NULL,
+         caption = "Blue ribbon: 95% CI of y_pred/n. Grey bars: dengue cases per block (right axis).") +
     theme_minimal() +
     theme(legend.position = "bottom", axis.text.x = element_text(angle = 45, hjust = 1, size = 7))
   
