@@ -130,7 +130,7 @@ model {
     w[k, 1] ~ normal(0, 0.5);
     for (l in 2:Lp1) {
       w[k, l] ~ normal(w[k, l-1], sigma_w[k]);
-    }
+    }0.0409   4.04e-2 1.04e-1 1.08e-1 -1.27e-1  2.14e-1 
   }
   sigma_w         ~ exponential(2);
   w_unlagged      ~ normal(0, 0.5);
