@@ -65,7 +65,7 @@ cfg <- list(
   sf_block_col = "CODIGO_",
 
   # data prep
-  n_blocks = 80, # set NULL for all blocks
+  n_blocks = 300, # set NULL for all blocks
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
   max_lag = 2,
   kappa = 4,
@@ -74,8 +74,8 @@ cfg <- list(
 
   # MCMC
   chains = 4,
-  iter_warmup = 200,
-  iter_sampling = 200,
+  iter_warmup = 300,
+  iter_sampling = 300,
   # thin = 2,
   adapt_delta = 0.95,
   max_treedepth = 12,
@@ -123,10 +123,8 @@ predictor_spec <- paste0(
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
 run_output_dir    <- file.path(model_output_dir, date_suffix)
 plots_output_dir  <- file.path(run_output_dir, "plots")
-resid_output_dir  <- file.path(run_output_dir, "residuals_check")
 dir.create(run_output_dir,   recursive = TRUE, showWarnings = FALSE)
 dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(resid_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 cfg$data_file <- file.path(cfg$data_dir, cfg$data_file_name)
 
