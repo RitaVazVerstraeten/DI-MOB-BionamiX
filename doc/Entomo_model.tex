@@ -217,7 +217,7 @@ To resolve structure at the 150\,m scale, one would need approximately $M \appro
 
 \subsection{CAR and iCAR with spatial neighbours}
 
-\noindent\textit{Source: \href{https://mc-stan.org/learn-stan/case-studies/icar_stan.html}{Exact sparse CAR models in Stan} (Stan case study).}
+\noindent\textit{Sources: Morris et al.\ (2019) ``Bayesian hierarchical spatial models: Implementing the Besag York Mollié model in Stan''; Besag, York \& Mollié (1991); \href{https://mc-stan.org/learn-stan/case-studies/icar_stan.html}{Exact sparse CAR models in Stan} (Stan case study).}
 
 We have city blocks - physical regions of space, each with their boundary. Each block produces one value per month ($y_{bt}$). This is areal data - aggregate measures per spatial region (as opposed to point data).  
 
@@ -231,82 +231,67 @@ What spatial correlation means for my data. I believe that if block A has a lot 
 \subsubsection{Principles behind CAR and ICAR}
 CAR models, introduced by Besag (1974), model areal spatial data by specifying the \textbf{conditional} distribution of each block's random effect $u_b$ given all others ($u_{-b}$, meaning all values except block $b$), rather than one large joint multivariate normal. This is the Markov property: each block depends only on its immediate neighbours, giving $B$ simpler univariate conditionals instead of one $B$-dimensional distribution.
 
-For $B$ spatial units, the relationships are encoded in a $B \times B$ binary adjacency matrix $W$, where $W[b,b'] = 1$ if blocks $b$ and $b'$ share a boundary and 0 otherwise. The matrix is symmetric and has zeros on the diagonal. CAR has a parameter $\rho \in [0,1]$ controlling how strongly each block is pulled towards its neighbours:
-$$ u_b \mid u_{-b} \sim \text{Normal}(\rho \cdot \bar{u}_b,\; \sigma^2/n_b), $$
-When $\rho = 0$: no spatial correlation, blocks are independent.\\
-When $\rho = 1$: maximum spatial smoothing --- this is the \textbf{intrinsic CAR (ICAR)}, which has one fewer free parameter (no $\rho$ to estimate) and enforces strong spatial smoothing.
+\noindent\textit{Note on notation: the CAR spatial autocorrelation parameter is denoted $\alpha$ following Morris et al.\ (2019). This $\alpha$ is distinct from the model intercept $\alpha$ in the linear predictor; in our implementation ICAR fixes $\alpha=1$, so no free CAR parameter appears in the fitted model.}
+
+For $B$ spatial units, the relationships are encoded in a $B \times B$ binary adjacency matrix $A$, where $A[b,b'] = 1$ if blocks $b$ and $b'$ share a boundary and 0 otherwise. The matrix is symmetric and has zeros on the diagonal. CAR has a parameter $\alpha \in [0,1]$ controlling how strongly each block is pulled towards its neighbours:
+$$ u_b \mid u_{-b} \sim \text{Normal}(\alpha \cdot \bar{u}_b,\; \sigma^2/n_b), $$
+When $\alpha = 0$: no spatial correlation, blocks are independent.\\
+When $\alpha = 1$: maximum spatial smoothing --- this is the \textbf{intrinsic CAR (ICAR)}, which has one fewer free parameter (no $\alpha$ to estimate) and enforces strong spatial smoothing.
 
 \subsubsection{The conditional distribution}
-For block b, the CAR model says: 
-$$ u_b | u_{-b} \sim Normal(\mu_b, \tau_b^2), $$
-where: 
-$$ \bar{u}_b = \frac {\sum_{j \in \mathcal{N}(b)} w_{bj} \cdot u_j}{\sum_{j \in \mathcal{N}(b)} w_{bj}}  $$
+For block $b$, the CAR model says (Morris et al.\ 2019, eq.\ 1):
+$$ u_b \mid u_{-b} \sim \text{Normal}(\alpha \cdot \bar{u}_b,\; \sigma_b^2), $$
+where, using binary weights ($A_{bj} \in \{0,1\}$) and $n_b = \sum_j A_{bj}$ (the number of neighbours of $b$):
+$$ \bar{u}_b = \frac{\sum_{j \in \mathcal{N}(b)} u_j}{n_b}, \qquad \sigma_b^2 = \frac{\sigma^2}{n_b}. $$
 
-$$ \tau_b^2 = \frac {\sigma^2}{\sum_{j \in \mathcal{N}(b)} w_{bj}}  $$
+\noindent $\bar{u}_b$ is the \textbf{simple average of block $b$'s neighbours' values}.
 
-\noindent $\bar{u}_b$ is the \textbf{weighted average of b's neighbours' values}. $w_{bj}$ is the weight between block b and neighbour j - usually just 1 for all neighbours (binary adjacency). 
+\noindent $\sigma_b^2$ is the \textbf{conditional variance} — it shrinks as block $b$ has more neighbours: the more neighbours there are, the more information constrains the local value.
 
-\noindent $\tau_b^2$ is the \textbf{conditional variance} - it strinks as block b has more neighbours (intuitively: if a block has more neighbours, you have more information about what its value should be). 
-
-\noindent So the model says \textbf{given what all the neighbours are doing, the value is expected to be close to their average, with decreasing uncertainty as there are more neighbours.}
+\noindent So the model says: \textbf{given what all the neighbours are doing, the value is expected to be close to their average, with decreasing uncertainty as there are more neighbours.}
 
 \subsubsection{Writing it as precision matrix}
-For convenience you can work with the precision matrix $Q = \Sigma^{-1}$ (the inverse of the covariance matrix) rather than the covariance itself. The joint distribution then becomes: 
+For convenience you can work with the precision matrix $Q = \Sigma^{-1}$ (the inverse of the covariance matrix) rather than the covariance itself. The joint distribution is (Morris et al.\ 2019):
 
-$$ u \sim MVN(0,\cdot Q^{-1}) $$
+$$ u \sim \text{MVN}(0,\; Q^{-1}), \qquad Q = D - \alpha A, $$
 
-\noindent Where $Q$ has a specific structure: 
-$ Q[b,b] = n_b / \sigma^2$ (diagonal: number of neighbours of block b)
-$ Q[b,b'] = -w_{bb'} / \sigma^2$ (off-diagonal: 1 for nieghbours, 0 otherwise)
-
-In plain, the diagonal entries count how many neighbours each block has. The off-diagonal entries are -1 for neighouring pairs and 0 for non-neighbouring pairs. This is why CAR is computationally efficient. 
-
-\subsubsection{introduction $\rho$ spatial autcorrelation parameter}
-In the basic CAR model, the $\rho$ parameter controls \textbf{how strongly} the blocks are pulled towards their neighbouring values. 
-$$ u_b | u_{-b} ~ Normal(\rho \cdot \bar{u}_b, \sigma^2/n_b), $$
-where $\bar{u}_b$ is the simple average of the neighbours (assuming binary weights), which is what we will do in the model. 
-
-The precision matrix becomes: 
-$$Q = (D - \rho \cdot W)/ \sigma^2$$ 
-
-Where: 
+\noindent where $D$ is the diagonal matrix with $D[b,b] = n_b$ (the number of neighbours of block $b$) and $A$ is the binary adjacency matrix. In terms of entries:
 \begin{itemize}
-  \item D is the diagnoal matrix $D[b,b] = n_b$ (number of neighbours)
-  \item W is the adjacency matrix ($W[b,b']$ = 1 if neighbours, 0 otherwise)
-  \item $\rho$ scales how much the off-diagonal (neighbour) structure matters
+  \item $Q[b,b] = n_b$ \quad (diagonal: neighbour count of block $b$)
+  \item $Q[b,b'] = -\alpha \cdot A_{bb'}$ \quad (off-diagonal: $-\alpha$ for neighbours, 0 otherwise)
 \end{itemize}
+In plain terms, the diagonal entries count how many neighbours each block has, and the off-diagonal entries are $-\alpha$ for neighbouring pairs and 0 otherwise. Note there is \textbf{no} $\sigma^2$ in $Q$ itself; $\sigma^2$ enters through the conditional variance $\sigma^2/n_b$, but the standard CAR formulation absorbs this into the parameterisation $u \sim \text{MVN}(0, Q^{-1})$. This is why CAR is computationally efficient: $Q$ is sparse.
 
-\textbf{What $\rho$ controls:} 
-When $\rho$ = 0: $Q = D/\sigma^2$, D is diagonal, so Q is diagonal, meaning all blocks are independent. Each $u_b \sim Normal(0, \sigma^2/n_b)$.   
-When $\rho \rightarrow 1$: $Q = (D-W)/\sigma^2$, this is maximum spatial smoothing, this limiting case is ICAR.  
-When $\rho$ is between 0 and 1: This is between independence and spatial smoothing. $\rho$ can be estated from the data.    
+\subsubsection{The \texorpdfstring{$\alpha$}{alpha} spatial autocorrelation parameter}
+The parameter $\alpha \in [0,1]$ in $Q = D - \alpha A$ scales how strongly the off-diagonal (neighbour) entries contribute:
+
+\textbf{What $\alpha$ controls:}\\
+When $\alpha = 0$: $Q = D$, which is diagonal, so all blocks are independent. Each $u_b \sim \text{Normal}(0, 1/n_b)$.\\
+When $\alpha \to 1$: $Q = D - A$, maximum spatial smoothing — this limiting case is ICAR.\\
+When $\alpha$ is between 0 and 1: intermediate smoothing; $\alpha$ can be estimated from the data.
 
 
 
 \subsubsection{The log probability under CAR}
-The joint distribution of \(u=(u_1,\ldots,u_B)\) is multivariate normal: 
-$$ u \sim MVN(0, \sigma^2 \cdot(D-\rho \cdot W)^{-1}), $$  
-\noindent The precision matrix is: 
+The joint distribution of $u = (u_1,\ldots,u_B)$ is multivariate normal with precision matrix $Q = D - \alpha A$:
+$$u \sim \text{MVN}(0,\; Q^{-1}), \qquad Q = D - \alpha A.$$
+The log-probability of an MVN with precision matrix $Q$ is:
+$$\log p(u) = -\frac{B}{2}\log(2\pi) + \frac{1}{2}\log|Q| - \frac{1}{2}\,u^\top Q\, u.$$
 
-$$Q = (D- \rho \cdot W)/\sigma^2$$
+The $\frac{1}{2}\log|Q|$ term is the hard part. $|Q| = |D - \alpha A|$ is the determinant of a $B \times B$ sparse matrix. Computing it naively requires factorising $(D - \alpha A)$ — $O(B^3)$ operations for a dense matrix. For $B = 1{,}336$ this is $\pm$2.4 billion operations per HMC step.
 
-The log-probabiliy of an MVN is: 
-
-$$\log(p(u)) = -B/2 \cdot \log(2\pi) + 1/2 \log|Q| - 1/2 \cdot u^T \cdot Q \cdot u,$$
-
-\noindent Where $-B/2 \cdot \log(2\pi)$ is a normalizing constant, $1/2 \log|Q| = 1/2 \log(|(D - \rho \cdot W)\sigma^2|) =  1/2 \log(|D- \rho \cdot W|) - B\cdot \log(\sigma^2)$. The $\log(|D- \rho \cdot W|)$ is the hard part. This is the log-determinant of a \(B\times B\) sparse matrix. Computing it naively requires factorising $(D- \rho \cdot W)$ -- $O(B^3)$ operations for a dense matrix and taking the log of the product of diagonal elements. For B = 1336 this is $\pm$ 2.4 billion operations per HMC step.  
 \paragraph{Why eigenvalues must be precomputed carefully.}
-A common shortcut is to say ``precompute eigenvalues in R, then the log-determinant is $O(B)$ per HMC step.'' This is true but requires care, because the eigenvalues of $(D - \rho W)$ depend on $\rho$, which is sampled at every HMC step --- they cannot be precomputed directly.
+A common shortcut is to say ``precompute eigenvalues in R, then the log-determinant is $O(B)$ per HMC step.'' This is true but requires care, because the eigenvalues of $(D - \alpha A)$ depend on $\alpha$, which is sampled at every HMC step — they cannot be precomputed directly.
 
-What \emph{can} be precomputed are the eigenvalues of the $\rho$-free matrix $D^{-1/2} W D^{-1/2}$. Denote these $e_1, \ldots, e_B$. The eigenvalues of $(D - \rho W)$ are then:
+What \emph{can} be precomputed are the eigenvalues of the $\alpha$-free matrix $D^{-1/2} A D^{-1/2}$. Denote these $e_1, \ldots, e_B$. The eigenvalues of $(D - \alpha A)$ are then:
 \begin{equation}
-  \lambda_m(\rho) = d_m \cdot (1 - \rho \cdot e_m),
+  \lambda_m(\alpha) = d_m \cdot (1 - \alpha \cdot e_m),
 \end{equation}
 so the log-determinant decomposes as:
 \begin{equation}
-  \log|D - \rho W| = \underbrace{\sum_{m=1}^B \log(d_m)}_{\text{constant, precomputed}} + \underbrace{\sum_{m=1}^B \log(1 - \rho \cdot e_m)}_{O(B) \text{ per HMC step}}.
+  \log|D - \alpha A| = \underbrace{\sum_{m=1}^B \log(d_m)}_{\text{constant, precomputed}} + \underbrace{\sum_{m=1}^B \log(1 - \alpha \cdot e_m)}_{O(B) \text{ per HMC step}}.
 \end{equation}
-The second sum depends on $\rho$ but only through a simple $O(B)$ loop over precomputed scalars $e_m$.
+The second sum depends on $\alpha$ but only through a simple $O(B)$ loop over precomputed scalars $e_m$.
 
 \begin{table}[ht]
 \centering
@@ -315,13 +300,53 @@ The second sum depends on $\rho$ but only through a simple $O(B)$ loop over prec
 \toprule
 Operation & Cost & When \\
 \midrule
-Eigendecomposition of $D^{-1/2}WD^{-1/2}$ & $O(B^3)$ & Once in R --- never in Stan \\
+Eigendecomposition of $D^{-1/2}AD^{-1/2}$ & $O(B^3)$ & Once in R --- never in Stan \\
 Log-determinant given precomputed $e_m$ & $O(B)$ & Every HMC step \\
 Quadratic form $u^\top Q u$ & $O(\text{edges}) \approx O(B)$ & Every HMC step \\
 \bottomrule
 \end{tabular}
 \caption{Computational cost breakdown for the CAR log-probability.}
 \end{table}
+
+\subsubsection{ICAR implementation in Stan}
+
+\paragraph{Adjacency matrix $A$ as a sparse edge list.}
+Above, we defined $A$ as a full $B \times B$ matrix. Storing it for $B = 1{,}336$ would require $\sim$1.8 million entries, almost all zeros. Instead, the R helper \texttt{build\_icar\_edges()} uses \texttt{spdep::poly2nb()} to find touching block polygons (with a 100\,m snap tolerance for imperfect shared borders) (see the QGIS file for selection of snap distance), and stores only the non-zero entries as two integer arrays:
+\begin{itemize}
+  \item \texttt{node1}: the first block of each undirected edge,
+  \item \texttt{node2}: the second block (\texttt{node1} $<$ \texttt{node2}, each edge stored once).
+\end{itemize}
+Stan receives \texttt{N\_edges}, \texttt{node1[]}, \texttt{node2[]} --- never the full matrix.
+
+\paragraph{No $\alpha$ parameter: ICAR fixes $\alpha = 1$.}
+The full CAR model has a free $\alpha \in [0,1]$. ICAR fixes $\alpha = 1$, so the Stan model has no spatial autocorrelation parameter to sample — only \texttt{sigma\_icar} controlling the overall magnitude.
+
+\paragraph{The quadratic form without forming $Q$.}
+The above full MVN log-probability included the log-determinant term $\frac{1}{2}\log|Q|$. With $\alpha = 1$, $Q = D - A$ is singular (its smallest eigenvalue is 0), so $|Q| = 0$ and the log-determinant is undefined. ICAR is therefore an \emph{improper} prior — it only constrains \emph{differences} between neighbours, not the absolute level, and the log-determinant term is \textbf{dropped}. What remains is the pairwise-difference kernel (Besag, York \& Mollié 1991, eq.\ 4.2; Morris et al.\ 2019):
+$$p(u) \propto \exp\!\left(-\tfrac{1}{2}\sum_{i \sim j}(u_i - u_j)^2\right).$$
+
+This quadratic form $-\frac{1}{2}u^\top(D-A)u = -\frac{1}{2}\sum_{(i,j)\in\text{edges}}(u_i - u_j)^2$ is coded directly from the edge list:
+\begin{verbatim}
+target += -0.5 * dot_self(u_icar_raw[node1] - u_icar_raw[node2]);
+\end{verbatim}
+This computes the pairwise squared differences in $O(\text{edges}) \approx O(B)$ without forming $D$, $A$, or $Q$ explicitly.
+
+\paragraph{Sum-to-zero constraint.}
+Because the ICAR prior is improper, the mean level of $u$ is unidentified (the same issue as the GP without centering). It is pinned by a soft sum-to-zero constraint:
+\begin{verbatim}
+sum(u_icar_raw) ~ normal(0, 0.001 * B);
+\end{verbatim}
+
+\paragraph{Non-centred parameterisation.}
+\begin{verbatim}
+u_icar = sigma_icar * u_icar_raw;
+\end{verbatim}
+\texttt{u\_icar\_raw} carries the \emph{shape} of the spatial pattern (unit-less); \texttt{sigma\_icar} scales it to log-odds units. The prior \texttt{sigma\_icar} $\sim$ Normal$(0, 1)$ (half-normal) weakly regularises the magnitude. This is the same non-centred trick used for \texttt{v\_block\_dev}.
+
+\paragraph{Linear predictor.}
+\texttt{u\_icar[b]} replaces \texttt{u\_gp[b]} in the linear predictor:
+$$\eta_{bt} = \alpha + \text{x\_effect}_{bt} + u^{\text{ICAR}}_b + v_t^{global} + v_b^{dev}.$$
+The sum-to-zero constraint here plays the same role as the GP mean centering discussed earlier.
 
 \subsubsection{Computational Complexity Summary}
 
