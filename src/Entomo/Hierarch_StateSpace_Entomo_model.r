@@ -50,8 +50,9 @@ cfg <- list(
   use_time_RE     = FALSE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
   use_temporal_AR = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = global AR1 trend
   use_spatial_AC  = TRUE,    # (ignored if use_time_RE = TRUE) TRUE = spatial AC
-  use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE and use_icar = FALSE) TRUE = HSGP; FALSE = exact GP
-  use_icar        = TRUE,    # (only if use_spatial_AC = TRUE) TRUE = ICAR neighbour-based; overrides use_hsgp
+  use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE and use_icar/bym2 = FALSE) TRUE = HSGP
+  use_icar        = FALSE,   # (only if use_spatial_AC = TRUE) TRUE = plain ICAR
+  use_bym2        = TRUE,    # (only if use_spatial_AC = TRUE) TRUE = BYM2 (structured+unstructured); overrides use_icar
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
   use_block_dev   = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
@@ -64,7 +65,7 @@ cfg <- list(
   sf_block_col = "CODIGO_",
 
   # data prep
-  n_blocks = 300, # set NULL for all blocks
+  n_blocks = 80, # set NULL for all blocks
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
   max_lag = 2,
   kappa = 4,
@@ -73,8 +74,8 @@ cfg <- list(
 
   # MCMC
   chains = 4,
-  iter_warmup = 300,
-  iter_sampling = 300,
+  iter_warmup = 200,
+  iter_sampling = 200,
   # thin = 2,
   adapt_delta = 0.95,
   max_treedepth = 12,
@@ -101,6 +102,7 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
 } else {
   ar1_suffix <- ifelse(isTRUE(cfg$use_temporal_AR), "AR1", "noAR1")
   gp_suffix  <- if (!isTRUE(cfg$use_spatial_AC))  "noGP"
+                else if (isTRUE(cfg$use_bym2))    "BYM2"
                 else if (isTRUE(cfg$use_icar))    "ICAR"
                 else if (isTRUE(cfg$use_hsgp))    "HSGP"
                 else                              "GP"
@@ -143,8 +145,11 @@ cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   } else {
     file.path(stan_dir, "hierarchical_state_space_AR.stan")
   }
+} else if (isTRUE(cfg$use_bym2)) {
+  # BYM2: structured (ICAR) + unstructured spatial RE, single sigma_spatial
+  file.path(stan_dir, "hierarchical_state_space_AR_BYM2.stan")
 } else if (isTRUE(cfg$use_icar)) {
-  # ICAR neighbour-based spatial RE
+  # Plain ICAR neighbour-based spatial RE
   file.path(stan_dir, "hierarchical_state_space_AR_blockRE_ICAR.stan")
 } else if (isTRUE(cfg$use_hsgp)) {
   # HSGP variants
@@ -207,12 +212,19 @@ coords_sf  <- sf_blocks %>%
 
 # ======================== spatial data prep ====================================
 if (isTRUE(cfg$use_spatial_AC)) {
-  if (isTRUE(cfg$use_icar)) {
+  if (isTRUE(cfg$use_bym2) || isTRUE(cfg$use_icar)) {
     icar_edges <- build_icar_edges(sf_blocks, block_ids, cfg$sf_block_col, snap_m = 100)
     stan_data$N_edges <- icar_edges$N_edges
     stan_data$node1   <- icar_edges$node1
     stan_data$node2   <- icar_edges$node2
-    cat(sprintf("ICAR: %d blocks, %d unique edges\n", length(block_ids), stan_data$N_edges))
+    cat(sprintf("%s: %d blocks, %d unique edges\n",
+                ifelse(isTRUE(cfg$use_bym2), "BYM2", "ICAR"),
+                length(block_ids), stan_data$N_edges))
+    if (isTRUE(cfg$use_bym2)) {
+      stan_data$scaling_factor <- compute_bym2_scaling(
+        icar_edges$node1, icar_edges$node2, stan_data$B
+      )
+    }
 
   } else if (isTRUE(cfg$use_hsgp)) {
     stan_data$coords_block <- as.matrix(coords_sf[, c("x", "y")])
@@ -362,8 +374,9 @@ fit <- mod$sample(
   thin = if (!is.null(cfg$thin)) cfg$thin else 1,
   init = make_init_fun(
     stan_data, cfg$use_temporal_AR,
-    use_hsgp       = isTRUE(cfg$use_hsgp) && !isTRUE(cfg$use_icar),
-    use_icar       = isTRUE(cfg$use_icar),
+    use_hsgp       = isTRUE(cfg$use_hsgp) && !isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
+    use_icar       = isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
+    use_bym2       = isTRUE(cfg$use_bym2),
     use_time_RE    = isTRUE(cfg$use_time_RE),
     use_spatial_AC = isTRUE(cfg$use_spatial_AC)
   ),
@@ -385,11 +398,13 @@ if (isTRUE(cfg$use_time_RE)) {
   summary_vars <- c(summary_vars, "sigma_time", "sigma_block")
 } else {
   if (isTRUE(cfg$use_spatial_AC)) {
-    if (isTRUE(cfg$use_icar))   summary_vars <- c(summary_vars, "sigma_icar")
-    else                         summary_vars <- c(summary_vars, "sigma_gp", "rho_gp")
+    if (isTRUE(cfg$use_bym2))    summary_vars <- c(summary_vars, "sigma_spatial", "phi_mix")
+    else if (isTRUE(cfg$use_icar)) summary_vars <- c(summary_vars, "sigma_icar")
+    else                           summary_vars <- c(summary_vars, "sigma_gp", "rho_gp")
   }
   if (isTRUE(cfg$use_temporal_AR)) summary_vars <- c(summary_vars, "sigma_v", "rho")
-  if (isTRUE(cfg$use_block_dev))   summary_vars <- c(summary_vars, "sigma_block_dev")
+  if (!isTRUE(cfg$use_bym2) && isTRUE(cfg$use_block_dev))
+    summary_vars <- c(summary_vars, "sigma_block_dev")
 }
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
 
@@ -454,6 +469,7 @@ if (cfg$plot_traceplots) {
 
     # Whitelist: scalar model parameters worth tracing
     scalar_include <- c("alpha", "sigma_gp", "rho_gp", "sigma_icar",
+                        "sigma_spatial", "phi_mix",
                         "delta1",
                         "sigma_v", "rho", "sigma_block_dev",
                         "sigma_time", "sigma_block",

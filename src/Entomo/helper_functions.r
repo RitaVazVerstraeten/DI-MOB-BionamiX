@@ -158,6 +158,34 @@ standardize_matrix <- function(x) {
 #' @param sf_block_col Name of the block ID column in sf_blocks
 #' @param snap_m Snap distance in metres (default 100)
 #' @return List with N_edges, node1, node2
+#' Compute BYM2 Scaling Factor
+#'
+#' Scales the ICAR component to unit marginal variance so that sigma_spatial
+#' has a consistent interpretation regardless of graph structure. Uses the
+#' geometric mean of the diagonal of the ICAR precision matrix pseudoinverse
+#' (Riebler et al. 2016).
+#'
+#' @param node1 Integer vector of first nodes of each undirected edge
+#' @param node2 Integer vector of second nodes of each undirected edge
+#' @param B Integer number of blocks
+#' @return Scalar scaling factor (pass as stan_data$scaling_factor)
+compute_bym2_scaling <- function(node1, node2, B) {
+  if (!requireNamespace("Matrix", quietly = TRUE))
+    stop("Package 'Matrix' required for BYM2 scaling — install it with install.packages('Matrix')")
+  adj <- Matrix::sparseMatrix(
+    i    = c(node1, node2),
+    j    = c(node2, node1),
+    x    = 1,
+    dims = c(B, B)
+  )
+  Q     <- Matrix::Diagonal(x = Matrix::rowSums(adj)) - adj
+  ones  <- rep(1, B)
+  Q_inv <- solve(Q + Matrix::Matrix(outer(ones, ones) / B))
+  sf    <- exp(mean(log(Matrix::diag(Q_inv))))
+  cat(sprintf("BYM2 scaling factor: %.4f\n", sf))
+  sf
+}
+
 build_icar_edges <- function(sf_blocks, block_ids, sf_block_col, snap_m = 100) {
   sf_model <- sf_blocks %>%
     mutate(block_chr = as.character(.data[[sf_block_col]])) %>%
@@ -235,26 +263,30 @@ build_stan_data <- function(cfg) {
 #' @param use_temporal_re Logical flag indicating whether temporal RE is enabled in the model
 #' @return Function that returns a list of initial values for one MCMC chain
 make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
-                          use_icar = FALSE, use_time_RE = FALSE, use_spatial_AC = TRUE) {
+                          use_icar = FALSE, use_bym2 = FALSE,
+                          use_time_RE = FALSE, use_spatial_AC = TRUE) {
   function() {
     init_vals <- list(
       alpha      = rnorm(1, -4.5, 0.4),
       w          = matrix(rnorm(stan_data$K * stan_data$Lp1, 0, 0.08), stan_data$K, stan_data$Lp1),
       sigma_w    = runif(stan_data$K, 0.1, 0.3),
       w_unlagged = rnorm(stan_data$Ku, 0, 0.1),
-      delta1     = runif(1, 0.01, 0.05)  # <lower=0>: linear case effect on log-odds
+      delta1     = runif(1, 0.01, 0.05)
     )
 
     if (isTRUE(use_time_RE)) {
-      # iid time RE + iid block RE model
       init_vals$v_time_raw  <- rnorm(stan_data$T, 0, 0.3)
       init_vals$sigma_time  <- runif(1, 0.05, 0.3)
       init_vals$u_block_raw <- rnorm(stan_data$B, 0, 0.3)
       init_vals$sigma_block <- runif(1, 0.05, 0.3)
     } else {
-      # AR1 / GP / ICAR model variants
       if (isTRUE(use_spatial_AC)) {
-        if (isTRUE(use_icar)) {
+        if (isTRUE(use_bym2)) {
+          init_vals$u_icar_raw    <- rnorm(stan_data$B, 0, 0.1)
+          init_vals$u_het_raw     <- rnorm(stan_data$B, 0, 0.1)
+          init_vals$sigma_spatial <- runif(1, 0.1, 0.5)
+          init_vals$phi_mix       <- runif(1, 0.3, 0.7)
+        } else if (isTRUE(use_icar)) {
           init_vals$u_icar_raw <- rnorm(stan_data$B, 0, 0.1)
           init_vals$sigma_icar <- runif(1, 0.1, 0.4)
         } else {
@@ -268,11 +300,13 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
         }
       }
       if (isTRUE(use_temporal_re)) {
-        init_vals$v_global_raw    <- rnorm(stan_data$T, 0, 0.3)
-        init_vals$v_block_dev_raw <- rnorm(stan_data$B, 0, 0.3)
-        init_vals$sigma_v         <- runif(1, 0.1, 0.5)
-        init_vals$sigma_block_dev <- runif(1, 0.05, 0.3)
-        init_vals$rho             <- rnorm(1, 0.3, 0.15)
+        init_vals$v_global_raw <- rnorm(stan_data$T, 0, 0.3)
+        init_vals$sigma_v      <- runif(1, 0.1, 0.5)
+        init_vals$rho          <- rnorm(1, 0.3, 0.15)
+        if (!isTRUE(use_bym2)) {
+          init_vals$v_block_dev_raw <- rnorm(stan_data$B, 0, 0.3)
+          init_vals$sigma_block_dev <- runif(1, 0.05, 0.3)
+        }
       }
     }
 
