@@ -64,7 +64,7 @@ cfg <- list(
   sf_block_col = "CODIGO_",
 
   # data prep
-  n_blocks = NULL, # set NULL for all blocks
+  n_blocks = 80, # set NULL for all blocks
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
   max_lag = 2,
   kappa = 4,
@@ -72,13 +72,13 @@ cfg <- list(
   numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
 
   # MCMC
-  chains = 2,
-  iter_warmup = 500,
-  iter_sampling = 500,
+  chains = 4,
+  iter_warmup = 100,
+  iter_sampling = 100,
   # thin = 2,
   adapt_delta = 0.95,
   max_treedepth = 12,
-  parallel_chains = if (hostname == "frietjes") 2 else 1,
+  parallel_chains = if (hostname == "frietjes") 4 else 1,
 
   # phi: set fix_phi = TRUE to pass phi as data (fixed); FALSE to estimate it
   fix_phi = TRUE,

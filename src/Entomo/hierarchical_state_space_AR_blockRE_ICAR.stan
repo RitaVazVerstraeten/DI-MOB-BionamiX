@@ -119,6 +119,10 @@ model {
   sigma_v         ~ exponential(1);
   sigma_block_dev ~ exponential(2);
   rho             ~ normal(0.4, 0.2);
+  // Soft sum-to-zero constraints: prevent mean drift from being absorbed into
+  // v_global (temporal level) or v_block_dev (block-level mean) instead of alpha.
+  sum(v_global_raw)    ~ normal(0, 0.001 * T);
+  sum(v_block_dev_raw) ~ normal(0, 0.001 * B);
   delta1      ~ normal(0, 0.1);  // half-normal (lower=0): positive bias expected
 
   // ICAR prior: pairwise differences penalise spatial discontinuity
