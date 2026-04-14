@@ -172,15 +172,20 @@ standardize_matrix <- function(x) {
 compute_bym2_scaling <- function(node1, node2, B) {
   if (!requireNamespace("Matrix", quietly = TRUE))
     stop("Package 'Matrix' required for BYM2 scaling — install it with install.packages('Matrix')")
+  # build adjacency matrix
   adj <- Matrix::sparseMatrix(
     i    = c(node1, node2),
     j    = c(node2, node1),
     x    = 1,
     dims = c(B, B)
   )
+  # creates precision matrix of ICAR -> diagonal entry for block i is the number of neighbours for i, the off-diagonal entries are -1 for neighbours and 0 otherwise 
   Q     <- Matrix::Diagonal(x = Matrix::rowSums(adj)) - adj
-  ones  <- rep(1, B)
-  Q_inv <- solve(Q + Matrix::Matrix(outer(ones, ones) / B))
+  # regularize and invert
+  Q_perturb <- Q + Matrix::Diagonal(B, 1e-6)
+  Q_inv <- Matrix::solve(Q_perturb)
+
+  # compute scaling factor (geometric mean of the marginal variance)
   sf    <- exp(mean(log(Matrix::diag(Q_inv))))
   cat(sprintf("BYM2 scaling factor: %.4f\n", sf))
   sf
