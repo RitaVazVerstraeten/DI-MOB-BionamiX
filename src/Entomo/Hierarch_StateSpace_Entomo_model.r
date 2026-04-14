@@ -64,7 +64,7 @@ cfg <- list(
   sf_block_col = "CODIGO_",
 
   # data prep
-  n_blocks = 80, # set NULL for all blocks
+  n_blocks = 300, # set NULL for all blocks
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
   max_lag = 2,
   kappa = 4,
@@ -73,8 +73,8 @@ cfg <- list(
 
   # MCMC
   chains = 4,
-  iter_warmup = 200,
-  iter_sampling = 200,
+  iter_warmup = 300,
+  iter_sampling = 300,
   # thin = 2,
   adapt_delta = 0.95,
   max_treedepth = 12,
@@ -105,8 +105,10 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
                 else if (isTRUE(cfg$use_hsgp))    "HSGP"
                 else                              "GP"
   re_suffix  <- ifelse(isTRUE(cfg$use_block_dev), "blockRE", "noBlockRE")
+  n_block_suffix  <- ifelse(is.null(cfg$n_blocks), "All", cfg$n_blocks)
+  n_block_suffix  <- paste0(n_block_suffix, "Blocks")
   paste0(ar1_suffix, "_", gp_suffix, "_", re_suffix,
-         "_lag", cfg$max_lag, "_k", cfg$kappa)
+         "_lag", cfg$max_lag, "_k", cfg$kappa, "_", n_block_suffix)
 }
 # model_tag <- ifelse(isTRUE(cfg$use_time_RE), "timeRE_blockRE",
 #              ifelse(isTRUE(cfg$use_temporal_AR), "withAR1", "noAR1"))

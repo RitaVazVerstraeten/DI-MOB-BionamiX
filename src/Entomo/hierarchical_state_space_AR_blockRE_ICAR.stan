@@ -128,7 +128,7 @@ model {
   // ICAR prior: pairwise differences penalise spatial discontinuity
   // it is equivalent to a proper intrinsic CAR with all weights = 1.
   
-  target += -0.5 * dot_self(u_icar_raw[node1] - u_icar_raw[node2]); 
+  target += -0.5 * dot_self(u_icar_raw[node1] - u_icar_raw[node2]); // dot_self is sum of squared elements 
   
   //Nearby blocks are pulled towards each other. Blocks with many neighbours are more strongly pulled. 
   // This is the ICAR pairwise-difference likelihood — it's an improper prior (doesn't integrate to a finite number) because it only constrains differences, not the absolute level.
