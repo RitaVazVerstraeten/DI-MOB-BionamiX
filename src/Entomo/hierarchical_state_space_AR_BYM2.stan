@@ -65,10 +65,11 @@ transformed parameters {
     sqrt(1 - phi_mix) * u_het_raw
   );
 
-  // 2. Global AR(1) temporal trend (non-centred)
+  // 2. Global AR(1) temporal trend (non-centred), then centred exactly
   v_global[1] = sigma_v * v_global_raw[1] / sqrt(fmax(1e-6, 1 - rho^2));
   for (t in 2:T)
     v_global[t] = rho * v_global[t-1] + sigma_v * v_global_raw[t];
+  v_global = v_global - mean(v_global);
 
   // 3. Environmental effects
   x_effect = X_lag_flat * to_vector(w) + X_unlagged * w_unlagged;
@@ -120,8 +121,7 @@ model {
   v_global_raw ~ normal(0, 1);
   sigma_v      ~ exponential(1);
   rho          ~ normal(0.4, 0.2);
-  // Soft sum-to-zero: temporal level stays in alpha
-  sum(v_global_raw) ~ normal(0, 0.001 * T);
+  // v_global is centred exactly in transformed parameters (mean subtracted).
 
   // BYM2 spatial priors
   // ICAR smoothness prior (pairwise differences; improper)

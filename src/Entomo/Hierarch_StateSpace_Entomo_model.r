@@ -51,8 +51,8 @@ cfg <- list(
   use_temporal_AR = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = global AR1 trend
   use_spatial_AC  = TRUE,    # (ignored if use_time_RE = TRUE) TRUE = spatial AC
   use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE and use_icar/bym2 = FALSE) TRUE = HSGP
-  use_icar        = TRUE,   # (only if use_spatial_AC = TRUE) TRUE = plain ICAR
-  use_bym2        = FALSE,    # (only if use_spatial_AC = TRUE) TRUE = BYM2 (structured+unstructured); overrides use_icar
+  use_icar        = FALSE,   # (only if use_spatial_AC = TRUE) TRUE = plain ICAR
+  use_bym2        = TRUE,    # (only if use_spatial_AC = TRUE) TRUE = BYM2 (structured+unstructured); overrides use_icar
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
   use_block_dev   = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
@@ -644,3 +644,4 @@ if (requireNamespace("spdep", quietly = TRUE)) {
 } else {
   cat("Skipping Stan Moran's I: package 'spdep' not installed.\n")
 }
+ 

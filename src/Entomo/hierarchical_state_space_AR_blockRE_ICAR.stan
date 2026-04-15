@@ -59,10 +59,15 @@ transformed parameters {
   // u_icar_raw is unit-less, sigma_icar then converts it to the log-odds units 
 
   // 2. Global AR(1) trend + per-block deviations
-  v_global[1] = sigma_v * v_global_raw[1] / sqrt(fmax(1e-6, 1 - rho^2)); // first point initialization
-  for (t in 2:T) {
-    v_global[t] = rho * v_global[t-1] + sigma_v * v_global_raw[t]; // each subseq step 
-  }
+  v_global[1] = sigma_v * v_global_raw[1] / sqrt(fmax(1e-6, 1 - rho^2));
+  for (t in 2:T)
+    v_global[t] = rho * v_global[t-1] + sigma_v * v_global_raw[t];
+  // Centre v_global so its mean is exactly zero.
+  // The sum-to-zero constraint belongs on v_global itself, but Stan only allows
+  // priors in the model block. Explicit centering here achieves the same effect
+  // and is exact rather than approximate.
+  v_global = v_global - mean(v_global);
+
   v_block_dev = sigma_block_dev * v_block_dev_raw;
 
   // 3. Environmental effects
@@ -119,9 +124,9 @@ model {
   sigma_v         ~ exponential(1);
   sigma_block_dev ~ exponential(2);
   rho             ~ normal(0.4, 0.2);
-  // Soft sum-to-zero constraints: prevent mean drift from being absorbed into
-  // v_global (temporal level) or v_block_dev (block-level mean) instead of alpha.
-  sum(v_global_raw)    ~ normal(0, 0.001 * T);
+  // v_global is centred exactly in transformed parameters (mean subtracted).
+  // v_block_dev is a direct scaling of v_block_dev_raw, so constraining the
+  // sum of v_block_dev_raw is equivalent to constraining sum(v_block_dev).
   sum(v_block_dev_raw) ~ normal(0, 0.001 * B);
   delta1      ~ normal(0, 0.1);  // half-normal (lower=0): positive bias expected
 
