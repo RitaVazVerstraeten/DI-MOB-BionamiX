@@ -269,7 +269,8 @@ build_stan_data <- function(cfg) {
 #' @return Function that returns a list of initial values for one MCMC chain
 make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
                           use_icar = FALSE, use_bym2 = FALSE,
-                          use_time_RE = FALSE, use_spatial_AC = TRUE) {
+                          use_time_RE = FALSE, use_spatial_AC = TRUE,
+                          use_block_dev = TRUE) {
   function() {
     init_vals <- list(
       alpha      = rnorm(1, -4.5, 0.4),
@@ -308,7 +309,7 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
         init_vals$v_global_raw <- rnorm(stan_data$T, 0, 0.3)
         init_vals$sigma_v      <- runif(1, 0.1, 0.5)
         init_vals$rho          <- rnorm(1, 0.3, 0.15)
-        if (!isTRUE(use_bym2)) {
+        if (!isTRUE(use_bym2) && isTRUE(use_block_dev)) {
           init_vals$v_block_dev_raw <- rnorm(stan_data$B, 0, 0.3)
           init_vals$sigma_block_dev <- runif(1, 0.05, 0.3)
         }

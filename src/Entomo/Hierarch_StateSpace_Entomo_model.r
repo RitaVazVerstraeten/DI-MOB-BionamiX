@@ -55,7 +55,7 @@ cfg <- list(
   use_bym2        = FALSE,    # (only if use_spatial_AC = TRUE) TRUE = BYM2 (structured+unstructured); overrides use_icar
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
-  use_block_dev   = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
+  use_block_dev   = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
 
   # spatial
   shapefile_path = if (hostname == "frietjes")
@@ -147,8 +147,12 @@ cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   # BYM2: structured (ICAR) + unstructured spatial RE, single sigma_spatial
   file.path(stan_dir, "hierarchical_state_space_AR_BYM2.stan")
 } else if (isTRUE(cfg$use_icar)) {
-  # Plain ICAR neighbour-based spatial RE
-  file.path(stan_dir, "hierarchical_state_space_AR_blockRE_ICAR.stan")
+  # Plain ICAR: with or without per-block temporal deviation
+  if (isTRUE(cfg$use_block_dev)) {
+    file.path(stan_dir, "hierarchical_state_space_AR_blockRE_ICAR.stan")
+  } else {
+    file.path(stan_dir, "hierarchical_state_space_AR_ICAR_noBlockDev.stan")
+  }
 } else if (isTRUE(cfg$use_hsgp)) {
   # HSGP variants
   if (isTRUE(cfg$use_block_dev)) {
@@ -376,7 +380,8 @@ fit <- mod$sample(
     use_icar       = isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
     use_bym2       = isTRUE(cfg$use_bym2),
     use_time_RE    = isTRUE(cfg$use_time_RE),
-    use_spatial_AC = isTRUE(cfg$use_spatial_AC)
+    use_spatial_AC = isTRUE(cfg$use_spatial_AC),
+    use_block_dev  = isTRUE(cfg$use_block_dev)
   ),
   adapt_delta = cfg$adapt_delta,
   max_treedepth = cfg$max_treedepth,
