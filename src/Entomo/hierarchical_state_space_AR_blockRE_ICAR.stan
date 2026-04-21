@@ -27,8 +27,7 @@ transformed data {
 
 parameters {
   real alpha;              // baseline intercept
-  matrix[K, Lp1] w;        // distributed lag weights for environmental covariates
-  vector<lower=0>[K] sigma_w;  // random walk SD for each covariate's lag structure
+  matrix[K, Lp1] w;        // distributed lag weights for environmental covariates (free estimation)
   vector[Ku] w_unlagged;   // weights for unlagged block-level covariates
   vector[T] v_global_raw;          // global AR(1) trend (non-centered)
   vector[B] v_block_dev_raw;       // per-block deviation from global trend (non-centered)
@@ -111,14 +110,9 @@ model {
   // Priors
   alpha ~ normal(-7.0, 1.5);
 
-  for (k in 1:K) {
-    w[k, 1] ~ normal(0, 0.5);
-    for (l in 2:Lp1) {
-      w[k, l] ~ normal(w[k, l-1], sigma_w[k]);
-    }
-  }
-  sigma_w     ~ exponential(2);
-  w_unlagged  ~ normal(0, 0.5);
+  // Free lag weights: independent normal prior on each w[k,l]
+  to_vector(w) ~ normal(0, 0.5);
+  w_unlagged   ~ normal(0, 0.5);
   v_global_raw    ~ normal(0, 1);
   v_block_dev_raw ~ normal(0, 1);
   sigma_v         ~ exponential(1);

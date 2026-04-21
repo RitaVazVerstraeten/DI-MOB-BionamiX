@@ -32,8 +32,7 @@ transformed data {
 
 parameters {
   real alpha;
-  matrix[K, Lp1] w;
-  vector<lower=0>[K] sigma_w;
+  matrix[K, Lp1] w;        // distributed lag weights (free estimation)
   vector[Ku] w_unlagged;
   vector[T] v_global_raw;
   real<lower=0> sigma_v;
@@ -109,13 +108,8 @@ model {
   w_unlagged ~ normal(0, 0.5);
   delta1     ~ normal(0, 0.1);  // half-normal (lower=0)
 
-  // Distributed lag weights: random walk smoothness prior
-  for (k in 1:K) {
-    w[k, 1] ~ normal(0, 0.5);
-    for (l in 2:Lp1)
-      w[k, l] ~ normal(w[k, l-1], sigma_w[k]);
-  }
-  sigma_w ~ exponential(2);
+  // Free lag weights: independent normal prior on each w[k,l]
+  to_vector(w) ~ normal(0, 0.5);
 
   // Temporal AR(1)
   v_global_raw ~ normal(0, 1);

@@ -396,7 +396,7 @@ fit <- mod$sample(
 invisible(file.remove(list.files(run_output_dir, pattern = "_(config|metric)\\.json$", full.names = TRUE)))
 
 # ======================= make model summary ============================
-summary_vars <- c("alpha", "delta1", "w", "sigma_w", "w_unlagged")
+summary_vars <- c("alpha", "delta1", "w", "w_unlagged")
 if (isTRUE(cfg$use_time_RE)) {
   summary_vars <- c(summary_vars, "sigma_time", "sigma_block")
 } else {
@@ -479,7 +479,6 @@ if (cfg$plot_traceplots) {
                         "phi")
     scalar_params <- available_params[
       available_params %in% scalar_include |
-      grepl("^sigma_w\\[", available_params) |  # K elements, one per covariate
       grepl("^v_global\\[", available_params)   # T=12 global AR(1) trend values
     ]
 

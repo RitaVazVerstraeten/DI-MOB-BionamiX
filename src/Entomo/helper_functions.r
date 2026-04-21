@@ -275,7 +275,6 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
     init_vals <- list(
       alpha      = rnorm(1, -4.5, 0.4),
       w          = matrix(rnorm(stan_data$K * stan_data$Lp1, 0, 0.08), stan_data$K, stan_data$Lp1),
-      sigma_w    = runif(stan_data$K, 0.1, 0.3),
       w_unlagged = rnorm(stan_data$Ku, 0, 0.1),
       delta1     = runif(1, 0.01, 0.05)
     )
