@@ -65,7 +65,7 @@ cfg <- list(
   sf_block_col = "CODIGO_",
 
   # data prep
-  n_blocks = NULL, # set NULL for all blocks
+  n_blocks = 100, # set NULL for all blocks
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
   max_lag = 2,
   kappa = 4,
@@ -477,10 +477,7 @@ if (cfg$plot_traceplots) {
                         "sigma_v", "rho", "sigma_block_dev",
                         "sigma_time", "sigma_block",
                         "phi")
-    scalar_params <- available_params[
-      available_params %in% scalar_include |
-      grepl("^v_global\\[", available_params)   # T=12 global AR(1) trend values
-    ]
+    scalar_params <- available_params[available_params %in% scalar_include]
 
     w_params  <- available_params[grepl("^w\\[", available_params)]
     wu_params <- available_params[grepl("^w_unlagged\\[", available_params)]
