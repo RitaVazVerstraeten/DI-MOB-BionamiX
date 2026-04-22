@@ -111,6 +111,7 @@ model {
   // ICAR prior: pairwise differences penalise spatial discontinuity
   target += -0.5 * dot_self(u_icar_raw[node1] - u_icar_raw[node2]);
 
+
   // Marginal SD: half-normal weakly regularising prior
   sigma_icar ~ normal(0, 1);
 

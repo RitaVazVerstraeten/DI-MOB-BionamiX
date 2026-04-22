@@ -76,6 +76,8 @@ cfg <- list(
   chains = 3,
   iter_warmup = 300,
   iter_sampling = 300,
+  iter_warmup = 300,
+  iter_sampling = 300,
   # thin = 2,
   adapt_delta = 0.95,
   max_treedepth = 12,
@@ -471,14 +473,19 @@ if (cfg$plot_traceplots) {
     # Use metadata (cheap) instead of fit$summary() (expensive — summarises all
     # generated quantities and can hang/crash on large models)
     model_vars <- fit$metadata()$stan_variables
+    # Use metadata (cheap) instead of fit$summary() (expensive — summarises all
+    # generated quantities and can hang/crash on large models)
+    model_vars <- fit$metadata()$stan_variables
 
-    # Whitelist: scalar model parameters worth tracing
+    # Whitelist: scalar/vector model parameters worth tracing
+    # sigma_w is a vector[K] — drawn by root name, elements appear in the plot
     scalar_include <- c("alpha", "sigma_gp", "rho_gp", "sigma_icar",
-                        "sigma_spatial", "phi_mix",
+                        "sigma_spatial", "phi_mix", "sigma_w",
                         "delta1",
                         "sigma_v", "rho", "sigma_block_dev",
                         "sigma_time", "sigma_block",
                         "phi")
+    scalar_vars <- intersect(scalar_include, model_vars)
     scalar_vars <- intersect(scalar_include, model_vars)
 
     # Helper: save chunked traceplots (avoids huge single ggplot)
@@ -492,10 +499,9 @@ if (cfg$plot_traceplots) {
       }
     }
 
-    # Scalar params
+    # Scalar/hyperparameter params
     if (length(scalar_vars) > 0) {
       draws_scalar <- fit$draws(variables = scalar_vars, format = "array")
-      # expand to actual element names (e.g. sigma_w[1] if present)
       scalar_params <- dimnames(draws_scalar)[[3]]
       save_trace_chunks(scalar_params, draws_scalar, "traceplot_params", chunk_size = 12, w = 10, h = 8)
     } else {
@@ -504,14 +510,15 @@ if (cfg$plot_traceplots) {
 
     # Lagged weights — draw by root name "w"; get element names from array dims
     if ("w" %in% model_vars) {
-      draws_w <- fit$draws(variables = "w", format = "array")
+      draws_w  <- fit$draws(variables = "w", format = "array")
       w_params <- dimnames(draws_w)[[3]]
+      cat("Plotting lag weight traceplots:", paste(w_params, collapse = ", "), "\n")
       save_trace_chunks(w_params, draws_w, "traceplot_weights_w", chunk_size = 12, w = 12, h = 10)
     }
 
     # Unlagged weights
     if ("w_unlagged" %in% model_vars) {
-      draws_wu <- fit$draws(variables = "w_unlagged", format = "array")
+      draws_wu  <- fit$draws(variables = "w_unlagged", format = "array")
       wu_params <- dimnames(draws_wu)[[3]]
       save_trace_chunks(wu_params, draws_wu, "traceplot_weights_unlagged", chunk_size = 12, w = 12, h = 8)
     }
