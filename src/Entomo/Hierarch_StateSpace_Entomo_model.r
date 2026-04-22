@@ -65,7 +65,7 @@ cfg <- list(
   sf_block_col = "CODIGO_",
 
   # data prep
-  n_blocks = NULL, # set NULL for all blocks
+  n_blocks = 300, # set NULL for all blocks
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
   max_lag = 2,
   kappa = 4,
