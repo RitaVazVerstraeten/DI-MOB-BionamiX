@@ -472,9 +472,10 @@ if (cfg$plot_traceplots) {
     # generated quantities and can hang/crash on large models)
     model_vars <- fit$metadata()$stan_variables
 
-    # Whitelist: scalar model parameters worth tracing
+    # Whitelist: scalar/vector model parameters worth tracing
+    # sigma_w is a vector[K] — drawn by root name, elements appear in the plot
     scalar_include <- c("alpha", "sigma_gp", "rho_gp", "sigma_icar",
-                        "sigma_spatial", "phi_mix",
+                        "sigma_spatial", "phi_mix", "sigma_w",
                         "delta1",
                         "sigma_v", "rho", "sigma_block_dev",
                         "sigma_time", "sigma_block",
