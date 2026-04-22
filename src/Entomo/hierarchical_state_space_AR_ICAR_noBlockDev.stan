@@ -48,8 +48,9 @@ transformed parameters {
   vector[N] x_effect;      // linear predictor for environmental effects
   vector[B] u_icar;        // scaled ICAR spatial effects
 
-  // 1. ICAR spatial random effects (scaled)
+  // 1. ICAR spatial random effects (scaled) - hard centering
   u_icar = sigma_icar * u_icar_raw;
+  u_icar = u_icar - mean(u_icar);
 
   // 2. Global AR(1) trend (no per-block deviation in this variant)
   v_global[1] = sigma_v * v_global_raw[1] / sqrt(fmax(1e-6, 1 - rho^2));
@@ -109,9 +110,6 @@ model {
 
   // ICAR prior: pairwise differences penalise spatial discontinuity
   target += -0.5 * dot_self(u_icar_raw[node1] - u_icar_raw[node2]);
-
-  // Soft sum-to-zero: pins the overall level (mean ≈ 0)
-  sum(u_icar_raw) ~ normal(0, 0.001 * B);
 
   // Marginal SD: half-normal weakly regularising prior
   sigma_icar ~ normal(0, 1);
