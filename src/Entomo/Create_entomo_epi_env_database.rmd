@@ -233,13 +233,18 @@ dimob_manzanas <- st_read(file.path(shapefile_path, "Manzanas_cleaned_05032026",
 
 dimob_areas <- st_read(file.path(shapefile_path, "Area de Salud/AS LIMITES 3022025.shp"))
 dimob_cps <- st_read(file.path(shapefile_path, "Consejo Popular/CONSEJOS Populares Cfgos 3022025.shp"))
-
-# head(dimob_manzanas)
+dimob_cmfs <- st_read(file.path(shapefile_path, "CMF/Poligonos CMF Cienfuegos_28032025.shp"))
+head(dimob_manzanas)
 # head(dimob_areas)
 # head(dimob_cps)
 ```
 
+```{r avg number of manzanas per CMF}
+```
+
 ## Remove out-of-bound manzana (A8APSMMzFcSAMA)
+
+This step also removes the CMF VIII-19 because that's where the mz A8APSMMzFcSAMA is 
 
 ```{r remove A8APSMMzFcSAMA from the list of manzanas and all the data}
 # dimob_manzanas <- dimob_manzanas %>%
@@ -269,12 +274,21 @@ library(stringi)
 #   mutate(NOMBRE = stri_trans_general(NOMBRE, "Latin-ASCII"),
 #          NOMBRE = toupper(NOMBRE))
 
+
 dimob_cps <- dimob_cps %>%
   mutate(NOMBRE = stri_trans_general(NOMBRE, "Latin-ASCII"),
          NOMBRE = toupper(NOMBRE),
          NOMBRE = gsub("-", " ", NOMBRE))
 
-head(dimob_cps$NOMBRE)
+# head(dimob_cps$NOMBRE)
+
+dimob_cmfs <- dimob_cmfs %>%
+  mutate(
+    AS = trimws(AS),
+    CMF = trimws(CMF),
+    AS_CMF = paste0(AS, "_", CMF)
+  )
+# head(dimob_cmfs$AS_CMF)
 ```
 
 
@@ -511,7 +525,7 @@ plot_entomo_facets <- ento_epi_year %>%
   geom_sf(data = dimob_areas, fill = NA, color = "grey60", linewidth = 0.4) + # add the area boundaries in background
   geom_sf(aes(fill = Houses_pos_IS), color = NA) +
   scale_fill_viridis_c(option = "plasma", na.value = "grey90") +
-  labs(title = "Nr. of houses positive for immature stages by Consejo Popular",
+  labs(title = "Yearly cummulative Nr. of houses positive for immature stages by Manzana",
        fill = "Houses_pos_IS") +
   facet_wrap(~year, ncol = 3) +
   theme_minimal()
@@ -532,7 +546,7 @@ plot_epi_cases <- ento_epi_year %>%
   geom_sf(aes(fill = cases), color = NA) +
   scale_fill_viridis_c(option = "plasma", na.value = "grey90") +
   labs(title = "Nr. of dengue cases by Manzana",
-       fill = "Cases") +
+       fill = "Cum. Cases") +
   facet_wrap(~year, ncol = 3) +
   theme_minimal() + theme(
     axis.text = element_blank(),    # removes axis text (numbers)
@@ -576,7 +590,7 @@ plot_cases_cp <- ento_epi_year_cp %>%
   geom_sf(data = dimob_areas, fill = NA, color = "grey60", linewidth = 0.4) +
   geom_sf(aes(fill = cases), color = NA) +
   scale_fill_viridis_c(option = "plasma", na.value = "grey90") +
-  labs(title = "Cases by Consejo Popular", fill = "Cases") +
+  labs(title = "Cumulative cases by Consejo Popular", fill = "Cases") +
   facet_wrap(~year_label, ncol = 3) +
   theme_minimal() + theme(
     axis.text = element_blank(),    # removes axis text (numbers)
@@ -584,6 +598,57 @@ plot_cases_cp <- ento_epi_year_cp %>%
   )
 
 plot_cases_cp
+```
+
+### Cases by Consultorio Medico de Familia (CMF)
+```{r plot the CMF shapefile alone}
+
+# Quick plot of the CP shapefile
+p_cmf <- ggplot(dimob_cmfs) +
+  geom_sf(fill = "lightblue", color = "black") +
+  geom_sf_text(aes(label = AS_CMF), size = 2, check_overlap = TRUE) +
+  labs(title = "CMF Boundaries") +
+  theme_minimal()
+
+p_cmf
+```
+
+```{r plot case data for 2015 to 2019 per CMF}
+ento_epi_cmf <- ento_epi_data %>%
+  mutate(
+    AREA = trimws(AREA),
+    CMF = trimws(CMF),
+    AS_CMF = paste0(AREA, "_", CMF)
+  )
+# Aggregate to annual by CP
+ento_epi_cmf <- ento_epi_cmf %>%
+  mutate(year = floor_date(year_month, "year")) %>%
+  group_by(AS_CMF, year) %>%
+  summarise(
+    Houses_pos_IS = sum(Houses_pos_IS, na.rm = TRUE),
+    cases = sum(cases, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(year, AS_CMF)
+
+plot_cases_cmf <- ento_epi_cmf %>%
+  filter(year %in% as.Date(c("2015-01-01", "2016-01-01", "2017-01-01", "2018-01-01", "2019-01-01"))) %>%
+  mutate(year_label = format(year, "%Y")) %>%  # extract just the year
+  right_join(dimob_cmfs, by = c("AS_CMF" = "AS_CMF"), relationship = "many-to-many") %>%
+  st_as_sf() %>%
+  filter(!is.na(year)) %>%
+  ggplot() +
+  geom_sf(data = dimob_areas, fill = NA, color = "grey60", linewidth = 0.4) +
+  geom_sf(aes(fill = cases), color = NA) +
+  scale_fill_viridis_c(option = "plasma", na.value = "grey90") +
+  labs(title = "Cum. Cases by CMF", fill = "Cases") +
+  facet_wrap(~year_label, ncol = 3) +
+  theme_minimal() + theme(
+    axis.text = element_blank(),    # removes axis text (numbers)
+    axis.title = element_blank()    # removes axis titles (lon/lat)
+  )
+
+plot_cases_cmf
 ```
 
 # Manzana area diagnostics
@@ -692,6 +757,45 @@ Some manzanas are in fact huge.
 
 ## Add missing manzanas (if needed)
 
+# CMF area diagnostics
+```{r average cmf area}
+dimob_cmfs <- dimob_cmfs %>%
+  st_transform(crs = 26917)  # NAD27 / UTM zone 17N
+dimob_cmfs$area_m2 <- st_area(dimob_cmfs)
+average_area_m2 <- mean(as.numeric(dimob_cmfs$area_m2))
+median_area_m2 <- median(as.numeric(dimob_cmfs$area_m2))
+
+average_area_m2  # 
+```
+
+This average area per manzana seems way too large... 
+```{r plot the cmfs with area}
+ggplot(dimob_cmfs) +
+  geom_sf(aes(fill = as.numeric(area_m2)/10000), color = "grey40", linewidth = 0.1) + # area in hectares
+  geom_sf_text(aes(label = AS_CMF), size = 1.5, check_overlap = TRUE) +
+  scale_fill_viridis_c(option = "plasma", name = "Area (ha)") +
+  labs(title = "CMFs by Area") +
+  theme_minimal()
+```
+
+```{r histogram of cmf areas}
+# Create histogram of manzana areas
+ggplot(dimob_cmfs, aes(x = as.numeric(area_m2))) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "black", alpha = 0.7) +
+  scale_x_log10(labels = scales::comma) +
+  labs(title = "Distribution of CMF Areas (log scale)",
+       x = "Area (m²)",
+       y = "Frequency") +
+  theme_minimal() +
+  geom_vline(xintercept = average_area_m2, color = "red", linetype = "dashed", linewidth = 1) +
+  geom_vline(xintercept = median_area_m2, color = "blue", linetype = "dashed", linewidth = 1) +
+  annotate("text", x = average_area_m2, y = Inf, 
+           label = paste0("Mean: ", round(average_area_m2, 0), " m²"), 
+           hjust = -0.1, vjust = 2, color = "red") +
+  annotate("text", x = median_area_m2, y = Inf, 
+           label = paste0("Median: ", round(median_area_m2, 0), " m²"), 
+           hjust = -0.1, vjust = 4, color = "blue")
+```
 
 # Environmental data assembly
 
@@ -715,7 +819,8 @@ Some manzanas are in fact huge.
 
 2. Join this environmental dataset to the ento_epi_data based on year_month and manzana
 
-```{r prepare the evironmental dataset first}
+## Env data assembly for manzanas
+```{r prepare the evironmental dataset per manzana first}
 env_data_path <- "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality"
 
 ndvi <- read_csv(file.path(env_data_path, "NDVI", "NDVI_per_manzana_nobuf_2015_2025_all_months.csv"), show_col_types = FALSE)
@@ -792,6 +897,84 @@ landcover <- landcover %>%
   select(manzana_code, dominant_landcover) %>%
   rename(manzana_id = manzana_code)
 ```
+
+## Env data assembly for CMFs
+
+```{r prepare the evironmental dataset per cmf first}
+env_data_path <- "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality"
+
+ndvi_cmf <- read_csv(file.path(env_data_path, "NDVI", "NDVI_per_CMF_2015_2025_all_months.csv"), show_col_types = FALSE)
+ndwi_cmf <- read_csv(file.path(env_data_path, "NDWI", "NDWI_per_CMF_2015_2025_all_months.csv"), show_col_types = FALSE)
+ndmi_cmf <- read_csv(file.path(env_data_path, "NDMI", "NDMI_per_CMF_2015_2025_all_months.csv"), show_col_types = FALSE)
+windspeed_cmf <- read_csv(file.path(env_data_path, "WindSpeed", "wind_speed_2015_2019_monthly.csv"), show_col_types = FALSE)
+landcover_cmf <- read_csv(file.path(env_data_path, "LandCover", "LandCover_per_CMF_2021.csv"), show_col_types = FALSE)
+wi_cmf <- read_csv(file.path(env_data_path, "WI", "WI_per_cmf_100mBuffer_classification.csv"), show_col_types = FALSE)
+wui_cmf <- read_csv(file.path(env_data_path, "WUI", "WUI_per_CMF_NoBuffer_classification.csv"), show_col_types = FALSE)
+urban_cmf <- read_csv(file.path(env_data_path, "WUI", "WSF_per_CMF_NoBuffer_classification.csv"), show_col_types = FALSE)
+meteo_daily <- read_xlsx("/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx")
+aljibes_cmf <- read_csv(file.path(env_data_path, "aljibes", "20m_buffer_cmfs_aljibes.csv"), show_col_types=FALSE)
+water_shortage_cmf <- read_csv(file.path(env_data_path, "abasto", "no_buffer_cmfs_water_shortage.csv"), show_col_types=FALSE)
+water_containers_cmf <- read_csv(file.path(env_data_path, "abasto", "avg_water_tank_by_cmf.csv"), show_col_types=FALSE)
+```
+
+
+```{r keep relevant columns from ndvi_cmf, ndwi_cmf, and ndmi_cmf}
+ndvi_cmf <- ndvi_cmf %>%
+  select(cmf_id, year, month, mean_ndvi) %>%
+  filter(!is.na(cmf_id) & cmf_id != "None" & cmf_id != "") %>%
+  mutate(year_month = paste0(year, "_", sprintf("%02d", month))) %>%
+  select(cmf_id, year_month, mean_ndvi) %>%
+  distinct()  # remove any duplicates
+
+ndmi_cmf <- ndmi_cmf %>%
+  select(cmf_id, year, month, mean_ndmi) %>%
+  filter(!is.na(cmf_id) & cmf_id != "None" & cmf_id != "") %>%
+  mutate(year_month = paste0(year, "_", sprintf("%02d", month))) %>%
+  select(cmf_id, year_month, mean_ndmi) %>%
+  distinct()  
+
+ndwi_cmf <- ndwi_cmf %>%
+  select(cmf_id, year, month, mean_ndwi) %>%
+  filter(!is.na(cmf_id) & cmf_id != "None" & cmf_id != "") %>%
+  mutate(year_month = paste0(year, "_", sprintf("%02d", month))) %>% 
+  select(cmf_id, year_month, mean_ndwi) %>%
+  distinct()  
+```
+
+
+```{r keep relevant columns for WI_cmf and wUI_cmf}
+wi_cmf <- wi_cmf %>%
+  rename(cmf_id = ID) %>%
+  select(cmf_id, is_WI)
+wui_cmf <- wui_cmf %>%
+  rename(cmf_id = AS_CMF) %>%
+  select(cmf_id, is_WUI)
+urban_cmf <- urban_cmf %>% 
+  rename(cmf_id = AS_CMF, is_urban = is_WSF) %>%
+  select(cmf_id, is_urban)
+aljibes_cmf <- aljibes_cmf %>% 
+  rename(cmf_id = AS_CMF) %>%
+  select(cmf_id, has_aljibes, nr_aljibes)
+
+water_shortage_cmf <- water_shortage_cmf %>%
+  rename(
+    cmf_id = AS_CMF,
+    water_shortage = has_shortage) %>%
+  select(cmf_id, water_shortage)
+
+water_containers_cmf <- water_containers_cmf %>%
+  rename(cmf_id = AS_CMF) %>%
+  select(cmf_id, water_containers_per_person) %>%
+  rename(water_containers = water_containers_per_person)
+```
+
+```{r keep relevant columns for landcover_cmf}
+# print(colnames(landcover))
+landcover_cmf <- landcover_cmf %>%
+  select(cmf_code, dominant_landcover) %>%
+  rename(cmf_id = cmf_code)
+```
+
 
 ```{r check windspeed data}
 head(windspeed)
@@ -1273,18 +1456,18 @@ dev.off()
   - wind speed -> month (2016-01 -> 2019-12)
 
 **Spatial variables**
-  - WI -> manzana
-  - WUI -> manzana
-  - LandCover -> manzana
-  - aljibes -> manzana
-  - water_containers -> manzana (CP)
+  - WI -> manzana/cmf
+  - WUI -> manzana/cmf
+  - LandCover -> manzana/cmf
+  - aljibes -> manzana/cmf
+  - water_containers -> manzana (CP)/cmf
   - 
-  - water shortage classification -> manzana
+  - water shortage classification -> manzana/cmf
 
 **Spatio-temporal variables**
-  - NDVI -> mazana-month (2016-01 -> 2019-12)
-  - NDMI -> mazana-month (2016-01 -> 2019-12)
-  - NDWI -> mazana-month (2016-01 -> 2019-12)
+  - NDVI -> mazana/cmf-month (2016-01 -> 2019-12)
+  - NDMI -> mazana/cmf-month (2016-01 -> 2019-12)
+  - NDWI -> mazana/cmf-month (2016-01 -> 2019-12)
 
 ## Build temporal variables (monthly)
 ```{r aggregate the temporal variables based on year_month}
@@ -1312,13 +1495,29 @@ environmental_spatial <- landcover %>%
   left_join(water_containers, by = "manzana_id")
 ```
 
-## Build spatio-temporal variables (per manzana-month)
-```{r aggregate the spatio-temporal variables based on manzana_id and year_month}
+```{r aggregate the spatial variables based on cmf_id}
+setdiff(unique(landcover_cmf$cmf_id), wi_cmf$cmf_id)  # check if all manzanas in landcover are in wi
+setdiff(unique(landcover_cmf$cmf_id), wi_cmf$cmf_id) # 
+
+environmental_spatial_cmf <- landcover_cmf %>%
+  left_join(wi_cmf, by = "cmf_id") %>%
+  left_join(wui_cmf, by = "cmf_id") %>%
+  left_join(urban_cmf, by = "cmf_id") %>%
+  left_join(aljibes_cmf, by = "cmf_id") %>%
+  left_join(water_shortage_cmf, by = "cmf_id") %>%
+  left_join(water_containers_cmf, by = "cmf_id")
+```
+
+## Build spatio-temporal variables (per manzana-month / CMF-month)
+```{r aggregate the spatio-temporal variables based on manzana_id or cmf_id and year_month}
 
 environmental_spatio_temp <- ndvi %>%
   left_join(ndwi, by = c("manzana_id", "year_month"), relationship = "one-to-one") %>%
   left_join(ndmi, by = c("manzana_id", "year_month"), relationship = "one-to-one")
 
+environmental_spatio_temp_cmf <- ndvi_cmf %>%
+  left_join(ndwi_cmf, by = c("cmf_id", "year_month"), relationship = "one-to-one") %>%
+  left_join(ndmi_cmf, by = c("cmf_id", "year_month"), relationship = "one-to-one")
 ```
 
 ## Combine temporal, spatial, and spatio-temporal data
@@ -1369,6 +1568,50 @@ env_all <- env_all %>%
 cat("\nFinal environmental dataset dimensions:", nrow(env_all), "x", ncol(env_all), "\n")
 ```
 
+```{r aggregate all environmental variables into one dataset at CMF level}
+
+# Define the time range
+start_month <- "2016_01"
+end_month <- "2019_12"
+
+# Get all unique manzanas from spatial data
+all_cmfs <- unique(dimob_cmfs$AS_CMF)
+
+# Create all expected months in range
+all_expected_months <- seq(as.Date("2016-01-01"), as.Date("2019-12-01"), by="month")
+all_months <- format(all_expected_months, "%Y_%m")
+
+cat("Building complete grid...\n")
+cat("Number of manzanas:", length(all_cmfs), "\n")
+cat("Number of months (2016-04 to 2019-12):", length(all_months), "\n")
+cat("Expected total rows:", length(all_cmfs) * length(all_months), "\n")
+
+# Create complete grid starting with temporal variables (which have all months)
+complete_grid <- expand.grid(
+  cmf_id = all_cmfs,
+  year_month = all_months,
+  stringsAsFactors = FALSE
+)
+
+# Start with the complete grid and the temporal variables (meteo)
+env_all_cmf <- complete_grid %>%
+  left_join(environmental_temp, by = "year_month")
+
+# Join spatio-temporal variables (NDVI, NDMI, NDWI) - these may have NAs
+env_all_cmf <- env_all_cmf %>%
+  left_join(environmental_spatio_temp_cmf, by = c("cmf_id", "year_month"))
+
+# Join spatial variables (landcover, WI, WUI)
+env_all_cmf <- env_all_cmf %>%
+  left_join(environmental_spatial_cmf, by = "cmf_id")
+
+env_all_cmf <- env_all_cmf %>%
+  rename(cmf = cmf_id, landcover = dominant_landcover) %>%
+  arrange(year_month, cmf)
+
+cat("\nFinal environmental dataset dimensions:", nrow(env_all_cmf), "x", ncol(env_all_cmf), "\n")
+```
+
 ## Save environmental dataset
 ```{r save the final environmental dataset}
 final_env_data_path <-  "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality"
@@ -1377,10 +1620,14 @@ final_env_data_path_1 <-  "/media/rita/New Volume/Documenten/DI-MOB/Other Data/E
 write_csv(env_all, file.path(final_env_data_path, "all_environmental_data_per_manzana_2016_01_to_2019_12.csv"))
 write_csv(env_all, file.path(final_env_data_path_1, "all_environmental_data_per_manzana_2016_01_to_2019_12.csv"))
 
+
+write_csv(env_all_cmf, file.path(final_env_data_path, "all_environmental_data_per_cmf_2016_01_to_2019_12.csv"))
+write_csv(env_all_cmf, file.path(final_env_data_path_1, "all_environmental_data_per_cmf_2016_01_to_2019_12.csv"))
+
 ```
 
 # Environmental data missingness checks
-```{r check final file}
+```{r check final file manzana level}
 env_all <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_manzana_2016_01_to_2019_12.csv")
 # Check the final result
 head(env_all)
@@ -1396,6 +1643,22 @@ print(colSums(is.na(env_all)))
 There are some missing values in the environmental dataset. 
 - ndvi, ndwi, ndmi -> 16174
 
+```{r check final file cmf level}
+env_all_cmf <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_cmf_2016_01_to_2019_12.csv")
+# Check the final result
+head(env_all_cmf)
+cat("\nFinal environmental dataset dimensions:", nrow(env_all_cmf), "x", ncol(env_all_cmf), "\n")
+cat("\nColumn names:\n")
+print(colnames(env_all_cmf))
+
+# Check for missing values
+cat("\nMissing values per column:\n")
+print(colSums(is.na(env_all_cmf)))
+```
+
+ndvi, ndmi, ndwi -> 1521 missing
+landcover, is_WI, is_WUI, is_urban, has_aljibes, nr_aljibes, water_shortage, water_containers -> 48
+
 ```{r quality checks final manzanas in env data}
 # let's check whether all year_month - Manzana combinations are in the env_all dataset
 length(unique(dimob_manzanas_filtered$CODIGO_))
@@ -1409,6 +1672,33 @@ cat("All the manzanas in our final shapefile are in the environmental dataset: "
     all(unique(dimob_manzanas_filtered$CODIGO_) %in% unique(env_all$manzana)), "\n")
 ```
 
+```{r check AS_CMF from shapefile agrees with AS_CMF from env data}
+# Clean + get unique AS_CMF values from each table
+dimob_as_cmf <- dimob_cmfs %>%
+  st_drop_geometry() %>%                     # safe if sf; remove if not needed
+  transmute(AS_CMF = toupper(trimws(AS_CMF))) %>%
+  distinct() %>%
+  filter(!is.na(AS_CMF), AS_CMF != "")
+
+env_as_cmf <- env_all_cmf %>%
+  transmute(AS_CMF = toupper(trimws(cmf))) %>%
+  distinct() %>%
+  filter(!is.na(AS_CMF), AS_CMF != "")
+
+# Overall agreement
+agree <- setequal(dimob_as_cmf$AS_CMF, env_as_cmf$AS_CMF)
+cat("Do unique AS_CMF sets agree? ", agree, "\n\n")
+
+# Show mismatches
+only_in_dimob <- anti_join(dimob_as_cmf, env_as_cmf, by = "AS_CMF")
+only_in_env   <- anti_join(env_as_cmf, dimob_as_cmf, by = "AS_CMF")
+
+cat("N only in dimob_cmfs:", nrow(only_in_dimob), "\n")
+print(only_in_dimob)
+
+cat("\nN only in env_all_cmf:", nrow(only_in_env), "\n")
+print(only_in_env)
+```
 
 ## Missingness by month and manzana
 
@@ -1601,6 +1891,67 @@ if(nrow(mostly_missing_vars) > 0) {
 }
 ```
 
+```{r missing data overview for all variables per cmf}
+
+# Get all variable names (excluding identifiers)
+all_vars <- setdiff(colnames(env_all_cmf), c("cmf", "year_month"))
+
+# Create summary table for all variables
+missing_overview <- data.frame(
+  variable = all_vars,
+  total_obs = nrow(env_all_cmf),
+  missing_count = sapply(all_vars, function(v) sum(is.na(env_all[[v]]))),
+  pct_missing = sapply(all_vars, function(v) round(100 * mean(is.na(env_all[[v]])), 2))
+) %>%
+  arrange(desc(pct_missing))
+
+cat("=== MISSING DATA OVERVIEW CMF: ALL VARIABLES ===\n\n")
+print(missing_overview)
+
+# Visualize comparison across variables
+ggplot(missing_overview, aes(x = reorder(variable, pct_missing), y = pct_missing)) +
+  geom_col(aes(fill = pct_missing > 0), show.legend = FALSE) +
+  scale_fill_manual(values = c("TRUE" = "#F44336", "FALSE" = "#4CAF50")) +
+  scale_y_continuous(limits = c(0, 100)) +
+  coord_flip() +
+  labs(
+    title = "Missing Data Across All Environmental Variables at CMF level",
+    subtitle = paste0("Total observations: ", nrow(env_all)),
+    x = "Variable",
+    y = "% Missing"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_blank()
+  )
+
+# Identify variable categories by missingness
+cat("\n\n=== VARIABLE CATEGORIES BY MISSINGNESS ===\n")
+cat("Complete variables (0% missing):\n")
+complete_vars <- missing_overview %>% filter(pct_missing == 0)
+if(nrow(complete_vars) > 0) {
+  cat(paste(complete_vars$variable, collapse = ", "), "\n")
+} else {
+  cat("None\n")
+}
+
+cat("\nPartially missing (0-50%):\n")
+partial_vars <- missing_overview %>% filter(pct_missing > 0 & pct_missing <= 50)
+if(nrow(partial_vars) > 0) {
+  print(partial_vars)
+} else {
+  cat("None\n")
+}
+
+cat("\nMostly missing (>50%):\n")
+mostly_missing_vars <- missing_overview %>% filter(pct_missing > 50)
+if(nrow(mostly_missing_vars) > 0) {
+  print(mostly_missing_vars)
+} else {
+  cat("None\n")
+}
+```
+
 ## Missingness heatmap (variables × months)
 
 ```{r missing data heatmap: variables x months}
@@ -1664,6 +2015,67 @@ cat("\n\nMonths with most missing data:\n")
 print(tail(complete_by_month, 10))
 ```
 
+
+```{r missing data heatmap: variables x months CMF}
+
+# Create a summary of missing data by variable and month
+missing_by_var_month <- env_all_cmf %>%
+  select(year_month, all_of(all_vars)) %>%
+  group_by(year_month) %>%
+  summarise(across(everything(), ~sum(is.na(.))), .groups = "drop") %>%
+  pivot_longer(cols = -year_month, names_to = "variable", values_to = "missing_count")
+
+# Calculate total observations per month
+n_cmfs <- length(unique(env_all_cmf$cmf))
+missing_by_var_month <- missing_by_var_month %>%
+  mutate(pct_missing = round(100 * missing_count / n_cmfs, 1))
+
+# Create heatmap
+ggplot(missing_by_var_month, aes(x = year_month, y = variable, fill = pct_missing)) +
+  geom_tile(color = "white", size = 0.5) +
+  scale_fill_gradient2(
+    low = "#4CAF50", 
+    mid = "#FFC107",
+    high = "#F44336",
+    midpoint = 50,
+    name = "% Missing",
+    limits = c(0, 100)
+  ) +
+  labs(
+    title = "Missing Data Heatmap: All Variables Across Time",
+    subtitle = paste0("Each cell shows % of ", n_cmfs, " cmfs with missing data"),
+    x = "Year-Month",
+    y = "Variable"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+    axis.text.y = element_text(size = 9),
+    panel.grid = element_blank()
+  )
+ggsave(
+  filename = file.path(save_images_to, "missing_env_data_heatmap_CMF.png"),
+  width = 10,
+  height = 6,
+  dpi = 300
+)
+# Print which months have most complete data
+cat("\n\n=== MONTHS WITH MOST COMPLETE DATA ===\n")
+complete_by_month <- missing_by_var_month %>%
+  group_by(year_month) %>%
+  summarise(
+    avg_pct_missing = round(mean(pct_missing), 1),
+    n_complete_vars = sum(pct_missing == 0),
+    .groups = "drop"
+  ) %>%
+  arrange(avg_pct_missing)
+
+cat("Top 10 months with most complete data:\n")
+print(head(complete_by_month, 10))
+
+cat("\n\nMonths with most missing data:\n")
+print(tail(complete_by_month, 10))
+```
 ## Impute missing data for NDVI, NDMI, and NDWI
 
 This section implements a hierarchical imputation strategy for the vegetation and moisture indices (NDVI, NDMI, NDWI). The strategy prioritizes:
@@ -1673,42 +2085,47 @@ This section implements a hierarchical imputation strategy for the vegetation an
 
 ```{r imputation function for NDVI NDMI NDWI}
 
-impute_NDXI_index <- function(df, index_name) {
+impute_NDXI_index <- function(df, index_name, id_col = "manzana", min_clim_obs = 3) {
+  
+  if (!id_col %in% names(df)) {
+    stop(sprintf("ID column '%s' not found in input data.", id_col))
+  }
   
   cat("\n", strrep("=", 60), "\n")
-  cat("Computing manzana-specific monthly climatology for", index_name, "...\n")
+  cat(sprintf("Computing %s-specific monthly climatology for %s ...\n", id_col, index_name))
   cat(strrep("=", 60), "\n")
   
   # Create a copy for imputation
-  df_imputed <- df %>% arrange(manzana, year_month)
+  df_imputed <- df %>% arrange(.data[[id_col]], year_month)
   
   # Column names
   mean_col <- paste0("mean_", tolower(index_name))
   flag_col <- paste0("imputed_", tolower(index_name))
   
-  # Calculate climatology: mean index for each (manzana, month) across all years
+  # Calculate climatology: mean index for each (ID, month) across all years
   # Extract month from year_month format (YYYY_MM)
   df_for_clim <- df_imputed %>%
     mutate(month = as.integer(substr(year_month, 6, 7))) %>%
-    select(manzana, month, !!mean_col)
+    select(all_of(c(id_col, "month", mean_col)))
   
   climatology <- df_for_clim %>%
-    group_by(manzana, month) %>%
+    group_by(.data[[id_col]], month) %>%
     summarise(
       climatology_mean = mean(!!sym(mean_col), na.rm = TRUE),
       n_obs = sum(!is.na(!!sym(mean_col))),
       .groups = "drop"
     )
   
-  cat(sprintf("  Climatology computed for %d (manzana, month) combinations\n", 
-              nrow(climatology)))
-  cat(sprintf("  Average observations per (manzana, month): %.1f\n", 
+  cat(sprintf("  Climatology computed for %d (%s, month) combinations\n", 
+              nrow(climatology), id_col))
+  cat(sprintf("  Average observations per (%s, month): %.1f\n", 
+              id_col,
               mean(climatology$n_obs, na.rm = TRUE)))
   
   # Merge climatology back
   df_imputed <- df_imputed %>%
     mutate(month = as.integer(substr(year_month, 6, 7))) %>%
-    left_join(climatology, by = c("manzana", "month"))
+    left_join(climatology, by = c(id_col, "month"))
   
   # Identify missing values before imputation
   missing_mask <- is.na(df_imputed[[mean_col]])
@@ -1721,22 +2138,22 @@ impute_NDXI_index <- function(df, index_name) {
   cat(sprintf("\nAnalyzing %d missing %s values for imputation strategy...\n", 
               n_missing_before, index_name))
   
-  # Check for adjacent time points within each manzana
+  # Check for adjacent time points within each ID
   # Note: year_month is in YYYY_MM format, so we can sort as character
   df_imputed <- df_imputed %>%
-    arrange(manzana, year_month) %>%
-    group_by(manzana) %>%
+    arrange(.data[[id_col]], year_month) %>%
+    group_by(.data[[id_col]]) %>%
     mutate(
       prev_value = lag(!!sym(mean_col), 1),
       next_value = lead(!!sym(mean_col), 1),
       is_missing = is.na(!!sym(mean_col)),
       has_both_neighbors = is_missing & !is.na(prev_value) & !is.na(next_value),
-      sufficient_clim = n_obs >= 3
+      sufficient_clim = n_obs >= min_clim_obs
     ) %>%
     ungroup()
   
   # Step 1: Interpolate where BOTH neighbors exist
-  cat("\nStep 1: Interpolating where BOTH neighbors exist within manzana...\n")
+  cat(sprintf("\nStep 1: Interpolating where BOTH neighbors exist within each %s...\n", id_col))
   
   n_interpolated <- sum(df_imputed$has_both_neighbors, na.rm = TRUE)
   
@@ -1758,15 +2175,15 @@ impute_NDXI_index <- function(df, index_name) {
   df_imputed <- df_imputed %>%
     mutate(
       is_missing = is.na(!!sym(mean_col)),
-      use_manzana_clim = is_missing
+      use_unit_clim = is_missing & sufficient_clim & !is.na(climatology_mean)
     )
   
-  n_climatology_manzana <- sum(df_imputed$use_manzana_clim, na.rm = TRUE)
+  n_climatology_unit <- sum(df_imputed$use_unit_clim, na.rm = TRUE)
   
   df_imputed <- df_imputed %>%
     mutate(
       !!mean_col := case_when(
-        use_manzana_clim ~ climatology_mean,
+        use_unit_clim ~ climatology_mean,
         TRUE ~ !!sym(mean_col)
       )
     )
@@ -1781,15 +2198,15 @@ impute_NDXI_index <- function(df, index_name) {
   cat("\n", strrep("=", 60), "\n")
   cat(sprintf("%s Imputation Summary:\n", index_name))
   cat(sprintf("  ✓ Interpolated (both neighbors present): %d\n", n_interpolated))
-  cat(sprintf("  ✓ Manzana-specific climatology: %d\n", n_climatology_manzana))
-  cat(sprintf("  Total imputed: %d\n", n_interpolated + n_climatology_manzana))
+  cat(sprintf("  ✓ %s-specific climatology (n_obs >= %d): %d\n", id_col, min_clim_obs, n_climatology_unit))
+  cat(sprintf("  Total imputed: %d\n", n_interpolated + n_climatology_unit))
   cat(sprintf("  Missing values remaining: %d\n", n_missing_after))
   cat(strrep("=", 60), "\n")
   
   # Clean up temporary columns
   df_imputed <- df_imputed %>%
     select(-c(month, climatology_mean, n_obs, prev_value, next_value, 
-          is_missing, has_both_neighbors, sufficient_clim, use_manzana_clim,
+          is_missing, has_both_neighbors, sufficient_clim, use_unit_clim,
           was_missing_before))
   
   cat(sprintf("\n✓ %s imputation complete. Final dataset: %d rows\n\n", 
@@ -1800,15 +2217,18 @@ impute_NDXI_index <- function(df, index_name) {
 ```
 
 ```{r apply imputation to NDVI}
-env_all <- impute_NDXI_index(env_all, "NDVI")
+env_all <- impute_NDXI_index(env_all,id_col = "manzana", "NDVI")
+env_all_cmf <- impute_NDXI_index(env_all_cmf,id_col = "cmf", "NDVI")
 ```
 
 ```{r apply imputation to NDMI}
-env_all <- impute_NDXI_index(env_all, "NDMI")
+env_all <- impute_NDXI_index(env_all,id_col = "manzana", "NDMI")
+env_all_cmf <- impute_NDXI_index(env_all_cmf,id_col = "cmf", "NDMI")
 ```
 
 ```{r apply imputation to NDWI}
-env_all <- impute_NDXI_index(env_all, "NDWI")
+env_all <- impute_NDXI_index(env_all,id_col = "manzana", "NDWI")
+env_all_cmf <- impute_NDXI_index(env_all_cmf,id_col = "cmf", "NDWI")
 ```
 
 ```{r visualize imputation results for NDVI, NDMI, NDWI}
@@ -1906,6 +2326,9 @@ ggsave(
 # Remove imputation flag columns before exporting/final joins
 env_all <- env_all %>%
   select(-starts_with("imputed_"))
+
+env_all_cmf <- env_all_cmf %>%
+  select(-starts_with("imputed_"))
 ```
 
 ```{r save the environmental dataset with missing data imputed}
@@ -1915,6 +2338,8 @@ final_env_data_path_1 <-  "/media/rita/New Volume/Documenten/DI-MOB/Other Data/E
 write_csv(env_all, file.path(final_env_data_path, "all_environmental_data_per_manzana_2016_01_to_2019_12_imputed.csv"))
 write_csv(env_all, file.path(final_env_data_path_1, "all_environmental_data_per_manzana_2016_01_to_2019_12_imputed.csv"))
 
+write_csv(env_all_cmf, file.path(final_env_data_path, "all_environmental_data_per_cmf_2016_01_to_2019_12_imputed.csv"))
+write_csv(env_all_cmf, file.path(final_env_data_path_1, "all_environmental_data_cmf_2016_01_to_2019_12_imputed.csv"))
 ```
 
 # Merge ento-epi with environmental data
@@ -1935,6 +2360,46 @@ ento_epi_join <- ento_epi_data %>%
   filter(year_month >= "2016_01" & year_month <= "2019_12") %>%
   select(manzana, year_month, Inspected_houses, Houses_pos_IS, cases, CMF, CP, AREA) 
 head(ento_epi_join)
+
+
+ento_epi_join_cmf <- ento_epi_data %>%
+  mutate(
+    AS = trimws(AREA),
+    CMF = trimws(CMF),
+    AS_CMF = paste0(AS, "_", CMF)
+  ) %>%
+  select(-CMF) %>%
+  rename(manzana = "CODIGO_DIMOB") %>%
+  mutate(
+    year_month = format(year_month, "%Y_%m"),  # convert Date to "YYYY_MM" format
+    cmf = AS_CMF  # rename to match env_all
+  ) %>%
+  filter(year_month >= "2016_01" & year_month <= "2019_12") %>%
+  select(cmf, year_month, Inspected_houses, Houses_pos_IS, cases,manzana, CP, AREA) 
+head(ento_epi_join_cmf)
+
+```
+
+## Aggregate the entomological and epidemiological data to CMF level 
+
+```{r check number distincs mzs per cmf}
+# Check the aggregation ratio
+ento_epi_join_cmf %>%
+  group_by(cmf) %>%
+  summarise(n_manzanas = n_distinct(manzana)) %>%
+  summary()
+```
+
+
+### Epidemiological data -> sum (cases)
+```{r}
+
+```
+
+
+### Entomological data -> 
+```{r}
+
 ```
 
 ## Join ento-epi with environmental data
