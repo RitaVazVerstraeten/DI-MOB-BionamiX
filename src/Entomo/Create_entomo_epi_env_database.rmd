@@ -2391,20 +2391,26 @@ ento_epi_join_cmf %>%
 ```
 
 
-### Epidemiological data -> sum (cases)
-```{r}
+### Epidemiological & Entomological data -> sum
+```{r aggregate manzana cases and mosquitoes to CMF}
+ento_epi_join_cmf <- ento_epi_join_cmf %>%
+  group_by(cmf, year_month) %>%
+  summarise(
+    cases            = sum(cases,            na.rm = TRUE),
+    Houses_pos_IS    = sum(Houses_pos_IS,    na.rm = TRUE),
+    Inspected_houses = sum(Inspected_houses, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(year_month, cmf)
+
+
 
 ```
 
-
-### Entomological data -> 
-```{r}
-
-```
 
 ## Join ento-epi with environmental data
 
-```{r join ento_epi with environmental data}
+```{r join ento_epi with environmental data manzana level}
 
 # Filter env_all to only include months that have ento_epi data (2016-04 onwards)
 final_dataset <- ento_epi_join %>%
@@ -2428,6 +2434,32 @@ cat("  - Houses_pos_IS missing:", sum(is.na(final_dataset$Houses_pos_IS)), "\n")
 cat("  - cases missing:", sum(is.na(final_dataset$cases)), "\n")
 
 missing_ento_epi_join <- final_dataset %>%
+  filter(is.na(Inspected_houses) & is.na(Houses_pos_IS) & is.na(cases))
+```
+
+```{r join ento_epi with environmental data CMF level}
+
+final_dataset_cmf <- ento_epi_join_cmf %>%
+  left_join(env_all_cmf, by = c("cmf", "year_month"))
+
+cat("\n=== FINAL DATASET ===\n")
+cat("Dimensions:", nrow(final_dataset_cmf), "x", ncol(final_dataset_cmf), "\n")
+cat("\nColumn names:\n")
+print(colnames(final_dataset_cmf))
+
+cat("\nFirst few rows:\n")
+head(final_dataset_cmf)
+
+cat("\n\nMissing values in final dataset:\n")
+print(colSums(is.na(final_dataset_cmf)))
+
+cat("\n\nData type summary:\n")
+cat("Entomological data (Inspected_houses, Houses_pos_IS, cases):\n")
+cat("  - Inspected_houses missing:", sum(is.na(final_dataset_cmf$Inspected_houses)), "\n")
+cat("  - Houses_pos_IS missing:", sum(is.na(final_dataset_cmf$Houses_pos_IS)), "\n")
+cat("  - cases missing:", sum(is.na(final_dataset_cmf$cases)), "\n")
+
+missing_ento_epi_join_cmf <- final_dataset_cmf %>%
   filter(is.na(Inspected_houses) & is.na(Houses_pos_IS) & is.na(cases))
 ```
 
@@ -2583,7 +2615,7 @@ final_dataset <- final_dataset %>%
 
 
 ## Save final merged dataset
-```{r save final dataset with environmental entomological and epi data}
+```{r save final dataset with environmental entomological and epi data MZ and cmf}
 final_epi_entomo_env_data_path <- "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data"
 final_epi_entomo_env_data_path_1 <- "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality"
 final_epi_entomo_env_data_path_2 <- "/home/rita/PyProjects/DI-MOB-BionamiX/data"
@@ -2591,6 +2623,10 @@ final_epi_entomo_env_data_path_2 <- "/home/rita/PyProjects/DI-MOB-BionamiX/data"
 write_csv(final_dataset, file.path(final_epi_entomo_env_data_path, "env_epi_entomo_data_per_manzana_2016_01_to_2019_12.csv"))
 write_csv(final_dataset, file.path(final_epi_entomo_env_data_path_1, "env_epi_entomo_data_per_manzana_2016_01_to_2019_12.csv"))
 write_csv(final_dataset, file.path(final_epi_entomo_env_data_path_2, "env_epi_entomo_data_per_manzana_2016_01_to_2019_12.csv"))
+
+write_csv(final_dataset_cmf, file.path(final_epi_entomo_env_data_path, "env_epi_entomo_data_per_CMF_2016_01_to_2019_12.csv"))
+write_csv(final_dataset_cmf, file.path(final_epi_entomo_env_data_path_1, "env_epi_entomo_data_per_CMF_2016_01_to_2019_12.csv"))
+write_csv(final_dataset_cmf, file.path(final_epi_entomo_env_data_path_2, "env_epi_entomo_data_per_CMF_2016_01_to_2019_12.csv"))
 ```
 
 # Correcting for colinnearity (check Descriptive Statistics for measures of colinnearity)
@@ -2604,6 +2640,14 @@ resid_fit <- lm(precip_max_day ~ precip_cat, data = env_epi_ento, na.action = na
 
 env_epi_ento <- env_epi_ento %>%
   mutate(precip_max_day_resid = resid(resid_fit))
+
+env_epi_ento_cmf <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_CMF_2016_01_to_2019_12.csv")
+
+# na.exclude pads residuals with NA for missing rows so lengths match the dataframe
+resid_fit <- lm(precip_max_day ~ precip_cat, data = env_epi_ento_cmf, na.action = na.exclude)
+
+env_epi_ento_cmf <- env_epi_ento_cmf %>%
+  mutate(precip_max_day_resid = resid(resid_fit))
 ```
 
 # Save the final dataset 
@@ -2611,4 +2655,9 @@ env_epi_ento <- env_epi_ento %>%
 write_csv(env_epi_ento, file.path(final_epi_entomo_env_data_path, "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv"))
 write_csv(env_epi_ento, file.path(final_epi_entomo_env_data_path_1, "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv"))
 write_csv(env_epi_ento, file.path(final_epi_entomo_env_data_path_2, "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv"))
+
+
+write_csv(env_epi_ento_cmf, file.path(final_epi_entomo_env_data_path, "env_epi_entomo_data_per_CMF_2016_01_to_2019_12_noColinnearity.csv"))
+write_csv(env_epi_ento_cmf, file.path(final_epi_entomo_env_data_path_1, "env_epi_entomo_data_per_CMF_2016_01_to_2019_12_noColinnearity.csv"))
+write_csv(env_epi_ento_cmf, file.path(final_epi_entomo_env_data_path_2, "env_epi_entomo_data_per_CMF_2016_01_to_2019_12_noColinnearity.csv"))
 ```
