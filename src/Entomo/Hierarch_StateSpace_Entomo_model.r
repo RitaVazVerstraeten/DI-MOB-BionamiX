@@ -73,7 +73,7 @@ cfg <- list(
   numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
 
   # MCMC
-  chains = 3,
+  chains = 2,
   iter_warmup = 500,
   iter_sampling = 500,
   # thin = 2,
@@ -460,64 +460,6 @@ if (cfg$plot_ppc) {
   save_ppc(df, fit, plots_output_dir, model_spec)
 }
 
-# Robust traceplot generation: only plot parameters that exist in the fit object
-if (cfg$plot_traceplots) {
-  cat("Generating trace plots...\n")
-  if (!requireNamespace("bayesplot", quietly = TRUE)) {
-    cat("bayesplot package not installed; skipping trace plots.\n")
-  } else {
-    library(bayesplot)
-
-    # Use metadata (cheap) instead of fit$summary() (expensive — summarises all
-    # generated quantities and can hang/crash on large models)
-    model_vars <- fit$metadata()$stan_variables
-
-    # Whitelist: scalar/vector model parameters worth tracing
-    # sigma_w is a vector[K] — drawn by root name, elements appear in the plot
-    scalar_include <- c("alpha", "sigma_gp", "rho_gp", "sigma_icar",
-                        "sigma_spatial", "phi_mix", "sigma_w",
-                        "delta1",
-                        "sigma_v", "rho", "sigma_block_dev",
-                        "sigma_time", "sigma_block",
-                        "phi")
-    scalar_vars <- intersect(scalar_include, model_vars)
-
-    # Helper: save chunked traceplots (avoids huge single ggplot)
-    save_trace_chunks <- function(vars, draws_arr, file_prefix, chunk_size = 12, w, h) {
-      chunks <- split(vars, ceiling(seq_along(vars) / chunk_size))
-      for (i in seq_along(chunks)) {
-        ggsave(
-          file.path(plots_output_dir, paste0(file_prefix, "_part", i, "_", model_spec, ".png")),
-          mcmc_trace(draws_arr, pars = chunks[[i]]), width = w, height = h
-        )
-      }
-    }
-
-    # Scalar/hyperparameter params
-    if (length(scalar_vars) > 0) {
-      draws_scalar <- fit$draws(variables = scalar_vars, format = "array")
-      scalar_params <- dimnames(draws_scalar)[[3]]
-      save_trace_chunks(scalar_params, draws_scalar, "traceplot_params", chunk_size = 12, w = 10, h = 8)
-    } else {
-      cat("No scalar parameters found for traceplot.\n")
-    }
-
-    # Lagged weights — draw by root name "w"; get element names from array dims
-    if ("w" %in% model_vars) {
-      draws_w  <- fit$draws(variables = "w", format = "array")
-      w_params <- dimnames(draws_w)[[3]]
-      cat("Plotting lag weight traceplots:", paste(w_params, collapse = ", "), "\n")
-      save_trace_chunks(w_params, draws_w, "traceplot_weights_w", chunk_size = 12, w = 12, h = 10)
-    }
-
-    # Unlagged weights
-    if ("w_unlagged" %in% model_vars) {
-      draws_wu  <- fit$draws(variables = "w_unlagged", format = "array")
-      wu_params <- dimnames(draws_wu)[[3]]
-      save_trace_chunks(wu_params, draws_wu, "traceplot_weights_unlagged", chunk_size = 12, w = 12, h = 8)
-    }
-  }
-}
 
 
 if (cfg$plot_timeseries) {
@@ -649,4 +591,65 @@ if (requireNamespace("spdep", quietly = TRUE)) {
 } else {
   cat("Skipping Stan Moran's I: package 'spdep' not installed.\n")
 }
- 
+
+# =========================
+# TRACEPLOTS - placed at the end (often cause for crash)
+# =========================
+# Robust traceplot generation: only plot parameters that exist in the fit object
+if (cfg$plot_traceplots) {
+  cat("Generating trace plots...\n")
+  if (!requireNamespace("bayesplot", quietly = TRUE)) {
+    cat("bayesplot package not installed; skipping trace plots.\n")
+  } else {
+    library(bayesplot)
+
+    # Use metadata (cheap) instead of fit$summary() (expensive — summarises all
+    # generated quantities and can hang/crash on large models)
+    model_vars <- fit$metadata()$stan_variables
+
+    # Whitelist: scalar/vector model parameters worth tracing
+    # sigma_w is a vector[K] — drawn by root name, elements appear in the plot
+    scalar_include <- c("alpha", "sigma_gp", "rho_gp", "sigma_icar",
+                        "sigma_spatial", "phi_mix", "sigma_w",
+                        "delta1",
+                        "sigma_v", "rho", "sigma_block_dev",
+                        "sigma_time", "sigma_block",
+                        "phi")
+    scalar_vars <- intersect(scalar_include, model_vars)
+
+    # Helper: save chunked traceplots (avoids huge single ggplot)
+    save_trace_chunks <- function(vars, draws_arr, file_prefix, chunk_size = 12, w, h) {
+      chunks <- split(vars, ceiling(seq_along(vars) / chunk_size))
+      for (i in seq_along(chunks)) {
+        ggsave(
+          file.path(plots_output_dir, paste0(file_prefix, "_part", i, "_", model_spec, ".png")),
+          mcmc_trace(draws_arr, pars = chunks[[i]]), width = w, height = h
+        )
+      }
+    }
+
+    # Scalar/hyperparameter params
+    if (length(scalar_vars) > 0) {
+      draws_scalar <- fit$draws(variables = scalar_vars, format = "array")
+      scalar_params <- dimnames(draws_scalar)[[3]]
+      save_trace_chunks(scalar_params, draws_scalar, "traceplot_params", chunk_size = 12, w = 10, h = 8)
+    } else {
+      cat("No scalar parameters found for traceplot.\n")
+    }
+
+    # Lagged weights — draw by root name "w"; get element names from array dims
+    if ("w" %in% model_vars) {
+      draws_w  <- fit$draws(variables = "w", format = "array")
+      w_params <- dimnames(draws_w)[[3]]
+      cat("Plotting lag weight traceplots:", paste(w_params, collapse = ", "), "\n")
+      save_trace_chunks(w_params, draws_w, "traceplot_weights_w", chunk_size = 12, w = 12, h = 10)
+    }
+
+    # Unlagged weights
+    if ("w_unlagged" %in% model_vars) {
+      draws_wu  <- fit$draws(variables = "w_unlagged", format = "array")
+      wu_params <- dimnames(draws_wu)[[3]]
+      save_trace_chunks(wu_params, draws_wu, "traceplot_weights_unlagged", chunk_size = 12, w = 12, h = 8)
+    }
+  }
+}
