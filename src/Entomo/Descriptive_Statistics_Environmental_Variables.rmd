@@ -1440,79 +1440,78 @@ if (exists("manzana_month_positivity")) {
 
 First create a unique Area_CMF indicator 
 ```{r create CMF indicator Area_CMF}
-env_epi_ento_CMF <- env_epi_ento %>% 
-  mutate(Area_CMF = paste(AREA, CMF, sep = "_"))
+# env_epi_ento_CMF <- env_epi_ento %>% 
+#   mutate(Area_CMF = paste(AREA, CMF, sep = "_"))
+
+env_epi_ento_CMF <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_CMF_2016_01_to_2019_12.csv")
+
+# Ensure year_month is recognized as date/factor
+if ("year_month" %in% colnames(env_epi_ento_CMF)) {
+  env_epi_ento_CMF <- env_epi_ento_CMF %>%
+    mutate(year_month = as.factor(year_month))
+}
 ```
 
 ```{r ento_positivity_by_cmf_time, fig.cap="Mosquito positivity rates by CMF and month - heatmap of all CMFs", fig.width=16, fig.height=10}
-if (all(c("Area_CMF", "year_month", "Houses_pos_IS", "Inspected_houses") %in% colnames(env_epi_ento_CMF))) {
-  # Calculate positivity for each CMF-month combination (aggregate to CMF level)
-  cmf_month_positivity <- env_epi_ento_CMF %>%
-    select(AREA, Area_CMF, year_month, Houses_pos_IS, Inspected_houses) %>%
-    drop_na() %>%
-    group_by(Area_CMF, year_month) %>%
-    summarise(
-      Positivity_Rate = sum(Houses_pos_IS) / sum(Inspected_houses) * 100,
-      N_Houses_Inspected = sum(Inspected_houses),
-      .groups = "drop"
-    )
-  
-  # Get all Area_CMFs ordered first by Area_CMF, then by mean positivity
-  cmf_order <- cmf_month_positivity %>%
-    group_by(Area_CMF) %>%
-    summarise(Mean_Pos = mean(Positivity_Rate, na.rm = TRUE), .groups = "drop") %>%
-    arrange(Area_CMF, desc(Mean_Pos)) %>%
-    pull(Area_CMF)
-  
-  # Prepare data with ordered Area_CMFs
-  cmf_heatmap_data <- cmf_month_positivity %>%
-    mutate(
-      Area_CMF = factor(Area_CMF, levels = cmf_order),
-      year_month = factor(year_month)
-    )
-  
-  # Create heatmap
-  p <- ggplot(cmf_heatmap_data, aes(x = Area_CMF, y = year_month, fill = Positivity_Rate)) +
-    geom_tile(color = "gray30", linewidth = 0.1) +
-    scale_fill_viridis_c(option = "YlOrRd", direction = 1, na.value = "white", 
-                         limits = c(0, 110), trans = "log1p") +
-    theme_minimal() +
-    theme(
-      axis.text.y = element_text(vjust = 0.5, hjust = 1, size = 8),
-      axis.text.x = element_text(angle = 90, size = 9),
-      plot.title = element_text(face = "bold", size = 12),
-      legend.title = element_text(size = 10),
-      panel.grid = element_blank()
-    ) +
-    labs(
-      title = "Mosquito Positivity Rates Over Time - All Area_CMFs (Ordered by Area then Mean Positivity)",
-      x = "Area_CMF",
-      y = "Year-Month",
-      fill = "Positivity\nRate (%)"
-    )
-  
-  print(p)
-  ggsave(file.path(output_dir, "15_ento_positivity_heatmap_cmf_time.png"), p, width = 20, height = 10, dpi = 300)
-} else {
-  cat("Note: CMF or required variables not found in dataset.\n")
-}
+
+
+# CALCULATE POSITIVITY RATE FIRST 
+env_epi_ento_CMF <- env_epi_ento_CMF %>%
+  mutate(Positivity_Rate = Houses_pos_IS / Inspected_houses * 100)
+
+# Get all Area_CMFs ordered first by Area_CMF, then by mean positivity
+cmf_order <- env_epi_ento_CMF %>%
+  group_by(cmf) %>%
+  summarise(Mean_Pos = mean(Positivity_Rate, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(Mean_Pos)) %>%
+  pull(cmf)
+
+# Prepare data with ordered Area_CMFs
+cmf_heatmap_data <- env_epi_ento_CMF %>%
+  mutate(
+    cmf = factor(cmf, levels = cmf_order),
+    year_month = factor(year_month)
+  )
+
+# Create heatmap
+p <- ggplot(cmf_heatmap_data, aes(x = cmf, y = year_month, fill = Positivity_Rate)) +
+  geom_tile(color = "gray30", linewidth = 0.1) +
+  scale_fill_viridis_c(option = "YlOrRd", direction = 1, na.value = "white", 
+                        limits = c(0, 110), trans = "log1p") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(vjust = 0.5, hjust = 1, size = 8),
+    axis.text.x = element_text(angle = 90, size = 9),
+    plot.title = element_text(face = "bold", size = 12),
+    legend.title = element_text(size = 10),
+    panel.grid = element_blank()
+  ) +
+  labs(
+    title = "Mosquito Positivity Rates Over Time - All CMFs (Ordered Mean Positivity)",
+    x = "CMF",
+    y = "Year-Month",
+    fill = "Positivity\nRate (%)"
+  )
+
+print(p)
+ggsave(file.path(output_dir, "15_ento_positivity_heatmap_cmf_time.png"), p, width = 20, height = 10, dpi = 300)
 ```
 
 
 
 ```{r ento_positivity_25_cmfs, fig.cap="Temporal positivity trend for 16 randomly selected CMFs", fig.width=14, fig.height=10}
-if (exists("cmf_month_positivity")) {
+if (exists("env_epi_ento_CMF")) {
   set.seed(123)
-  selected_cmfs <- sample(unique(cmf_month_positivity$Area_CMF), 25)
+  selected_cmfs <- sample(unique(env_epi_ento_CMF$cmf), 25)
 
-  trend_data_cmf <- cmf_month_positivity %>%
-    filter(Area_CMF %in% selected_cmfs) %>%
+  trend_data_cmf <- env_epi_ento_CMF %>%
+    filter(cmf %in% selected_cmfs) %>%
     mutate(year_month_date = as.Date(paste0(year_month, "_01"), "%Y_%m_%d"))
 
   p_trend_cmf <- ggplot(trend_data_cmf, aes(x = year_month_date, y = Positivity_Rate)) +
     geom_line(colour = "#4a90c4", linewidth = 0.6) +
     geom_point(colour = "#4a90c4", size = 1.5) +
-    facet_wrap(~Area_CMF, ncol = 5, scales = "free_y") +
+    facet_wrap(~cmf, ncol = 5, scales = "free_y") +
     scale_x_date(date_labels = "%Y", date_breaks = "1 year") +
     labs(
       title    = "Temporal positivity trend — 25 randomly selected CMFs",
@@ -1535,10 +1534,10 @@ if (exists("cmf_month_positivity")) {
 ### Spatial Map of Mosquito Positivity by CMF
 
 ```{r ento_spatial_map_cmf, fig.cap="Spatial distribution of mosquito positivity rates across CMFs - handled for zero-inflation"}
-if (exists("cmf_month_positivity") && exists("CMFs")) {
+if (exists("env_epi_ento_CMF") && exists("CMFs")) {
   # Aggregate mean positivity per CMF across all time periods
-  cmf_pos_map <- cmf_month_positivity %>%
-    group_by(Area_CMF) %>%
+  cmf_pos_map <- env_epi_ento_CMF %>%
+    group_by(cmf) %>%
     summarise(
       Positivity_Rate = mean(Positivity_Rate, na.rm = TRUE),
       .groups = "drop"
@@ -1552,7 +1551,7 @@ if (exists("cmf_month_positivity") && exists("CMFs")) {
 
   # Join positivity data to shapefile
   cmfs_ento <- cmfs_map %>%
-    left_join(cmf_pos_map, by = "Area_CMF")
+    left_join(cmf_pos_map, by = c("Area_CMF" = "cmf"))
 
   # Quantile-based categories to handle zero-inflation
   cmfs_ento <- cmfs_ento %>%
@@ -1623,7 +1622,7 @@ if (exists("cmf_month_positivity") && exists("CMFs")) {
 
 Check whether IS posivity rate within manzanas show autocorrelation to their previous timestep.
 temporal correlation is calculated across all manzanas, comparing each month’s positivity rate to the previous month’s rate within the same manzana 
-```{r temporal autocorrelation in positivity index}
+```{r temporal autocorrelation in positivity index at manzana level}
 # # Temporal autocorrelation for IS positivity index per manzana
 library(dplyr)
 library(ggplot2)
@@ -1647,7 +1646,7 @@ print(autocorr_result)
 # Optionally, plot for visual inspection
 ggplot(ento, aes(x = pos_rate_lag1, y = pos_rate)) +
   geom_point(alpha = 0.5) +
-  labs(title = "IS Positivity Rate Autocorrelation (Lag 1)",
+  labs(title = "IS Positivity Rate Autocorrelation (Lag 1) manzana level",
        x = "Previous Month Positivity Rate",
        y = "Current Month Positivity Rate",
       subtitle = paste("Correlation: ", round(autocorr_result$correlation, 3))) +
@@ -1675,6 +1674,33 @@ ggplot(ento_nonull, aes(x = pos_rate_lag1, y = pos_rate)) +
   theme_minimal()
 ```
 After removal of null values (98% of the data), the correlation is very large ...
+
+
+```{r temporal autocorrelation in positivity index at CMF level}
+# Assume df contains columns: block (manzana), year_month_date, y_bt (positives), n_bt (total tested)
+# If your data frame is named differently, adjust 'df' accordingly
+ento_cmf <- env_epi_ento_CMF
+ento_cmf <- ento_cmf %>%
+  arrange(cmf, year_month) %>%
+  group_by(cmf) %>%
+  mutate(Positivity_Rate_lag1 = lag(Positivity_Rate, 1)) %>%
+  ungroup()
+
+# Check autocorrelation: correlation between pos_rate and pos_rate_lag1
+autocorr_result <- ento_cmf %>%
+  filter(!is.na(Positivity_Rate) & !is.na(Positivity_Rate_lag1)) %>%
+  summarise(correlation = cor(Positivity_Rate, Positivity_Rate_lag1))
+print(autocorr_result)
+
+# Optionally, plot for visual inspection
+ggplot(ento_cmf, aes(x = Positivity_Rate_lag1, y = Positivity_Rate)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "IS Positivity Rate Autocorrelation (Lag 1) CMF level",
+       x = "Previous Month Positivity Rate",
+       y = "Current Month Positivity Rate",
+      subtitle = paste("Correlation: ", round(autocorr_result$correlation, 3))) +
+  theme_minimal()
+```
 
 ## Spatial auto-correlation 
 
@@ -1713,6 +1739,23 @@ mosquito_manzana <- env_epi_ento %>%
 # Join with manzanas shapefile
 manzanas_mosquito <- manzanas %>%
   left_join(mosquito_manzana, by = c("CODIGO_" = "manzana"))
+
+# FOR CMF LEVEL
+mosquito_cmf <- env_epi_ento_CMF %>%
+  select(cmf, Houses_pos_IS, Inspected_houses, cases) %>%
+  drop_na() %>%
+  group_by(cmf) %>%
+  summarise(
+    Total_Houses_Inspected = sum(Inspected_houses),
+    Total_Positive_Houses = sum(Houses_pos_IS),
+    Positivity_Rate = sum(Houses_pos_IS) / sum(Inspected_houses) * 100,
+    Total_Cases = sum(cases),
+    .groups = "drop"
+  )
+
+# Join with manzanas shapefile
+mosquito_cmf <- cmfs_map %>%
+  left_join(mosquito_cmf, by = c("Area_CMF" = "cmf"))
 ```
 
 Check the Coordinate Reference System (CRS)
@@ -1724,6 +1767,19 @@ print(st_crs(manzanas_mosquito))
 
 # Check if CRS is projected (needed for distance calculations in meters)
 if (st_is_longlat(manzanas_mosquito)) {
+  cat("\nWarning: CRS is geographic (lon/lat), not projected.\n")
+  cat("Distance calculations will be in degrees, not meters.\n")
+  cat("Consider transforming to a projected CRS for meaningful distance metrics.\n")
+} else {
+  cat("\nCRS is projected. Distance calculations will be in the units of the CRS.\n")
+}
+
+
+cat("CRS of mosquito_cmf:\n")
+print(st_crs(mosquito_cmf))
+
+# Check if CRS is projected (needed for distance calculations in meters)
+if (st_is_longlat(mosquito_cmf)) {
   cat("\nWarning: CRS is geographic (lon/lat), not projected.\n")
   cat("Distance calculations will be in degrees, not meters.\n")
   cat("Consider transforming to a projected CRS for meaningful distance metrics.\n")
@@ -2230,6 +2286,226 @@ if (!any(is.na(vg_fit$psill))) {
 print(p)
 ggsave(file.path(output_dir, "16_variogram_positivity_rate.png"), p, width = 10, height = 6, dpi = 300)
 ```
+
+## Spatial autocorrelation at CMF level 
+```{r cmf_morans_exponential_prep}
+# Ensure CMF geometry + key exist
+if (!exists("cmfs_map")) {
+  cmfs_map <- CMFs %>%
+    mutate(Area_CMF = paste(AS, CMF, sep = "_"))
+}
+
+# Build CMF-level positivity map if not already present
+if (!exists("mosquito_cmf")) {
+  mosquito_cmf_df <- env_epi_ento_CMF %>%
+    group_by(cmf) %>%
+    summarise(
+      Positivity_Rate = sum(Houses_pos_IS, na.rm = TRUE) / sum(Inspected_houses, na.rm = TRUE) * 100,
+      .groups = "drop"
+    )
+
+  mosquito_cmf <- cmfs_map %>%
+    left_join(mosquito_cmf_df, by = c("Area_CMF" = "cmf"))
+}
+
+# Distances for CMFs with valid positivity
+valid_idx_cmf <- !is.na(mosquito_cmf$Positivity_Rate)
+positivity_cmf_clean <- mosquito_cmf$Positivity_Rate[valid_idx_cmf]
+
+centroids_cmf <- st_centroid(st_geometry(mosquito_cmf))
+dist_matrix_cmf <- units::drop_units(as.matrix(st_distance(centroids_cmf[valid_idx_cmf])))
+diag(dist_matrix_cmf) <- NA_real_
+
+cat("Total CMFs:", nrow(mosquito_cmf), "\n")
+cat("CMFs with valid positivity:", sum(valid_idx_cmf), "\n")
+```
+
+
+```{r morans_i_exponential_weighting_cmf}
+# Non-cumulative distance bands (annuli), multiple phi
+distance_breaks <- seq(0, 1000, by = 50)
+phi_values <- c(50, 100, 200, 400, 800)
+
+moran_by_distance_cmf <- data.frame()
+
+for (phi in phi_values) {
+  for (i in 2:length(distance_breaks)) {
+    d_low  <- distance_breaks[i - 1]
+    d_high <- distance_breaks[i]
+
+    w <- exp(-dist_matrix_cmf / phi)
+    diag(w) <- 0
+    w[is.na(dist_matrix_cmf)] <- 0
+    w[dist_matrix_cmf <= d_low | dist_matrix_cmf > d_high] <- 0
+
+    if (sum(w > 0, na.rm = TRUE) == 0) {
+      moran_by_distance_cmf <- rbind(
+        moran_by_distance_cmf,
+        data.frame(
+          phi = phi,
+          Distance_from_m = d_low,
+          Distance_to_m = d_high,
+          Distance_mid_m = (d_low + d_high) / 2,
+          Morans_I = NA_real_,
+          P_Value = NA_real_,
+          Significant = NA
+        )
+      )
+      next
+    }
+
+    lw <- mat2listw(w, style = "W", zero.policy = TRUE)
+    mt <- moran.test(positivity_cmf_clean, lw, zero.policy = TRUE)
+
+    moran_by_distance_cmf <- rbind(
+      moran_by_distance_cmf,
+      data.frame(
+        phi = phi,
+        Distance_from_m = d_low,
+        Distance_to_m = d_high,
+        Distance_mid_m = (d_low + d_high) / 2,
+        Morans_I = unname(mt$estimate[["Moran I statistic"]]),
+        P_Value = mt$p.value,
+        Significant = mt$p.value < 0.05
+      )
+    )
+  }
+}
+
+print(moran_by_distance_cmf)
+
+plot_data_cmf <- moran_by_distance_cmf %>%
+  filter(!is.na(Morans_I)) %>%
+  mutate(phi = factor(phi, levels = sort(unique(phi))))
+
+p_moran_phi_cmf <- ggplot(plot_data_cmf, aes(x = Distance_mid_m, y = Morans_I, color = phi, group = phi)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  theme_minimal() +
+  labs(
+    title = "Moran's I Correlogram by Distance Band (CMF)",
+    subtitle = "Exponential distance weighting: w = exp(-d / phi)",
+    x = "Distance band midpoint (m)",
+    y = "Moran's I",
+    color = "phi (m)"
+  )
+
+print(p_moran_phi_cmf)
+ggsave(file.path(output_dir, "cmf_exp_moransI_correlogram_multi_phi.png"),
+       p_moran_phi_cmf, width = 11, height = 7, dpi = 300)
+
+```
+
+
+```{r morans_i_by_year_exponential_cmf}
+# Fixed biologically-motivated phi (change to 400 if preferred)
+phi_bio <- 150
+distance_breaks <- seq(0, 1000, by = 50)
+
+moran_year_cmf_df <- data.frame()
+
+years_avail_cmf <- sort(unique(lubridate::year(
+  as.Date(paste0(gsub("_", "-", as.character(env_epi_ento_CMF$year_month)), "-01"))
+)))
+
+for (yr in years_avail_cmf) {
+
+  cmf_yr <- env_epi_ento_CMF %>%
+    mutate(year_val = lubridate::year(
+      as.Date(paste0(gsub("_", "-", as.character(year_month)), "-01"))
+    )) %>%
+    filter(year_val == yr) %>%
+    group_by(cmf) %>%
+    summarise(
+      pos_rate = sum(Houses_pos_IS, na.rm = TRUE) / sum(Inspected_houses, na.rm = TRUE) * 100,
+      .groups = "drop"
+    )
+
+  cmf_yr_sf <- cmfs_map %>%
+    left_join(cmf_yr, by = c("Area_CMF" = "cmf"))
+
+  valid_yr <- !is.na(cmf_yr_sf$pos_rate)
+  if (sum(valid_yr) < 10) next
+
+  centroids_yr <- st_centroid(st_geometry(cmf_yr_sf))
+  dist_yr <- units::drop_units(as.matrix(st_distance(centroids_yr[valid_yr])))
+  diag(dist_yr) <- NA_real_
+  pos_yr <- cmf_yr_sf$pos_rate[valid_yr]
+
+  for (i in 2:length(distance_breaks)) {
+    d_low  <- distance_breaks[i - 1]
+    d_high <- distance_breaks[i]
+
+    w <- exp(-dist_yr / phi_bio)
+    diag(w) <- 0
+    w[is.na(dist_yr)] <- 0
+    w[dist_yr <= d_low | dist_yr > d_high] <- 0
+
+    if (sum(w > 0, na.rm = TRUE) == 0) {
+      moran_year_cmf_df <- rbind(moran_year_cmf_df, data.frame(
+        year = yr, d_low = d_low, d_high = d_high,
+        d_mid = (d_low + d_high) / 2,
+        morans_I = NA_real_, p_value = NA_real_, significant = NA
+      ))
+      next
+    }
+
+    lw <- mat2listw(w, style = "W", zero.policy = TRUE)
+    mt <- tryCatch(moran.test(pos_yr, lw, zero.policy = TRUE), error = function(e) NULL)
+
+    if (is.null(mt)) {
+      moran_year_cmf_df <- rbind(moran_year_cmf_df, data.frame(
+        year = yr, d_low = d_low, d_high = d_high,
+        d_mid = (d_low + d_high) / 2,
+        morans_I = NA_real_, p_value = NA_real_, significant = NA
+      ))
+    } else {
+      moran_year_cmf_df <- rbind(moran_year_cmf_df, data.frame(
+        year = yr,
+        d_low = d_low, d_high = d_high,
+        d_mid = (d_low + d_high) / 2,
+        morans_I = unname(mt$estimate[["Moran I statistic"]]),
+        p_value = mt$p.value,
+        significant = mt$p.value < 0.05
+      ))
+    }
+  }
+}
+
+moran_year_cmf_df <- moran_year_cmf_df %>%
+  filter(!is.na(morans_I)) %>%
+  mutate(year = factor(year))
+
+p_moran_by_year_cmf <- ggplot(
+  moran_year_cmf_df,
+  aes(x = d_mid, y = morans_I, colour = year, group = year)
+) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "gray50") +
+  geom_line(linewidth = 0.8) +
+  geom_point(aes(shape = significant), size = 3) +
+  scale_shape_manual(
+    values   = c("TRUE" = 16, "FALSE" = 1),
+    labels   = c("TRUE" = "p < 0.05", "FALSE" = "p >= 0.05"),
+    na.value = 1
+  ) +
+  scale_x_continuous(breaks = seq(0, 1000, by = 100)) +
+  theme_minimal() +
+  labs(
+    title = "Moran's I correlogram by year — CMF positivity",
+    subtitle = sprintf("Exponential kernel w = exp(-d / %dm); 50m annuli", phi_bio),
+    x = "Distance between CMF centroids (m)",
+    y = "Moran's I",
+    colour = "Year",
+    shape = NULL
+  )
+
+print(p_moran_by_year_cmf)
+ggsave(file.path(output_dir, "cmf_exp_moransI_by_year.png"),
+       p_moran_by_year_cmf, width = 11, height = 5, dpi = 300)
+
+```
+
 # Descriptive statistics - Cases
 
 ## Part 1: purely temporal 
@@ -2297,7 +2573,7 @@ if (all(c("manzana", "year_month", "cases") %in% colnames(env_epi_ento))) {
       panel.grid = element_blank()
     ) +
     labs(
-      title = "Dengue Cases Over Time - All Manzanas (Ordered by Mean Case Count)",
+      title = "Dengue & ZIKA Cases Over Time - All Manzanas (Ordered by Mean Case Count)",
       x = "Manzana",
       y = "Year-Month",
       fill = "Total Cases"
@@ -2310,19 +2586,75 @@ if (all(c("manzana", "year_month", "cases") %in% colnames(env_epi_ento))) {
 }
 ```
 
+
+```{r dengue_cases_by_cmf_time, fig.cap="Dengue cases by CMF and month - heatmap of all CMFs", fig.width=16, fig.height=10}
+if (all(c("cmf", "year_month", "cases") %in% colnames(env_epi_ento_CMF))) {
+  # Calculate total cases for each cmf-month combination
+  cmf_month_cases <- env_epi_ento_CMF %>%
+    select(cmf, year_month, cases) %>%
+    drop_na() %>%
+    group_by(cmf, year_month) %>%
+    summarise(
+      Total_Cases = sum(cases),
+      .groups = "drop"
+    )
+  
+  # Get all cmfs ordered by mean case count
+  cmf_order <- cmf_month_cases %>%
+    group_by(cmf) %>%
+    summarise(Mean_Cases = mean(Total_Cases, na.rm = TRUE), .groups = "drop") %>%
+    arrange(desc(Mean_Cases)) %>%
+    pull(cmf)
+  
+  # Prepare data with ordered cmfs
+  heatmap_cases_data <- cmf_month_cases %>%
+    mutate(
+      cmf = factor(cmf, levels = cmf_order),
+      year_month = factor(year_month)
+    )
+  
+  # Create heatmap
+  p <- ggplot(heatmap_cases_data, aes(x = cmf, y = year_month, fill = Total_Cases)) +
+    geom_tile(color = "gray30", linewidth = 0.1) +
+    scale_fill_viridis_c(option = "YlOrRd", direction = 1, na.value = "white", 
+                         trans = "log1p") +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_blank(),
+      axis.text.y = element_text(vjust = 0.5, hjust = 1, size = 8),
+      plot.title = element_text(face = "bold", size = 12),
+      legend.title = element_text(size = 10),
+      panel.grid = element_blank()
+    ) +
+    labs(
+      title = "Dengue & ZIKA Cases Over Time - All cmfs (Ordered by Mean Case Count)",
+      x = "cmf",
+      y = "Year-Month",
+      fill = "Total Cases"
+    )
+  
+  print(p)
+  ggsave(file.path(output_dir, "18_dengue_cases_heatmap_cmf_time.png"), p, width = 16, height = 10, dpi = 300)
+} else {
+  cat("Note: Required columns not found in dataset.\n")
+}
+```
+
 # One-on-one correlation between positivity rate and environmental var's 
 
 ```{r reload the data}
-env_epi_ento <- read_csv("/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv")
+env_epi_ento <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv")
+env_epi_ento_CMF <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_CMF_2016_01_to_2019_12_noColinnearity.csv")
 
-env_all <- read_csv("/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/all_environmental_data_per_manzana_2016_01_to_2019_12_imputed.csv")
+# env_all <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_manzana_2016_01_to_2019_12_imputed.csv")
+# env_all_CMF <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_cmf_2016_01_to_2019_12_imputed.csv")
 ```
 
 
 ### Create the one-on-one data + Pearson correlation 
 
 #### Numerical temporal variables
-```{r env_vs_positivity_one_on_one, fig.width=16, fig.height=12, fig.cap="Temporal variables vs mosquito positivity rate"}
+```{r env_vs_positivity_one_on_one, fig.width=16, fig.height=12, fig.cap="Temporal variables vs mosquito positivity rate manzanas"}
 # Temporal-only associations (corrected: one point per month)
 
 temporal_only_vars <- c("avg_temp", "total_precip", "rel_hum", "WS2M", "precip_max_day", "precip_max_day_resid")
@@ -2368,14 +2700,14 @@ p_temporal <- ggplot(plot_data, aes(x = Value, y = Positivity_Rate)) +
   ) +
   theme_minimal() +
   labs(
-    title = "Monthly environmental variables vs monthly mosquito positivity",
+    title = "Monthly environmental variables vs monthly mosquito positivity Manzana level",
     subtitle = "One point per month (pseudo-replication removed)",
     x = "Environmental value",
     y = "Positivity rate (%)"
   )
 
 print(p_temporal)
-ggsave(file.path(output_dir, "19_temporal_env_vs_monthly_positivity.png"), p_temporal, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "19_manzana_temporal_env_vs_monthly_positivity.png"), p_temporal, width = 14, height = 8, dpi = 300)
 ```
 
 Actually, the correlation with windspeed and total_precipitation is very very low 0.03 and 0.01 respectively, while the correlation with relative humidity is higher (0.28). 
@@ -2431,14 +2763,14 @@ p_temporal_lagged <- ggplot(plot_data, aes(x = Value, y = Positivity_Rate)) +
   facet_grid(Lag ~ Variable, scales = "free_x") +
   geom_text(data = rho_tbl, aes(x = -Inf, y = Inf, label = label), hjust = -0.1, vjust = 1.2, inherit.aes = FALSE) +
   labs(
-    title = "Monthly environmental variables (1- and 2-month lag) vs monthly mosquito positivity",
+    title = "Monthly environmental variables (1- and 2-month lag) vs monthly mosquito positivity Manzana level",
     subtitle = "One point per month (pseudo-replication removed)",
     x = "Lagged Environmental value",
     y = "Positivity rate (%)"
   )
 
 print(p_temporal_lagged)
-ggsave(file.path(output_dir, "19b_temporal_env_vs_monthly_lag_0_1_2_positivity.png"), p_temporal_lagged, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "19b_manzana_temporal_env_vs_monthly_lag_0_1_2_positivity.png"), p_temporal_lagged, width = 14, height = 8, dpi = 300)
 ```
 
 ### Testing non-linear transformations of numeric variables 
@@ -2450,7 +2782,7 @@ p_temporal_lagged_quad <- ggplot(plot_data, aes(x = Value, y = Positivity_Rate))
   geom_smooth(method = "lm", formula = y ~ poly(x, 2), color = "steelblue") +
   facet_grid(Lag ~ Variable, scales = "free_x") +
   labs(
-    title = "Monthly environmental variables (1- and 2-month lag, quadratic fit) vs monthly mosquito positivity",
+    title = "Monthly environmental variables (1- and 2-month lag, quadratic fit) vs monthly mosquito positivity Manzana level",
     subtitle = "Quadratic model: y = β₀ + β₁x + β₂x² + ε",
     x = "Lagged Environmental value",
     y = "Positivity rate (%)"
@@ -2458,7 +2790,7 @@ p_temporal_lagged_quad <- ggplot(plot_data, aes(x = Value, y = Positivity_Rate))
 
 print(p_temporal_lagged_quad)
 
-ggsave(file.path(output_dir, "19b_temporal_env_vs_monthly_lag_0_1_2_positivity_quadratic.png"), p_temporal_lagged_quad, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "19b_manana_temporal_env_vs_monthly_lag_0_1_2_positivity_quadratic.png"), p_temporal_lagged_quad, width = 14, height = 8, dpi = 300)
 
 ```
 
@@ -2471,14 +2803,14 @@ p_temporal_lagged_spline <- ggplot(plot_data, aes(x = Value, y = Positivity_Rate
   geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs"), color = "steelblue") +
   facet_grid(Lag ~ Variable, scales = "free_x") +
   labs(
-    title = "Monthly environmental variables (1- and 2-month lag, spline fit) vs monthly mosquito positivity",
+    title = "Monthly environmental variables (1- and 2-month lag, spline fit) vs monthly mosquito positivity Manzana level",
     subtitle = "Spline model: y = β₀ + f(x) + ε",
     x = "Lagged Environmental value",
     y = "Positivity rate (%)"
   )
 
 print(p_temporal_lagged_spline)
-ggsave(file.path(output_dir, "19b_temporal_env_vs_monthly_lag_0_1_2_positivity_spline.png"), p_temporal_lagged_spline, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "19b_manzana_temporal_env_vs_monthly_lag_0_1_2_positivity_spline.png"), p_temporal_lagged_spline, width = 14, height = 8, dpi = 300)
 ```
 
 The spline is definitely not worth it... not better 
@@ -2524,7 +2856,7 @@ p_bin <- ggplot(binary_long, aes(x = Group, y = Positivity_Rate, fill = Group)) 
   facet_wrap(~Variable, scales = "free_x") +
   theme_minimal() +
   theme(legend.position = "none") +
-  labs(title = "Positivity by binary spatial predictors",
+  labs(title = "Positivity by binary spatial predictors - manzana level",
        x = "", y = "Positivity rate (%)")
 
 # Wilcoxon tests
@@ -2555,7 +2887,7 @@ p_bin_star <- p_bin +
   )
 
 print(p_bin_star)
-ggsave(file.path(output_dir, "20_spatial_binary_vs_positivity.png"), p_bin_star, width = 12, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "20_manzana_spatial_binary_vs_positivity.png"), p_bin_star, width = 12, height = 8, dpi = 300)
 ```
 
 The Wilcox test should signficant differences in positivity rate between yes/no of all binary variables (except water_shortage).  
@@ -2570,9 +2902,9 @@ p_land <- ggplot(land_df, aes(x = landcover, y = Positivity_Rate, fill = landcov
   theme_minimal() +
   theme(legend.position = "none",
         axis.text.x = element_text(angle = 45, hjust = 1)) +
-  labs(title = "Positivity by landcover", x = "Landcover", y = "Positivity rate (%)")
+  labs(title = "Positivity by landcover - mz", x = "Landcover", y = "Positivity rate (%)")
 print(p_land)
-ggsave(file.path(output_dir, "21_landcover_vs_positivity.png"), p_land, width = 11, height = 6, dpi = 300)
+ggsave(file.path(output_dir, "21_manzana_landcover_vs_positivity.png"), p_land, width = 11, height = 6, dpi = 300)
 
 kruskal_res <- kruskal_test(land_df, Positivity_Rate ~ landcover)
 print(kruskal_res)
@@ -2611,13 +2943,13 @@ p_alj <- ggplot(aljibes_df, aes(x = nr_aljibes_grp, y = Positivity_Rate)) +
   geom_boxplot(outlier.alpha = 0.25, fill = "steelblue", alpha = 0.7) +
   theme_minimal() +
   labs(
-    title = "Positivity by number of aljibes (ordered groups)",
+    title = "Positivity by number of aljibes (ordered groups) - manzanas",
     x = "nr_aljibes (grouped)",
     y = "Positivity rate (%)"
   )
 
 print(p_alj)
-ggsave(file.path(output_dir, "22_nr_aljibes_ordered_vs_positivity.png"),
+ggsave(file.path(output_dir, "22_manzana_nr_aljibes_ordered_vs_positivity.png"),
        p_alj, width = 10, height = 6, dpi = 300)
 
 # Global group difference test
@@ -2650,7 +2982,7 @@ Again, the Kruskal-wallis test shows that my ordinal
 
 #### Spatio-temporal variables (NDXI's)
 
-```{r}
+```{r ndxi per manzana}
 
 manzana_outcome <- env_epi_ento %>%
   group_by(manzana) %>%
@@ -2681,7 +3013,7 @@ p_st <- ggplot(st_df, aes(x = Value, y = Positivity_Rate)) +
   geom_point(alpha = 0.6, color = "darkred") +
   facet_wrap(~Variable, scales = "free_x", ncol = 3) +
   theme_minimal() +
-  labs(title = "Positivity rate vs NDVI, NDMI, NDWI",
+  labs(title = "Positivity rate vs NDVI, NDMI, NDWI manzana level",
        x = "Index value",
        y = "Positivity rate (%)")
 
@@ -2714,7 +3046,387 @@ p_st_ann <- p_st +
   )
 
 print(p_st_ann)
-ggsave(file.path(output_dir, "25_spatiotemporal_vs_positivity.png"), p_st_ann, width = 14, height = 6, dpi = 300)
+ggsave(file.path(output_dir, "25_manzana_spatiotemporal_vs_positivity.png"), p_st_ann, width = 14, height = 6, dpi = 300)
 ```
 
 Significant correlations over all three variables, positive for NDWI, negative for NDVI and NDMI
+
+
+## One-on-one correlation between positivity rate and environmental var's - CMF level
+
+### Create the one-on-one data + Pearson correlation (CMF)
+
+#### Numerical temporal variables
+```{r env_vs_positivity_one_on_one_cmf, fig.width=16, fig.height=12, fig.cap="Temporal variables vs mosquito positivity rate CMF"}
+# Temporal-only associations at CMF level (one point per month)
+
+temporal_only_vars_cmf <- c("avg_temp", "total_precip", "rel_hum", "WS2M", "precip_max_day", "precip_max_day_resid")
+
+# 1) Monthly outcome (weighted by inspected houses)
+monthly_pos_cmf <- env_epi_ento_CMF %>%
+  group_by(year_month) %>%
+  summarise(
+    Positivity_Rate = sum(Houses_pos_IS, na.rm = TRUE) / sum(Inspected_houses, na.rm = TRUE) * 100,
+    .groups = "drop"
+  )
+
+# 2) Monthly environmental predictors
+monthly_env_cmf <- env_epi_ento_CMF %>%
+  group_by(year_month) %>%
+  summarise(across(all_of(temporal_only_vars_cmf), ~mean(.x, na.rm = TRUE)), .groups = "drop")
+
+# 3) Join + long format
+temporal_corr_data_cmf <- monthly_pos_cmf %>%
+  left_join(monthly_env_cmf, by = "year_month") %>%
+  pivot_longer(all_of(temporal_only_vars_cmf), names_to = "Variable", values_to = "Value") %>%
+  filter(!is.na(Value), !is.na(Positivity_Rate))
+
+# 4) Spearman rho per variable
+rho_tbl_cmf <- temporal_corr_data_cmf %>%
+  group_by(Variable) %>%
+  summarise(rho = cor(Value, Positivity_Rate, method = "spearman"), .groups = "drop") %>%
+  mutate(label = paste0("rho = ", round(rho, 2)))
+
+plot_data_cmf <- temporal_corr_data_cmf %>% left_join(rho_tbl_cmf, by = "Variable")
+```
+
+```{r plot_the_one_on_one_relations_and_their_spearman_correlation_cmf}
+p_temporal_cmf <- ggplot(plot_data_cmf, aes(x = Value, y = Positivity_Rate)) +
+  geom_point(color = "darkred", alpha = 0.8, size = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "steelblue", linewidth = 0.8) +
+  facet_wrap(~Variable, scales = "free_x", ncol = 3) +
+  geom_text(
+    data = plot_data_cmf %>% distinct(Variable, label),
+    aes(x = -Inf, y = Inf, label = label),
+    hjust = -0.1, vjust = 1.2, inherit.aes = FALSE, size = 3.5
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Monthly environmental variables vs monthly mosquito positivity CMF level",
+    subtitle = "One point per month (pseudo-replication removed)",
+    x = "Environmental value",
+    y = "Positivity rate (%)"
+  )
+
+print(p_temporal_cmf)
+ggsave(file.path(output_dir, "19_cmf_temporal_env_vs_monthly_positivity.png"), p_temporal_cmf, width = 14, height = 8, dpi = 300)
+```
+
+```{r calculate_the_one_on_one_relations_and_their_spearman_correlation_with_lag_cmf}
+# 1) Create lagged variables for lag 0, 1, and 2
+monthly_env_lagged_cmf <- monthly_env_cmf %>%
+  arrange(year_month) %>%
+  mutate(
+    across(all_of(temporal_only_vars_cmf), ~.x, .names = "{.col}_lag0"),
+    across(all_of(temporal_only_vars_cmf), ~lag(.x, n = 1), .names = "{.col}_lag1"),
+    across(all_of(temporal_only_vars_cmf), ~lag(.x, n = 2), .names = "{.col}_lag2")
+  )
+
+# 2) Join lagged predictors to outcome
+lagged_data_cmf <- monthly_pos_cmf %>%
+  left_join(monthly_env_lagged_cmf, by = "year_month")
+
+# 3) Pivot to long format for plotting (all lags)
+lagged_long_cmf <- lagged_data_cmf %>%
+  pivot_longer(matches("_lag[012]$"), names_to = "Variable", values_to = "Value") %>%
+  filter(!is.na(Value), !is.na(Positivity_Rate)) %>%
+  mutate(
+    Lag = case_when(
+      grepl("_lag0$", Variable) ~ "0-month lag",
+      grepl("_lag1$", Variable) ~ "1-month lag",
+      grepl("_lag2$", Variable) ~ "2-month lag"
+    ),
+    Variable = gsub("_lag[012]$", "", Variable)
+  ) %>%
+  mutate(
+    Variable = factor(
+      Variable,
+      levels = c("avg_temp", "total_precip", "precip_max_day", "precip_max_day_resid", "rel_hum", "WS2M")
+    )
+  )
+
+# 4) Calculate Spearman rho for each variable and lag
+rho_tbl_lag_cmf <- lagged_long_cmf %>%
+  group_by(Variable, Lag) %>%
+  summarise(rho = cor(Value, Positivity_Rate, method = "spearman"), .groups = "drop") %>%
+  mutate(label = paste0("rho = ", round(rho, 2)))
+
+plot_data_lag_cmf <- lagged_long_cmf %>% left_join(rho_tbl_lag_cmf, by = c("Variable", "Lag"))
+```
+
+```{r plot_the_one_on_one_temporal_vars_with_different_month_lag_and_their_spearman_correlation_cmf}
+p_temporal_lagged_cmf <- ggplot(plot_data_lag_cmf, aes(x = Value, y = Positivity_Rate)) +
+  geom_point(color = "firebrick", alpha = 0.7) +
+  geom_smooth(method = "lm", color = "steelblue") +
+  facet_grid(Lag ~ Variable, scales = "free_x") +
+  geom_text(data = rho_tbl_lag_cmf, aes(x = -Inf, y = Inf, label = label), hjust = -0.1, vjust = 1.2, inherit.aes = FALSE) +
+  labs(
+    title = "Monthly environmental variables (1- and 2-month lag) vs monthly mosquito positivity CMF level",
+    subtitle = "One point per month (pseudo-replication removed)",
+    x = "Lagged Environmental value",
+    y = "Positivity rate (%)"
+  )
+
+print(p_temporal_lagged_cmf)
+ggsave(file.path(output_dir, "19b_cmf_temporal_env_vs_monthly_lag_0_1_2_positivity.png"), p_temporal_lagged_cmf, width = 14, height = 8, dpi = 300)
+```
+
+### Testing non-linear transformations of numeric variables (CMF)
+#### Quadratic
+
+```{r temperature_quadratic_transformations_cmf}
+p_temporal_lagged_quad_cmf <- ggplot(plot_data_lag_cmf, aes(x = Value, y = Positivity_Rate)) +
+  geom_point(color = "firebrick", alpha = 0.7) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2), color = "steelblue") +
+  facet_grid(Lag ~ Variable, scales = "free_x") +
+  labs(
+    title = "Monthly environmental variables (1- and 2-month lag, quadratic fit) vs monthly mosquito positivity CMF level",
+    subtitle = "Quadratic model: y = β₀ + β₁x + β₂x² + ε",
+    x = "Lagged Environmental value",
+    y = "Positivity rate (%)"
+  )
+
+print(p_temporal_lagged_quad_cmf)
+ggsave(file.path(output_dir, "19b_cmf_temporal_env_vs_monthly_lag_0_1_2_positivity_quadratic.png"), p_temporal_lagged_quad_cmf, width = 14, height = 8, dpi = 300)
+```
+
+#### Spline
+```{r temperature_spline_transformations_cmf}
+p_temporal_lagged_spline_cmf <- ggplot(plot_data_lag_cmf, aes(x = Value, y = Positivity_Rate)) +
+  geom_point(color = "firebrick", alpha = 0.7) +
+  geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs"), color = "steelblue") +
+  facet_grid(Lag ~ Variable, scales = "free_x") +
+  labs(
+    title = "Monthly environmental variables (1- and 2-month lag, spline fit) vs monthly mosquito positivity CMF level",
+    subtitle = "Spline model: y = β₀ + f(x) + ε",
+    x = "Lagged Environmental value",
+    y = "Positivity rate (%)"
+  )
+
+print(p_temporal_lagged_spline_cmf)
+ggsave(file.path(output_dir, "19b_cmf_temporal_env_vs_monthly_lag_0_1_2_positivity_spline.png"), p_temporal_lagged_spline_cmf, width = 14, height = 8, dpi = 300)
+```
+
+#### Binary spatial variables (CMF)
+
+```{r env_vs_positivity_one_on_one_spatial_cmf}
+# Attempt loading CMF environmental table (if available)
+if (!exists("env_all_CMF") && file.exists("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_cmf_2016_01_to_2019_12_imputed.csv")) {
+  env_all_CMF <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_cmf_2016_01_to_2019_12_imputed.csv")
+}
+
+# 1) CMF-level outcome (aggregated across time)
+cmf_outcome <- env_epi_ento_CMF %>%
+  group_by(cmf) %>%
+  summarise(
+    Positivity_Rate = sum(Houses_pos_IS, na.rm = TRUE) / sum(Inspected_houses, na.rm = TRUE) * 100,
+    .groups = "drop"
+  )
+
+# 2) One row per CMF for spatial predictors
+spatial_vars_cmf <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage", "landcover", "nr_aljibes", "water_containers")
+
+spatial_source_cmf <- if (exists("env_all_CMF")) env_all_CMF else env_epi_ento_CMF
+
+cmf_spatial <- spatial_source_cmf %>%
+  select(cmf, any_of(spatial_vars_cmf)) %>%
+  distinct(cmf, .keep_all = TRUE)
+
+# 3) Join
+spatial_df_cmf <- cmf_outcome %>%
+  left_join(cmf_spatial, by = "cmf")
+```
+
+```{r plot_the_one_on_one_relations_positivity_rate_vs_binary_env_var_cmf}
+binary_vars_cmf <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage")
+
+binary_long_cmf <- spatial_df_cmf %>%
+  select(Positivity_Rate, any_of(binary_vars_cmf)) %>%
+  pivot_longer(any_of(binary_vars_cmf), names_to = "Variable", values_to = "Group") %>%
+  filter(!is.na(Group), !is.na(Positivity_Rate)) %>%
+  mutate(
+    Group = case_when(
+      as.character(Group) %in% c("1", "TRUE", "T", "Yes", "yes") ~ "Yes",
+      as.character(Group) %in% c("0", "FALSE", "F", "No", "no") ~ "No",
+      TRUE ~ NA_character_
+    ),
+    Group = factor(Group, levels = c("No", "Yes"))
+  ) %>%
+  filter(!is.na(Group))
+
+p_bin_cmf <- ggplot(binary_long_cmf, aes(x = Group, y = Positivity_Rate, fill = Group)) +
+  geom_violin(alpha = 0.25, trim = FALSE) +
+  geom_boxplot(width = 0.2, outlier.alpha = 0.25) +
+  facet_wrap(~Variable, scales = "free_x") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(title = "Positivity by binary spatial predictors - CMF level",
+       x = "", y = "Positivity rate (%)")
+
+wilcox_results_cmf <- binary_long_cmf %>%
+  group_by(Variable) %>%
+  wilcox_test(Positivity_Rate ~ Group) %>%
+  adjust_pvalue(method = "BH")
+print(wilcox_results_cmf)
+
+star_tbl_cmf <- wilcox_results_cmf %>%
+  mutate(star = ifelse(p.adj < 0.05, "*", "")) %>%
+  select(Variable, star)
+
+annot_df_cmf <- binary_long_cmf %>%
+  group_by(Variable) %>%
+  summarise(y = max(Positivity_Rate, na.rm = TRUE) + 2) %>%
+  left_join(star_tbl_cmf, by = "Variable")
+
+p_bin_star_cmf <- p_bin_cmf +
+  geom_text(
+    data = annot_df_cmf,
+    aes(x = 1.5, y = y, label = star),
+    inherit.aes = FALSE,
+    size = 8,
+    color = "black"
+  )
+
+print(p_bin_star_cmf)
+ggsave(file.path(output_dir, "20_cmf_spatial_binary_vs_positivity.png"), p_bin_star_cmf, width = 12, height = 8, dpi = 300)
+```
+
+#### Categorical variables (landcover, CMF)
+```{r one_on_one_association_to_landcover_cmf}
+land_df_cmf <- spatial_df_cmf %>%
+  filter(!is.na(landcover), !is.na(Positivity_Rate))
+
+p_land_cmf <- ggplot(land_df_cmf, aes(x = landcover, y = Positivity_Rate, fill = landcover)) +
+  geom_boxplot(outlier.alpha = 0.25) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Positivity by landcover - CMF", x = "Landcover", y = "Positivity rate (%)")
+print(p_land_cmf)
+ggsave(file.path(output_dir, "28_cmf_landcover_vs_positivity.png"), p_land_cmf, width = 11, height = 6, dpi = 300)
+
+kruskal_res_cmf <- kruskal_test(land_df_cmf, Positivity_Rate ~ landcover)
+print(kruskal_res_cmf)
+
+dunn_res_cmf <- land_df_cmf %>%
+  dunn_test(Positivity_Rate ~ landcover, p.adjust.method = "BH")
+print(dunn_res_cmf)
+
+dunn_sig_cmf <- dunn_res_cmf %>%
+  filter(p.adj < 0.05)
+print(dunn_sig_cmf)
+```
+
+#### Numerical spatial (CMF)
+```{r one_on_one_association_numerical_spatial_vars_to_positivity_rate_cmf}
+aljibes_df_cmf <- spatial_df_cmf %>%
+  filter(!is.na(nr_aljibes), !is.na(Positivity_Rate)) %>%
+  mutate(
+    nr_aljibes_grp = case_when(
+      nr_aljibes == 0 ~ "0",
+      nr_aljibes == 1 ~ "1",
+      nr_aljibes == 2 ~ "2",
+      nr_aljibes >= 3 ~ "3+",
+      TRUE ~ NA_character_
+    ),
+    nr_aljibes_grp = factor(nr_aljibes_grp, levels = c("0", "1", "2", "3+"), ordered = TRUE)
+  ) %>%
+  filter(!is.na(nr_aljibes_grp))
+
+wc_df_cmf <- spatial_df_cmf %>%
+  filter(!is.na(water_containers), !is.na(Positivity_Rate))
+
+p_alj_cmf <- ggplot(aljibes_df_cmf, aes(x = nr_aljibes_grp, y = Positivity_Rate)) +
+  geom_boxplot(outlier.alpha = 0.25, fill = "steelblue", alpha = 0.7) +
+  theme_minimal() +
+  labs(
+    title = "Positivity by number of aljibes (ordered groups) - CMFs",
+    x = "nr_aljibes (grouped)",
+    y = "Positivity rate (%)"
+  )
+
+print(p_alj_cmf)
+ggsave(file.path(output_dir, "22_cmf_nr_aljibes_ordered_vs_positivity.png"),
+       p_alj_cmf, width = 10, height = 6, dpi = 300)
+
+kruskal_test(aljibes_df_cmf, Positivity_Rate ~ nr_aljibes_grp)
+
+p_wc_cmf <- ggplot(wc_df_cmf, aes(x = water_containers, y = Positivity_Rate)) +
+  geom_point(alpha = 0.6, color = "darkred", position = position_jitter(width = 0.2)) +
+  theme_minimal() +
+  labs(title = "Positivity vs water containers (count per CMF)",
+       x = "Estimated water containers",
+       y = "Positivity rate (%)")
+
+print(p_wc_cmf)
+ggsave(file.path(output_dir, "23_cmf_containers_vs_positivity.png"), p_wc_cmf, width = 10, height = 6, dpi = 300)
+
+cor(wc_df_cmf$water_containers, wc_df_cmf$Positivity_Rate, method = "spearman")
+
+combined_numeric_spatial_cmf <- cowplot::plot_grid(p_alj_cmf, p_wc_cmf, nrow = 1, ncol = 2, labels = c("A", "B"))
+print(combined_numeric_spatial_cmf)
+ggsave(file.path(output_dir, "24_cmf_numeric_spatial_vs_positivity_combined.png"), combined_numeric_spatial_cmf, width = 18, height = 7, dpi = 300)
+```
+
+#### Spatio-temporal variables (NDXI's, CMF)
+
+```{r ndxi_per_cmf}
+cmf_outcome <- env_epi_ento_CMF %>%
+  group_by(cmf) %>%
+  summarise(
+    Positivity_Rate = sum(Houses_pos_IS, na.rm = TRUE) / sum(Inspected_houses, na.rm = TRUE) * 100,
+    .groups = "drop"
+  )
+
+spatiotemporal_vars_cmf <- c("mean_ndvi", "mean_ndmi", "mean_ndwi")
+
+spatial_source_cmf <- if (exists("env_all_CMF")) env_all_CMF else env_epi_ento_CMF
+
+cmf_spatio_temp <- spatial_source_cmf %>%
+  select(cmf, any_of(spatiotemporal_vars_cmf)) %>%
+  distinct(cmf, .keep_all = TRUE)
+
+spatiotemp_df_cmf <- cmf_outcome %>%
+  left_join(cmf_spatio_temp, by = "cmf")
+
+st_df_cmf <- spatiotemp_df_cmf %>%
+  select(Positivity_Rate, any_of(spatiotemporal_vars_cmf)) %>%
+  pivot_longer(any_of(spatiotemporal_vars_cmf), names_to = "Variable", values_to = "Value") %>%
+  filter(!is.na(Value), !is.na(Positivity_Rate))
+
+p_st_cmf <- ggplot(st_df_cmf, aes(x = Value, y = Positivity_Rate)) +
+  geom_point(alpha = 0.6, color = "darkred") +
+  facet_wrap(~Variable, scales = "free_x", ncol = 3) +
+  theme_minimal() +
+  labs(title = "Positivity rate vs NDVI, NDMI, NDWI CMF level",
+       x = "Index value",
+       y = "Positivity rate (%)")
+
+st_rho_p_cmf <- st_df_cmf %>%
+  group_by(Variable) %>%
+  summarise(
+    rho = cor(Value, Positivity_Rate, method = "spearman"),
+    p = cor.test(Value, Positivity_Rate, method = "spearman")$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    star = ifelse(p < 0.05, "*", ""),
+    label = paste0("Spearman Correlation rho = ", round(rho, 2), star)
+  )
+
+annot_df_cmf_ndxi <- st_df_cmf %>%
+  group_by(Variable) %>%
+  summarise(y = max(Positivity_Rate, na.rm = TRUE) + 2) %>%
+  left_join(st_rho_p_cmf, by = "Variable") %>%
+  filter(Variable %in% c("mean_ndvi", "mean_ndmi", "mean_ndwi"))
+
+p_st_ann_cmf <- p_st_cmf +
+  geom_text(
+    data = annot_df_cmf_ndxi,
+    aes(x = -Inf, y = y, label = label),
+    hjust = -0.1, vjust = 1.2, inherit.aes = FALSE, size = 4.5
+  )
+
+print(p_st_ann_cmf)
+ggsave(file.path(output_dir, "25_cmf_spatiotemporal_vs_positivity.png"), p_st_ann_cmf, width = 14, height = 6, dpi = 300)
+```
