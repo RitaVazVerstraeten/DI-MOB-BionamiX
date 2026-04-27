@@ -286,45 +286,47 @@ disp_df <- df %>%
     y_rate  = y_bt / n_bt
   )
 
-phi_grouped <- disp_df %>%
-  filter(n_bt > 0) %>% 
-  mutate(y_rate = y_bt / n_bt) %>%
-  group_by(n_bt) %>%
-  filter(n() >= 30)  %>%  # only bins with enough cells to estimate variance (at least 30 measures though time with n_bt number of households - can be repeats of same block or different blocks)
-  summarise(
-    n_cells      = n(),
-    p_bar        = mean(y_rate),
-    var_observed = var(y_rate),
-    var_binomial = p_bar * (1 - p_bar) / first(n_bt),  # expected under binomial
-    dispersion_ratio = var_observed / var_binomial,
-    phi_implied      = (first(n_bt) - dispersion_ratio) / (dispersion_ratio - 1)
-  ) %>%
-  filter(dispersion_ratio > 1, phi_implied > 0) %>%  # only valid estimates
-  summarise(
-    phi_median   = median(phi_implied),
-    phi_mean     = mean(phi_implied),
-    phi_weighted = weighted.mean(phi_implied, w = n_cells)  # weight by cell count
-  )
-cat("implied phi (grouped median across n_bt bins):", round(phi_grouped$phi_median, 2), "\n")
-print(phi_grouped)
+if (isTRUE(cfg$fix_phi)) {
+  phi_grouped <- disp_df %>%
+    filter(n_bt > 0) %>%
+    mutate(y_rate = y_bt / n_bt) %>%
+    group_by(n_bt) %>%
+    filter(n() >= 30)  %>%  # only bins with enough cells to estimate variance (at least 30 measures though time with n_bt number of households - can be repeats of same block or different blocks)
+    summarise(
+      n_cells      = n(),
+      p_bar        = mean(y_rate),
+      var_observed = var(y_rate),
+      var_binomial = p_bar * (1 - p_bar) / first(n_bt),  # expected under binomial
+      dispersion_ratio = var_observed / var_binomial,
+      phi_implied      = (first(n_bt) - dispersion_ratio) / (dispersion_ratio - 1)
+    ) %>%
+    filter(dispersion_ratio > 1, phi_implied > 0) %>%  # only valid estimates
+    summarise(
+      phi_median   = median(phi_implied),
+      phi_mean     = mean(phi_implied),
+      phi_weighted = weighted.mean(phi_implied, w = n_cells)  # weight by cell count
+    )
+  cat("implied phi (grouped median across n_bt bins):", round(phi_grouped$phi_median, 2), "\n")
+  print(phi_grouped)
 
-disp_df %>%
-  filter(n_bt > 0) %>%
-  mutate(y_rate = y_bt / n_bt) %>%
-  group_by(n_bt) %>%
-  # filter(n() >= 30) %>%
-  summarise(
-    p_bar        = mean(y_rate),
-    var_observed = var(y_rate),
-    var_binomial = p_bar * (1 - p_bar) / first(n_bt)
-  ) %>%
-  ggplot(aes(x = n_bt)) +
-  geom_point(aes(y = var_observed), colour = "steelblue") +
-  geom_line(aes(y = var_binomial), colour = "red") +
-  scale_y_log10() +
-  labs(x = "n_bt", y = "variance of y/n_bt (log scale)",
-       title = "Observed variance vs binomial expectation",
-       subtitle = "Blue dots above red line = overdispersion")
+  disp_df %>%
+    filter(n_bt > 0) %>%
+    mutate(y_rate = y_bt / n_bt) %>%
+    group_by(n_bt) %>%
+    # filter(n() >= 30) %>%
+    summarise(
+      p_bar        = mean(y_rate),
+      var_observed = var(y_rate),
+      var_binomial = p_bar * (1 - p_bar) / first(n_bt)
+    ) %>%
+    ggplot(aes(x = n_bt)) +
+    geom_point(aes(y = var_observed), colour = "steelblue") +
+    geom_line(aes(y = var_binomial), colour = "red") +
+    scale_y_log10() +
+    labs(x = "n_bt", y = "variance of y/n_bt (log scale)",
+         title = "Observed variance vs binomial expectation",
+         subtitle = "Blue dots above red line = overdispersion")
+}
 
        
 # Always pass fix_phi flag; pass phi_data (used only when fix_phi = TRUE)
