@@ -18,7 +18,8 @@ data {
   array[N_edges] int<lower=1,upper=B> node1;     // first node of each edge (node1 < node2)
   array[N_edges] int<lower=1,upper=B> node2;     // second node of each edge
 
-  real<lower=0> phi;             // beta-binomial concentration (fixed); set cfg$fix_phi=FALSE to estimate
+  int<lower=0,upper=1> fix_phi;  // 1 = phi fixed at phi_data; 0 = phi estimated
+  real<lower=0> phi_data;        // value used when fix_phi = 1 (ignored otherwise)
 }
 
 transformed data {
@@ -33,6 +34,7 @@ parameters {
   real<lower=0> sigma_v;           // SD of global temporal trend
   real<lower=-1,upper=1> rho;      // AR(1) coefficient
   real<lower=0> delta1;    // linear increase in detection probability with dengue cases
+  real<lower=0> phi_raw;   // beta-binomial concentration; used only when fix_phi = 0
 
   // ----- ICAR spatial random effects -----
   vector[B] u_icar_raw;            // raw ICAR spatial effects (unscaled) one per block
@@ -40,6 +42,7 @@ parameters {
 }
 
 transformed parameters {
+  real<lower=0> phi = fix_phi ? phi_data : phi_raw;  // active concentration
   vector[N] p_bt;          // latent ecological probability (true mosquito presence)
   vector[N] p_R;           // reactive surveillance probability (biased upward)
   vector[N] omega;         // fraction of inspections that are reactive (omega_bt = kappa*C_bt / n_bt)
@@ -107,6 +110,7 @@ model {
   rho             ~ normal(0.4, 0.2);
   // v_global is centred exactly in transformed parameters (mean subtracted).
   delta1      ~ normal(0, 0.1);  // half-normal (lower=0): positive bias expected
+  if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);  // prior when estimating: mean=20, weakly regularising
 
   // ICAR prior: pairwise differences penalise spatial discontinuity
   target += -0.5 * dot_self(u_icar_raw[node1] - u_icar_raw[node2]);

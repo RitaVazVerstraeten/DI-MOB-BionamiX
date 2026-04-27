@@ -327,7 +327,8 @@ disp_df %>%
        subtitle = "Blue dots above red line = overdispersion")
 
        
-# Pass phi as fixed data when fix_phi = TRUE
+# Always pass fix_phi flag; pass phi_data (used only when fix_phi = TRUE)
+stan_data$fix_phi <- as.integer(isTRUE(cfg$fix_phi))
 if (isTRUE(cfg$fix_phi)) {
   phi_grouped_median <- phi_grouped$phi_median
   phi_use <- if (is.finite(phi_grouped_median) && phi_grouped_median > 0 && phi_grouped_median < 500) {
@@ -335,12 +336,15 @@ if (isTRUE(cfg$fix_phi)) {
   } else {
     cfg$phi_fixed
   }
-  stan_data$phi <- phi_use
+  stan_data$phi_data <- phi_use
   cat(sprintf(
     "phi fixed at %.1f (grouped median across n_bt bins; cfg fallback = %.1f)\n",
     phi_use, cfg$phi_fixed
   ))
   cfg$phi_used <- phi_use
+} else {
+  stan_data$phi_data <- 1.0  # dummy; Stan uses phi_raw (estimated) instead
+  cat("phi will be estimated from data (fix_phi = FALSE)\n")
 }
 
 # ================== compile stan model ==========================
