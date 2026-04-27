@@ -6,7 +6,6 @@
 if (!require("cmdstanr", quietly = TRUE)) {
   install.packages("cmdstanr", repos = c("https://mc-stan.org/r-packages/", getOption("repos")))
 }
-renv::restore(prompt = FALSE)
 
 library(cmdstanr)
 library(dplyr)
@@ -20,16 +19,27 @@ library(spdep)
 # 0) LOAD HELPER FUNCTIONS
 # =========================
 script_dir <- tryCatch({
-  if (requireNamespace("rstudioapi", quietly = TRUE)) {
-    if (rstudioapi::isAvailable()) {
-      dirname(rstudioapi::getActiveDocumentContext()$path)
-    } else { 
-      getwd()
-    }
-  } else {
-    getwd()
+  # RStudio / Positron via rstudioapi
+  p <- rstudioapi::getActiveDocumentContext()$path
+  if (nzchar(p)) dirname(p) else stop("empty path")
+}, error = function(e) tryCatch({
+  # When run via source() or Rscript --file=
+  frames <- sys.frames()
+  for (f in rev(frames)) {
+    if (!is.null(f$ofile) && nzchar(f$ofile))
+      return(dirname(normalizePath(f$ofile, mustWork = FALSE)))
   }
-}, error = function(e) getwd())
+  args <- commandArgs(trailingOnly = FALSE)
+  fa   <- grep("--file=", args, value = TRUE)
+  if (length(fa)) dirname(normalizePath(sub("--file=", "", fa[1]), mustWork = FALSE))
+  else stop("no path")
+}, error = function(e2) {
+  # Last resort: find helper_functions.r relative to the working directory
+  candidate <- file.path(getwd(), "src", "Entomo")
+  if (file.exists(file.path(candidate, "helper_functions.r"))) candidate else getwd()
+}))
+
+renv::restore(project = script_dir, prompt = FALSE)
 
 source(file.path(script_dir, "helper_functions.r"))
 source(file.path(script_dir, "plot_functions.r"))
@@ -40,10 +50,17 @@ source(file.path(script_dir, "plot_functions.r"))
 hostname <- Sys.info()["nodename"]
 
 
+# ========== Spatial resolution =============
+# Set to "CMF" or "manzana" — all level-specific paths and column names derive from this.
+spatial_level <- "CMF"
+
 # ========== Output structure and config =============
 cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/",
-  data_file_name = "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv",
+  data_file_name = if (spatial_level == "CMF")
+    "env_epi_entomo_data_per_CMF_2016_01_to_2019_12_noColinnearity.csv"
+  else
+    "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv",
   output_dir = if (hostname == "frietjes") "/home/rita/data/Entomo/fitting/stan" else "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
@@ -62,10 +79,11 @@ cfg <- list(
     "/home/rita/data/Entomo"
   else
     "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders",
-  sf_block_col = "CODIGO_",
+  sf_block_col = if (spatial_level == "CMF") "Area_CMF" else "CODIGO_",
+  block_col    = if (spatial_level == "CMF") "cmf"      else "manzana",
 
   # data prep
-  n_blocks = NULL, # set NULL for all blocks
+  n_blocks = NULL, # set NULL for all blocks/CMFs
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
   max_lag = 2,
   kappa = 4,
@@ -82,7 +100,7 @@ cfg <- list(
   parallel_chains = if (hostname == "frietjes") 4 else 1,
 
   # phi: set fix_phi = TRUE to pass phi as data (fixed); FALSE to estimate it
-  fix_phi = TRUE,
+  fix_phi = FALSE,
   phi_fixed = 25,   # beta-binomial concentration -> later replace with gamma(2, 0.25)
   # prior predictive check (set TRUE before first real fit)
   run_prior_predictive = FALSE,
@@ -112,6 +130,7 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
   paste0(ar1_suffix, "_", gp_suffix, "_", re_suffix,
          "_lag", cfg$max_lag, "_k", cfg$kappa, "_", n_block_suffix)
 }
+model_spec <- paste0(spatial_level,'_', model_spec)
 # model_tag <- ifelse(isTRUE(cfg$use_time_RE), "timeRE_blockRE",
 #              ifelse(isTRUE(cfg$use_temporal_AR), "withAR1", "noAR1"))
 predictor_spec <- paste0(
@@ -180,7 +199,7 @@ dir.create(cfg$output_dir, recursive = TRUE, showWarnings = FALSE)
 # =========================
 cat("Using hostname:", hostname, "\n")
 cat("Data directory:", cfg$data_dir, "\n")
-cat("Model variant:" , "Predictors: ", predictor_spec, "\n","RE and AR: ", model_spec, "\n")
+cat("Model variant:" , "Predictors: ", predictor_spec, "\n","level, RE and AR: ", model_spec, "\n")
 
 
 # =========================
@@ -195,11 +214,16 @@ df <- prep$df
 # =========================
 # SPATIAL DISTANCE MATRIX
 # =========================
-sf_blocks  <- st_read(file.path(cfg$shapefile_path, "Manzanas_cleaned_05032026", "Mz_CMF_Correcto_2022026.shp"), quiet = TRUE)
+sf_blocks <- if (spatial_level == "CMF") {
+  st_read(file.path(cfg$shapefile_path, "CMF", "Poligonos CMF Cienfuegos_28032025.shp"), quiet = TRUE) %>%
+    mutate(Area_CMF = paste(AS, CMF, sep = "_"))
+} else {
+  st_read(file.path(cfg$shapefile_path, "Manzanas_cleaned_05032026", "Mz_CMF_Correcto_2022026.shp"), quiet = TRUE)
+}
 pts        <- suppressWarnings(st_point_on_surface(sf_blocks))
 if (st_is_longlat(pts)) pts <- st_transform(pts, 3857)
 
-block_ids  <- sort(unique(as.character(df$manzana)))  # ordered to match block index
+block_ids  <- sort(unique(as.character(df[[cfg$block_col]])))  # ordered to match block index
 coords_sf  <- sf_blocks %>%
   st_drop_geometry() %>%
   mutate(
@@ -491,7 +515,7 @@ if (requireNamespace("spdep", quietly = TRUE)) {
   df$year <- lubridate::year(df$year_month_date)
 
   df_spatial <- df %>%
-    mutate(block_chr = as.character(manzana)) %>%
+    mutate(block_chr = as.character(.data[[cfg$block_col]])) %>%
     left_join(coords_sf %>% select(block_chr, x, y), by = "block_chr")
 
   distance_breaks <- seq(0, 2000, by = 50)
@@ -610,7 +634,7 @@ if (cfg$plot_traceplots) {
     # Whitelist: scalar/vector model parameters worth tracing
     # sigma_w is a vector[K] — drawn by root name, elements appear in the plot
     scalar_include <- c("alpha", "sigma_gp", "rho_gp", "sigma_icar",
-                        "sigma_spatial", "phi_mix", "sigma_w",
+                        "sigma_spatial", "phi_mix",
                         "delta1",
                         "sigma_v", "rho", "sigma_block_dev",
                         "sigma_time", "sigma_block",

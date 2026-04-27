@@ -1983,7 +1983,7 @@ pair_distances <- pair_distances[!is.na(pair_distances)]
 # Bin into 50m groups from 0 to 2000m
 breaks_1km  <- seq(0, 1000, by = 50)
 dist_binned <- cut(pair_distances,
-                   breaks = breaks_2km,
+                   breaks = breaks_1km,
                    include.lowest = TRUE,
                    right = TRUE)
 

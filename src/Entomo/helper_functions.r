@@ -18,7 +18,7 @@ load_base_data <- function(data_file) {
   read_csv(data_file, show_col_types = FALSE) %>%
     mutate(year_month_date = as.Date(paste0(year_month, "_01"), "%Y_%m_%d")) %>%
     relocate(year_month_date, .after = year_month) %>%
-    select(!c(CMF, CP, AREA))
+    select(!any_of(c("CMF", "CP", "AREA")))
 }
 
 #' Index and Subset Data by Blocks
@@ -30,13 +30,13 @@ load_base_data <- function(data_file) {
 #' @param input_data Data frame with manzana (block) and year_month_date columns
 #' @param n_blocks Integer number of blocks to keep (NULL = keep all blocks)
 #' @return List with elements: df (processed data frame), B (number of blocks), T (number of time points)
-index_and_subset <- function(input_data, n_blocks) {
-  block_levels <- sort(unique(input_data$manzana))
+index_and_subset <- function(input_data, n_blocks, block_col = "manzana") {
+  block_levels <- sort(unique(input_data[[block_col]]))
   time_levels <- sort(unique(input_data$year_month_date))
 
   df <- input_data %>%
     mutate(
-      block = match(manzana, block_levels),
+      block = match(.data[[block_col]], block_levels),
       time = match(year_month_date, time_levels)
     ) %>%
     arrange(block, time) %>%
@@ -223,7 +223,8 @@ build_icar_edges <- function(sf_blocks, block_ids, sf_block_col, snap_m = 100) {
 
 build_stan_data <- function(cfg) {
   input_data <- load_base_data(cfg$data_file)
-  idx <- index_and_subset(input_data, cfg$n_blocks)
+  block_col <- if (!is.null(cfg$block_col)) cfg$block_col else "manzana"
+  idx <- index_and_subset(input_data, cfg$n_blocks, block_col = block_col)
 
   # Standardize numeric vars on the raw time series before lagging,
   # so all lags of the same variable share the same mean/sd

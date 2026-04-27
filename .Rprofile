@@ -1,3 +1,4 @@
+source("renv/activate.R")
 # Project-level .Rprofile for interactive convenience in VS Code
 # Loaded for interactive sessions. Provides helpers to source files into
 # the global environment and to assign values there.
