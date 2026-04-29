@@ -220,6 +220,7 @@ sf_blocks <- if (spatial_level == "CMF") {
 } else {
   st_read(file.path(cfg$shapefile_path, "Manzanas_cleaned_05032026", "Mz_CMF_Correcto_2022026.shp"), quiet = TRUE)
 }
+# transform to meters 
 pts        <- suppressWarnings(st_point_on_surface(sf_blocks))
 if (st_is_longlat(pts)) pts <- st_transform(pts, 3857)
 
@@ -231,7 +232,7 @@ coords_sf  <- sf_blocks %>%
     x = st_coordinates(pts)[, 1],
     y = st_coordinates(pts)[, 2]
   ) %>%
-  filter(block_chr %in% block_ids) %>%
+  filter(block_chr %in% block_ids) %>% # if sampling for instance 100 blocks then needed 
   arrange(match(block_chr, block_ids)) %>%
   select(block_chr, x, y) %>%
   distinct(block_chr, .keep_all = TRUE)
@@ -272,6 +273,30 @@ if (isTRUE(cfg$use_spatial_AC)) {
   cat("No spatial AC: skipping coordinate/distance/neighbour setup.\n")
 }
 
+# #================= check adjacency matrix (optional)==============
+# # Build adjacency matrix from ICAR edges
+# B     <- stan_data$B
+# node1 <- stan_data$node1
+# node2 <- stan_data$node2
+
+# adj <- matrix(0L, nrow = B, ncol = B)
+# for (k in seq_along(node1)) {
+#   adj[node1[k], node2[k]] <- 1L
+#   adj[node2[k], node1[k]] <- 1L
+# }
+
+# # Label rows/cols with block IDs
+# dimnames(adj) <- list(block_ids, block_ids)
+
+# # Print a corner (first 10 blocks) to check
+# print(adj[1:min(10, B), 1:min(10, B)])
+
+# # Summary stats
+# cat("Blocks:", B, "\n")
+# cat("Edges:", length(node1), "\n")
+# cat("Neighbours per block (min/median/max):",
+#     min(rowSums(adj)), median(rowSums(adj)), max(rowSums(adj)), "\n")
+# cat("Islands (0 neighbours):", sum(rowSums(adj) == 0), "\n")
 
 #####################################
 # Checking for overdispersion in my data
