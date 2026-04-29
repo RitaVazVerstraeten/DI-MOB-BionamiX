@@ -52,7 +52,7 @@ hostname <- Sys.info()["nodename"]
 
 # ========== Spatial resolution =============
 # Set to "CMF" or "manzana" — all level-specific paths and column names derive from this.
-spatial_level <- "manzana"
+spatial_level <- "CMF"
 
 # ========== Output structure and config =============
 cfg <- list(
@@ -65,10 +65,10 @@ cfg <- list(
 
   # model variant
   use_time_RE     = FALSE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
-  use_temporal_AR = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = global AR1 trend
-  use_spatial_AC  = TRUE,    # (ignored if use_time_RE = TRUE) TRUE = spatial AC
+  use_temporal_AR = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = global AR1 trend
+  use_spatial_AC  = FALSE,    # (ignored if use_time_RE = TRUE) TRUE = spatial AC
   use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE and use_icar/bym2 = FALSE) TRUE = HSGP
-  use_icar        = TRUE,   # (only if use_spatial_AC = TRUE) TRUE = plain ICAR
+  use_icar        = FALSE,   # (only if use_spatial_AC = TRUE) TRUE = plain ICAR
   use_bym2        = FALSE,    # (only if use_spatial_AC = TRUE) TRUE = BYM2 (structured+unstructured); overrides use_icar
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
