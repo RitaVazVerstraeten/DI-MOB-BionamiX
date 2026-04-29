@@ -119,7 +119,7 @@ cfg <- list(
   sf_block_col = if (spatial_level == "CMF") "Area_CMF" else "CODIGO_",
   block_col    = if (spatial_level == "CMF") "cmf"      else "manzana",
 
-  n_blocks  = 5,
+  n_blocks  = NULL,
   max_lag   = 2,
   kappa     = 4,
 
