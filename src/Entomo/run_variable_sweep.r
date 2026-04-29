@@ -103,10 +103,10 @@ cfg <- list(
     "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   use_time_RE     = FALSE,
-  use_temporal_AR = TRUE,
-  use_spatial_AC  = TRUE,
+  use_temporal_AR = FALSE,
+  use_spatial_AC  = FALSE,
   use_hsgp        = FALSE,
-  use_icar        = TRUE,
+  use_icar        = FALSE,
   use_bym2        = FALSE,
   hsgp_m          = 20,
   hsgp_c          = 1.5,
