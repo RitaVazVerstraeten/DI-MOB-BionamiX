@@ -100,24 +100,29 @@ transformed parameters {
 
 model {
   // Priors
-  alpha ~ normal(-7.0, 1.5);
+  alpha ~ normal(-7.0, 1.5); //baseline intercept (log-odds of mosq presence) can go from 0.01% to 2% on probability scale 
 
   // Free lag weights: independent normal prior on each w[k,l]
-  to_vector(w) ~ normal(0, 0.5);
-  w_unlagged   ~ normal(0, 0.5);
-  v_global_raw    ~ normal(0, 1);
-  sigma_v         ~ exponential(1);
-  rho             ~ normal(0.4, 0.2);
-  // v_global is centred exactly in transformed parameters (mean subtracted).
-  delta1      ~ normal(0, 0.1);  // half-normal (lower=0): positive bias expected
+  to_vector(w) ~ normal(0, 1.0); //on log-odds scale -> max plausible odds-ratio becomes 2.7x
+
+  w_unlagged   ~ normal(0, 1.0);
+
+  // dengue case correction:
+  delta1      ~ normal(0, 0.5);  // half-normal (lower=0): positive bias expected
   if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);  // prior when estimating: mean=20, weakly regularising
+  
+  // Temporal auto-correlation 
+  v_global_raw    ~ normal(0, 1); //technical trick from Claude instead of putting prior on v_global which is harder for the sampler to explore
+  
+  sigma_v         ~ exponential(1); // controls variation in municipality-wide temporal trend
+  
+  rho             ~ normal(0.4, 0.2); //autocorrelation constrained ot -1, 1
+  // v_global is centred exactly in transformed parameters (mean subtracted).
 
   // ICAR prior: pairwise differences penalise spatial discontinuity
   target += -0.5 * dot_self(u_icar_raw[node1] - u_icar_raw[node2]);
 
-
-  // Marginal SD: half-normal weakly regularising prior
-  sigma_icar ~ normal(0, 1);
+  sigma_icar ~ normal(0, 1); // Marginal SD: half-normal determines how much neighbouring blocks can differ 
 
   for (i in 1:N) {
     y[i] ~ beta_binomial(n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6)); // observed y - output log-prob contribution - used for parameter estimation 

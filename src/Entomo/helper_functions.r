@@ -200,7 +200,9 @@ build_icar_edges <- function(sf_blocks, block_ids, sf_block_col, snap_m = 100) {
   if (st_is_longlat(sf_model))
     sf_model <- st_transform(sf_model, 3857)
 
+  # create the neighbours
   nb <- suppressWarnings(spdep::poly2nb(sf_model, snap = snap_m))
+  # number of islands (no neighbours)
   n_islands <- sum(sapply(nb, function(x) length(x) == 1L && x == 0L))
   cat(sprintf("poly2nb (snap=%dm): %d blocks, %d islands\n",
               snap_m, length(nb), n_islands))
@@ -211,6 +213,7 @@ build_icar_edges <- function(sf_blocks, block_ids, sf_block_col, snap_m = 100) {
     data.frame(node1 = i, node2 = nbrs)
   }))
 
+  # create the ICAR nodes 
   node1_v      <- pmin(edges$node1, edges$node2)
   node2_v      <- pmax(edges$node1, edges$node2)
   unique_edges <- !duplicated(paste(node1_v, node2_v, sep = "_"))
