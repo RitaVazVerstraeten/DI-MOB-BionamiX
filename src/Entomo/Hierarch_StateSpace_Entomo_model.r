@@ -52,7 +52,7 @@ hostname <- Sys.info()["nodename"]
 
 # ========== Spatial resolution =============
 # Set to "CMF" or "manzana" — all level-specific paths and column names derive from this.
-spatial_level <- "CMF"
+spatial_level <- "manzana"
 
 # ========== Output structure and config =============
 cfg <- list(
