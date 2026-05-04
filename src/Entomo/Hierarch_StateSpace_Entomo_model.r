@@ -84,10 +84,12 @@ cfg <- list(
 
   # data prep
   n_blocks = NULL, # set NULL for all blocks/CMFs
-  lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
+  # lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
+  lag_vars = c("total_rainy_days", "temp_cat", "avg_VPD", "precip_max_day", "mean_ndvi"),
   max_lag = 2,
   kappa = 4,
-  unlagged_vars = c("is_urban", "is_WUI"),
+  # unlagged_vars = c("is_urban", "is_WUI"),
+  unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers"),
   numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
 
   # MCMC
@@ -415,7 +417,7 @@ if (isTRUE(cfg$run_prior_predictive)) {
     theme_minimal()
   ggsave(
     file.path(cfg$output_dir,
-              paste0("prior_predictive_", run_suffix, ".png")),
+              paste0("prior_predictive_", model_spec, ".png")),
     p_prior, width = 8, height = 5, dpi = 150
   )
   cat("Prior predictive plot saved to:", cfg$output_dir, "\n")
@@ -492,7 +494,7 @@ rm(y_pred_draws_mat)
 if (cfg$plot_random_effects) {
   if (!all(is.na(post$u)) && length(post$u) > 0) {
     cat("\nGenerating random effects plot (spatial + temporal)...\n")
-    save_random_effects(post$u, post$v, plots_output_dir, run_suffix)
+    save_random_effects(post$u, post$v, plots_output_dir, model_spec)
   } else if (!all(is.na(post$v)) && length(post$v) > 0) {
     cat("\nNo spatial random effects found. Plotting only temporal AR effects...\n")
     # Plot only temporal AR effects

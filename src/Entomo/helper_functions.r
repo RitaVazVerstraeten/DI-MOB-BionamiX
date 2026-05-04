@@ -69,16 +69,37 @@ index_and_subset <- function(input_data, n_blocks, block_col = "manzana") {
 #' @param max_lag Integer maximum lag order (L)
 #' @return List with df (filtered data frame), X_lag_flat (N x K*(L+1) matrix), K (number of variables), Lp1 (L+1)
 build_lag_design <- function(df, lag_vars, B, max_lag) {
-  df <- df %>% mutate(across(all_of(lag_vars), ~coalesce(., 0)))
-  K <- length(lag_vars)
+  # Expand categorical lag variables into dummy indicator columns so that
+  # categorical lags are represented as separate binary variables.
+  lag_vars_expanded <- character()
+  for (v in lag_vars) {
+    if (!v %in% names(df)) stop(sprintf("Lag variable '%s' not found in data", v))
+    if (is.numeric(df[[v]])) {
+      # numeric: replace NAs with 0 and keep as-is
+      df[[v]][is.na(df[[v]])] <- 0
+      lag_vars_expanded <- c(lag_vars_expanded, v)
+    } else {
+      # categorical: convert to factor and create one-hot columns for each level
+      fac <- as.factor(df[[v]])
+      levels_fac <- levels(fac)
+      # create safe level names
+      safe_levels <- gsub("[^A-Za-z0-9]", "_", levels_fac)
+      for (i in seq_along(levels_fac)) {
+        colname <- paste0(v, "__", safe_levels[i])
+        df[[colname]] <- as.integer(fac == levels_fac[i])
+        df[[colname]][is.na(df[[colname]])] <- 0
+        lag_vars_expanded <- c(lag_vars_expanded, colname)
+      }
+    }
+  }
+  K <- length(lag_vars_expanded)
   L <- max_lag
   Lp1 <- L + 1
-
   X_lag <- array(0, dim = c(nrow(df), K, Lp1))
   for (b in 1:B) {
     idx <- which(df$block == b)
     for (k in seq_len(K)) {
-      x <- df[[lag_vars[k]]][idx]
+      x <- df[[lag_vars_expanded[k]]][idx]
       for (l in 0:L) {
         lagged <- if (l == 0) x else c(rep(NA_real_, l), x[1:(length(x) - l)])
         X_lag[idx, k, l + 1] <- lagged
@@ -93,7 +114,8 @@ build_lag_design <- function(df, lag_vars, B, max_lag) {
   X_lag_flat <- matrix(0, nrow = nrow(df), ncol = K * Lp1)
   for (i in seq_len(nrow(df))) X_lag_flat[i, ] <- as.vector(X_lag[i, , ])
 
-  list(df = df, X_lag_flat = X_lag_flat, K = K, Lp1 = Lp1)
+  # Return expanded variable names so downstream code can know which lag columns correspond
+  list(df = df, X_lag_flat = X_lag_flat, K = K, Lp1 = Lp1, lag_vars_expanded = lag_vars_expanded)
 }
 
 #' Prepare Unlagged Covariates
@@ -235,6 +257,10 @@ build_stan_data <- function(cfg) {
   idx$df[, vars_to_std] <- standardize_matrix(as.matrix(idx$df[, vars_to_std]))
 
   lag <- build_lag_design(idx$df, cfg$lag_vars, idx$B, cfg$max_lag)
+  # Inform user which lag variables were expanded/used
+  if (!is.null(lag$lag_vars_expanded)) {
+    cat("Lag variables expanded:", paste(lag$lag_vars_expanded, collapse = ", "), "\n")
+  }
   binary_unlagged_vars <- setdiff(cfg$unlagged_vars, cfg$numeric_vars)
   unl <- prepare_unlagged(lag$df, cfg$unlagged_vars, binary_unlagged_vars)
 
@@ -254,7 +280,8 @@ build_stan_data <- function(cfg) {
       C_bt = unl$df$C_bt,
       n_bt = as.integer(unl$df$N_HH + cfg$kappa * unl$df$C_bt)
     ),
-    df = unl$df
+    df = unl$df,
+    lag_vars_expanded = if (!is.null(lag$lag_vars_expanded)) lag$lag_vars_expanded else cfg$lag_vars
   )
 }
 
