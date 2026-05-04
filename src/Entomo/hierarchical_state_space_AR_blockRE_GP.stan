@@ -13,7 +13,9 @@ data {
   array[N] int<lower=1,upper=T> time;   // time index for each observation
   array[N] int<lower=0> C_bt;    // number of dengue cases per block-time
   matrix[B, B] dist_block;       // pairwise distances between block centroids (metres)
-  real<lower=0> phi;             // beta-binomial concentration (fixed); set cfg$fix_phi=FALSE to estimate
+
+  int<lower=0,upper=1> fix_phi;    // 1 = phi fixed at phi_data; 0 = phi estimated
+  real<lower=0> phi_data;          // value used when fix_phi = 1 (ignored otherwise)
 }
 
 transformed data {
@@ -32,13 +34,14 @@ parameters {
   real<lower=0> sigma_block_dev;   // SD of per-block deviations
   real delta0;             // baseline targeting bias (reactive surveillance)
   real delta1;             // log-linear increase with outbreak intensity
-  // phi is fixed (passed via data); remove this block to re-estimate it
   real<lower=0> sigma_gp;  // GP marginal SD (spatial)
   real<lower=0> rho_gp;    // GP length scale (metres); exp kernel: corr = exp(-d/rho_gp)
   vector[B] z_gp;          // non-centred GP weights ~ normal(0,1)
+  real<lower=0> phi_raw;   // beta-binomial concentration; used only when fix_phi = 0
 }
 
 transformed parameters {
+  real<lower=0> phi = fix_phi ? phi_data : phi_raw;
   vector[N] p_bt;          // latent ecological probability (true mosquito presence)
   vector[N] p_R;           // reactive surveillance probability (biased upward)
   vector[N] omega;         // fraction of inspections that are reactive (omega_bt = kappa*C_bt / n_bt)
@@ -137,10 +140,8 @@ model {
   z_gp      ~ normal(0, 1);       // non-centred GP weights
   sigma_gp  ~ normal(0, 1);       // GP marginal SD (half-normal)
   rho_gp    ~ inv_gamma(3, 150);  // mode at 75m, matching observed residual spatial peak
+  if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
 
-  // Observation model: y_bt ~ BetaBinomial(n_bt, pi*phi, (1-pi)*phi)
-  // Beta-binomial relaxes the binomial variance assumption, allowing overdispersion.
-  // Mean is identical to binomial (n * pi); variance = n*pi*(1-pi)*(n+phi)/(1+phi).
   for (i in 1:N) {
     y[i] ~ beta_binomial(n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6));
   }

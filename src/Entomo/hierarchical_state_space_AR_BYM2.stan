@@ -23,7 +23,8 @@ data {
   // Computed in R from the graph structure before fitting.
   real<lower=0> scaling_factor;
 
-  real<lower=0> phi;  // beta-binomial concentration (fixed)
+  int<lower=0,upper=1> fix_phi;    // 1 = phi fixed at phi_data; 0 = phi estimated
+  real<lower=0> phi_data;          // value used when fix_phi = 1 (ignored otherwise)
 }
 
 transformed data {
@@ -44,9 +45,11 @@ parameters {
   vector[B] u_het_raw;             // unstructured (iid) component
   real<lower=0> sigma_spatial;     // total spatial SD (log-odds scale)
   real<lower=0,upper=1> phi_mix;   // mixing: 1 = pure ICAR, 0 = pure iid
+  real<lower=0> phi_raw;     // beta-binomial concentration; used only when fix_phi = 0
 }
 
 transformed parameters {
+  real<lower=0> phi = fix_phi ? phi_data : phi_raw;
   vector[N] p_bt;
   vector[N] p_R;
   vector[N] omega;
@@ -127,6 +130,7 @@ model {
   // Interpretable hyperpriors
   sigma_spatial ~ normal(0, 1);       // total spatial SD; half-normal
   phi_mix       ~ beta(0.5, 0.5);     // weakly informative; allows any mix
+  if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
 
   // Likelihood
   for (i in 1:N)

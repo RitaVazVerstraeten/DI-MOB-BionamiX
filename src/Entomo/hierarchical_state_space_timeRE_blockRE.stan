@@ -14,7 +14,9 @@ data {
   array[N] int<lower=1,upper=B> block;
   array[N] int<lower=1,upper=T> time;
   array[N] int<lower=0> C_bt;
-  real<lower=0> phi;
+
+  int<lower=0,upper=1> fix_phi;    // 1 = phi fixed at phi_data; 0 = phi estimated
+  real<lower=0> phi_data;          // value used when fix_phi = 1 (ignored otherwise)
 }
 
 transformed data {
@@ -32,9 +34,11 @@ parameters {
   real<lower=0> sigma_block;   // SD of block random effects
   real delta0;
   real delta1;
+  real<lower=0> phi_raw;     // beta-binomial concentration; used only when fix_phi = 0
 }
 
 transformed parameters {
+  real<lower=0> phi = fix_phi ? phi_data : phi_raw;
   vector[N] p_bt;
   vector[N] p_R;
   vector[N] omega;
@@ -94,6 +98,7 @@ model {
   sigma_block  ~ exponential(2);
   delta0       ~ normal(0.3, 0.4);
   delta1       ~ normal(0, 0.2);
+  if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
 
   for (i in 1:N) {
     y[i] ~ beta_binomial(n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6));

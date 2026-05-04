@@ -15,7 +15,8 @@ data {
   matrix[B, 2] coords_block;     // block centroid coordinates in metres (projected CRS)
   int<lower=1> M;                // HSGP basis functions per dimension (e.g. 20)
   real<lower=1> c_boundary;      // HSGP boundary factor (e.g. 1.5)
-  real<lower=0> phi;             // beta-binomial concentration (fixed)
+  int<lower=0,upper=1> fix_phi;    // 1 = phi fixed at phi_data; 0 = phi estimated
+  real<lower=0> phi_data;          // value used when fix_phi = 1 (ignored otherwise)
 }
 
 transformed data {
@@ -62,9 +63,11 @@ parameters {
   real<lower=0> sigma_gp;
   real<lower=0> rho_gp;
   vector[M_total] beta_gp;
+  real<lower=0> phi_raw;     // beta-binomial concentration; used only when fix_phi = 0
 }
 
 transformed parameters {
+  real<lower=0> phi = fix_phi ? phi_data : phi_raw;
   vector[N] p_bt;
   vector[N] p_R;
   vector[N] omega;
@@ -130,7 +133,7 @@ model {
     w[k, 1] ~ normal(0, 0.5);
     for (l in 2:Lp1) {
       w[k, l] ~ normal(w[k, l-1], sigma_w[k]);
-    }0.0409   4.04e-2 1.04e-1 1.08e-1 -1.27e-1  2.14e-1 
+    }
   }
   sigma_w         ~ exponential(2);
   w_unlagged      ~ normal(0, 0.5);
@@ -142,6 +145,7 @@ model {
   beta_gp         ~ normal(0, 1);
   sigma_gp        ~ normal(0, 1);
   rho_gp          ~ inv_gamma(3, 150);
+  if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
 
   for (i in 1:N) {
     y[i] ~ beta_binomial(n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6));

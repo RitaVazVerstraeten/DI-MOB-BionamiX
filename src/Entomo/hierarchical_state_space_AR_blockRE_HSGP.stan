@@ -15,7 +15,9 @@ data {
   matrix[B, 2] coords_block;     // block centroid coordinates in metres (projected CRS)
   int<lower=1> M;                // HSGP basis functions per dimension (e.g. 20)
   real<lower=1> c_boundary;      // HSGP boundary factor (e.g. 1.5)
-  real<lower=0> phi;             // beta-binomial concentration (fixed); set cfg$fix_phi=FALSE to estimate
+
+  int<lower=0,upper=1> fix_phi;    // 1 = phi fixed at phi_data; 0 = phi estimated
+  real<lower=0> phi_data;          // value used when fix_phi = 1 (ignored otherwise)
 }
 
 transformed data {
@@ -67,9 +69,11 @@ parameters {
   real<lower=0> sigma_gp;  // GP marginal SD (spatial)
   real<lower=0> rho_gp;    // GP length scale (metres); exp kernel: corr = exp(-d/rho_gp)
   vector[M_total] beta_gp; // HSGP basis coefficients ~ normal(0,1)
+  real<lower=0> phi_raw;   // beta-binomial concentration; used only when fix_phi = 0
 }
 
 transformed parameters {
+  real<lower=0> phi = fix_phi ? phi_data : phi_raw;
   vector[N] p_bt;          // latent ecological probability (true mosquito presence)
   vector[N] p_R;           // reactive surveillance probability (biased upward)
   vector[N] omega;         // fraction of inspections that are reactive (omega_bt = kappa*C_bt / n_bt)
@@ -157,6 +161,7 @@ model {
   beta_gp     ~ normal(0, 1);        // non-centred HSGP basis coefficients
   sigma_gp    ~ normal(0, 1);        // GP marginal SD (half-normal)
   rho_gp      ~ inv_gamma(3, 150);   // avg at 75m, matching observed residual spatial peak
+  if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
 
   for (i in 1:N) {
     y[i] ~ beta_binomial(n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6));

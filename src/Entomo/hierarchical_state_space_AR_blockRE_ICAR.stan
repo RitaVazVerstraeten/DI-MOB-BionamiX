@@ -18,7 +18,8 @@ data {
   array[N_edges] int<lower=1,upper=B> node1;     // first node of each edge (node1 < node2)
   array[N_edges] int<lower=1,upper=B> node2;     // second node of each edge
 
-  real<lower=0> phi;             // beta-binomial concentration (fixed); set cfg$fix_phi=FALSE to estimate
+  int<lower=0,upper=1> fix_phi;    // 1 = phi fixed at phi_data; 0 = phi estimated
+  real<lower=0> phi_data;          // value used when fix_phi = 1 (ignored otherwise)
 }
 
 transformed data {
@@ -40,10 +41,12 @@ parameters {
   // u_icar has an improper ICAR prior (pairwise differences);
   // soft sum-to-zero constraint pins the level.
   vector[B] u_icar_raw;            // raw ICAR spatial effects (unscaled) one per block
-  real<lower=0> sigma_icar;        // marginal SD of the spatial RE - overall magnitude of spatial variation 
+  real<lower=0> sigma_icar;        // marginal SD of the spatial RE - overall magnitude of spatial variation
+  real<lower=0> phi_raw;     // beta-binomial concentration; used only when fix_phi = 0
 }
 
 transformed parameters {
+  real<lower=0> phi = fix_phi ? phi_data : phi_raw;
   vector[N] p_bt;          // latent ecological probability (true mosquito presence)
   vector[N] p_R;           // reactive surveillance probability (biased upward)
   vector[N] omega;         // fraction of inspections that are reactive (omega_bt = kappa*C_bt / n_bt)
@@ -136,8 +139,9 @@ model {
   sum(u_icar_raw) ~ normal(0, 0.001 * B);
 
   // Marginal SD: half-normal weakly regularising prior
-  sigma_icar ~ normal(0, 1); // controlls magnitude of spatial variation sigma_icar = 0.3 means 
-  // neighbouring blocks differ by 0.3 log-odds on average 
+  sigma_icar ~ normal(0, 1); // controlls magnitude of spatial variation sigma_icar = 0.3 means
+  // neighbouring blocks differ by 0.3 log-odds on average
+  if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
 
   for (i in 1:N) {
     y[i] ~ beta_binomial(n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6));
