@@ -25,15 +25,13 @@ transformed data {
 parameters {
   real alpha;              // baseline intercept
   matrix[K, Lp1] w;        // distributed lag weights for environmental covariates
-  vector<lower=0>[K] sigma_w;  // random walk SD for each covariate's lag structure
   vector[Ku] w_unlagged;   // weights for unlagged block-level covariates
   vector[T] v_global_raw;          // global AR(1) trend (non-centered)
   vector[B] v_block_dev_raw;       // per-block deviation from global trend (non-centered)
   real<lower=0> sigma_v;           // SD of global temporal trend
   real<lower=-1,upper=1> rho;      // AR(1) coefficient
   real<lower=0> sigma_block_dev;   // SD of per-block deviations
-  real delta0;             // baseline targeting bias (reactive surveillance)
-  real delta1;             // log-linear increase with outbreak intensity
+  real<lower=0> delta1;            // linear increase in detection probability with dengue cases
   real<lower=0> sigma_gp;  // GP marginal SD (spatial)
   real<lower=0> rho_gp;    // GP length scale (metres); exp kernel: corr = exp(-d/rho_gp)
   vector[B] z_gp;          // non-centred GP weights ~ normal(0,1)
@@ -93,7 +91,7 @@ transformed parameters {
   // Work on linear predictor scale to avoid numerical issues
   for (i in 1:N) {
     if (C_bt[i] > 0) {
-      p_R[i] = inv_logit(eta[i] + delta0 + delta1 * log(C_bt[i]));
+      p_R[i] = inv_logit(eta[i] + delta1 * C_bt[i]);
     } else {
       p_R[i] = p_bt[i];  // no reactive bias when no cases
     }
@@ -119,25 +117,15 @@ model {
   // Priors
   alpha ~ normal(-7.0, 1.5);                    // 0.5–5% prevalence → logit ≈ −5.3 to −2.9; centred on rarer events
   
-  // Random walk prior on lag weights: enforces smoothness across lags
-  for (k in 1:K) {
-    w[k, 1] ~ normal(0, 0.5);  // initial lag-0 weight
-    for (l in 2:Lp1) {
-      w[k, l] ~ normal(w[k, l-1], sigma_w[k]);  // random walk
-    }
-  }
-  sigma_w ~ exponential(2);  // shrink toward smooth lag structure
-  
-  w_unlagged ~ normal(0, 0.5);    // unlagged covariate weights
-  v_global_raw    ~ normal(0, 1);       // non-centered global AR(1)
-  v_block_dev_raw ~ normal(0, 1);       // non-centered per-block deviations
-  sigma_v         ~ exponential(1);     // SD of global temporal trend
-  sigma_block_dev ~ exponential(2);     // SD of per-block deviations (shrink toward shared trend)
-  rho             ~ normal(0.4, 0.2);   // AR(1) coefficient
-  delta0 ~ normal(0.3, 0.4);      // slightly reduced baseline targeting bias
-  delta1 ~ normal(0, 0.2);        // reduced log-linear increase to stabilize init
-  // phi is fixed (no prior needed)
-  z_gp      ~ normal(0, 1);       // non-centred GP weights
+  to_vector(w)    ~ normal(0, 1.0);
+  w_unlagged      ~ normal(0, 0.5);
+  v_global_raw    ~ normal(0, 1);
+  v_block_dev_raw ~ normal(0, 1);
+  sigma_v         ~ exponential(1);
+  sigma_block_dev ~ exponential(2);
+  rho             ~ normal(0.4, 0.2);
+  delta1          ~ normal(0, 0.5);
+  z_gp            ~ normal(0, 1);       // non-centred GP weights
   sigma_gp  ~ normal(0, 1);       // GP marginal SD (half-normal)
   rho_gp    ~ inv_gamma(3, 150);  // mode at 75m, matching observed residual spatial peak
   if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);

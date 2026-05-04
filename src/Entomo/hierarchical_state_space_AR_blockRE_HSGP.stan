@@ -57,15 +57,13 @@ transformed data {
 parameters {
   real alpha;              // baseline intercept
   matrix[K, Lp1] w;        // distributed lag weights for environmental covariates
-  vector<lower=0>[K] sigma_w;  // random walk SD for each covariate's lag structure
   vector[Ku] w_unlagged;   // weights for unlagged block-level covariates
   vector[T] v_global_raw;          // global AR(1) trend (non-centered)
   vector[B] v_block_dev_raw;       // per-block deviation from global trend (non-centered)
   real<lower=0> sigma_v;           // SD of global temporal trend
   real<lower=-1,upper=1> rho;      // AR(1) coefficient
   real<lower=0> sigma_block_dev;   // SD of per-block deviations
-  real delta0;             // baseline targeting bias (reactive surveillance)
-  real delta1;             // log-linear increase with outbreak intensity
+  real<lower=0> delta1;            // linear increase in detection probability with dengue cases
   real<lower=0> sigma_gp;  // GP marginal SD (spatial)
   real<lower=0> rho_gp;    // GP length scale (metres); exp kernel: corr = exp(-d/rho_gp)
   vector[M_total] beta_gp; // HSGP basis coefficients ~ normal(0,1)
@@ -118,7 +116,7 @@ transformed parameters {
   // 5. Reactive surveillance probability
   for (i in 1:N) {
     if (C_bt[i] > 0) {
-      p_R[i] = inv_logit(eta[i] + delta0 + delta1 * log(C_bt[i]));
+      p_R[i] = inv_logit(eta[i] + delta1 * C_bt[i]);
     } else {
       p_R[i] = p_bt[i];
     }
@@ -143,22 +141,15 @@ model {
   // Priors
   alpha ~ normal(-7.0, 1.5);
 
-  for (k in 1:K) {
-    w[k, 1] ~ normal(0, 0.5);
-    for (l in 2:Lp1) {
-      w[k, l] ~ normal(w[k, l-1], sigma_w[k]);
-    }
-  }
-  sigma_w     ~ exponential(2);
-  w_unlagged  ~ normal(0, 0.5);
+  to_vector(w)    ~ normal(0, 1.0);
+  w_unlagged      ~ normal(0, 0.5);
   v_global_raw    ~ normal(0, 1);
   v_block_dev_raw ~ normal(0, 1);
   sigma_v         ~ exponential(1);
   sigma_block_dev ~ exponential(2);
   rho             ~ normal(0.4, 0.2);
-  delta0      ~ normal(0.3, 0.4);
-  delta1      ~ normal(0, 0.2);
-  beta_gp     ~ normal(0, 1);        // non-centred HSGP basis coefficients
+  delta1          ~ normal(0, 0.5);
+  beta_gp         ~ normal(0, 1);        // non-centred HSGP basis coefficients
   sigma_gp    ~ normal(0, 1);        // GP marginal SD (half-normal)
   rho_gp      ~ inv_gamma(3, 150);   // avg at 75m, matching observed residual spatial peak
   if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);

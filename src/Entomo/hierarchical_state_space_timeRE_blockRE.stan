@@ -26,14 +26,12 @@ transformed data {
 parameters {
   real alpha;
   matrix[K, Lp1] w;
-  vector<lower=0>[K] sigma_w;
   vector[Ku] w_unlagged;
   vector[T] v_time_raw;        // non-centred iid time random effects
   real<lower=0> sigma_time;    // SD of time random effects
   vector[B] u_block_raw;       // non-centred iid block random effects
   real<lower=0> sigma_block;   // SD of block random effects
-  real delta0;
-  real delta1;
+  real<lower=0> delta1;
   real<lower=0> phi_raw;     // beta-binomial concentration; used only when fix_phi = 0
 }
 
@@ -60,7 +58,7 @@ transformed parameters {
   // 3. Reactive surveillance probability
   for (i in 1:N) {
     if (C_bt[i] > 0) {
-      p_R[i] = inv_logit(eta[i] + delta0 + delta1 * log(C_bt[i]));
+      p_R[i] = inv_logit(eta[i] + delta1 * C_bt[i]);
     } else {
       p_R[i] = p_bt[i];
     }
@@ -84,20 +82,13 @@ transformed parameters {
 model {
   alpha ~ normal(-7.0, 1.5);
 
-  for (k in 1:K) {
-    w[k, 1] ~ normal(0, 0.5);
-    for (l in 2:Lp1) {
-      w[k, l] ~ normal(w[k, l-1], sigma_w[k]);
-    }
-  }
-  sigma_w      ~ exponential(2);
+  to_vector(w) ~ normal(0, 1.0);
   w_unlagged   ~ normal(0, 0.5);
   v_time_raw   ~ normal(0, 1);
   sigma_time   ~ exponential(1);
   u_block_raw  ~ normal(0, 1);
   sigma_block  ~ exponential(2);
-  delta0       ~ normal(0.3, 0.4);
-  delta1       ~ normal(0, 0.2);
+  delta1       ~ normal(0, 0.5);
   if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
 
   for (i in 1:N) {

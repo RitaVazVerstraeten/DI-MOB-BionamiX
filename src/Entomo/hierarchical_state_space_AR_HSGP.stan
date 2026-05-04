@@ -53,13 +53,11 @@ transformed data {
 parameters {
   real alpha;
   matrix[K, Lp1] w;
-  vector<lower=0>[K] sigma_w;
   vector[Ku] w_unlagged;
   vector[T] v_global_raw;
   real<lower=0> sigma_v;
   real<lower=-1,upper=1> rho;
-  real delta0;
-  real delta1;
+  real<lower=0> delta1;
   real<lower=0> sigma_gp;
   real<lower=0> rho_gp;
   vector[M_total] beta_gp;
@@ -105,7 +103,7 @@ transformed parameters {
   // 5. Reactive surveillance probability
   for (i in 1:N) {
     if (C_bt[i] > 0) {
-      p_R[i] = inv_logit(eta[i] + delta0 + delta1 * log(C_bt[i]));
+      p_R[i] = inv_logit(eta[i] + delta1 * C_bt[i]);
     } else {
       p_R[i] = p_bt[i];
     }
@@ -129,19 +127,12 @@ transformed parameters {
 model {
   alpha ~ normal(-7.0, 1.5);
 
-  for (k in 1:K) {
-    w[k, 1] ~ normal(0, 0.5);
-    for (l in 2:Lp1) {
-      w[k, l] ~ normal(w[k, l-1], sigma_w[k]);
-    }
-  }
-  sigma_w         ~ exponential(2);
+  to_vector(w)    ~ normal(0, 1.0);
   w_unlagged      ~ normal(0, 0.5);
   v_global_raw    ~ normal(0, 1);
   sigma_v         ~ exponential(1);
   rho             ~ normal(0.4, 0.2);
-  delta0          ~ normal(0.3, 0.4);
-  delta1          ~ normal(0, 0.2);
+  delta1          ~ normal(0, 0.5);
   beta_gp         ~ normal(0, 1);
   sigma_gp        ~ normal(0, 1);
   rho_gp          ~ inv_gamma(3, 150);
