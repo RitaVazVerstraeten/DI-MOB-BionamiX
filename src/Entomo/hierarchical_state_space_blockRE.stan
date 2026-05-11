@@ -24,6 +24,7 @@ parameters {
   vector[Ku] w_unlagged;
   vector[B] u_block_raw;           // non-centred iid block random effects
   real<lower=0> sigma_block;       // block RE scale
+  real delta0;                     // baseline reactive surveillance boost
   real<lower=0> delta1;
   real<lower=0> phi_raw;           // used only when fix_phi = 0
 }
@@ -44,7 +45,7 @@ transformed parameters {
 
   for (i in 1:N) {
     if (C_bt[i] > 0) {
-      p_R[i] = inv_logit(eta[i] + delta1 * C_bt[i]);
+      p_R[i] = inv_logit(eta[i] + delta0 + delta1 * log1p(C_bt[i]));
     } else {
       p_R[i] = p_bt[i];
     }
@@ -70,7 +71,8 @@ model {
   w_unlagged     ~ normal(0, 0.5);
   u_block_raw    ~ normal(0, 1);
   sigma_block    ~ exponential(2);
-  delta1         ~ normal(0, 0.5);
+  delta0         ~ normal(0, 0.5);
+  delta1         ~ normal(0, 0.3);
   if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
 
   for (i in 1:N)

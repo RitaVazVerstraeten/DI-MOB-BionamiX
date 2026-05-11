@@ -475,9 +475,9 @@ if (isTRUE(cfg$use_time_RE)) {
     summary_vars <- c(summary_vars, "sigma_v", "rho")
   if (!isTRUE(cfg$use_bym2) && isTRUE(cfg$use_block_dev)) {
     if (isTRUE(cfg$use_temporal_AR) || isTRUE(cfg$use_temporal_AR_perCMF))
-      summary_vars <- c(summary_vars, "sigma_block_dev")  # deviation on top of AR1
+      summary_vars <- c(summary_vars, "sigma_block_dev")        # deviation on top of AR1
     else
-      summary_vars <- c(summary_vars, "sigma_block")      # blockRE-only model
+      summary_vars <- c(summary_vars, "sigma_block", "delta0")  # blockRE-only model
   }
 }
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
