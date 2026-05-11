@@ -25,10 +25,7 @@ data {
 
   int<lower=0,upper=1> fix_phi;    // 1 = phi fixed at phi_data; 0 = phi estimated
   real<lower=0> phi_data;          // value used when fix_phi = 1 (ignored otherwise)
-}
-
-transformed data {
-  real kappa = 2.0;
+  real<lower=0> kappa;
 }
 
 parameters {

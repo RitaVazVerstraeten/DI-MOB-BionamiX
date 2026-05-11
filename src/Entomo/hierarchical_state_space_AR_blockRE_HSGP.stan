@@ -18,11 +18,10 @@ data {
 
   int<lower=0,upper=1> fix_phi;    // 1 = phi fixed at phi_data; 0 = phi estimated
   real<lower=0> phi_data;          // value used when fix_phi = 1 (ignored otherwise)
+  real<lower=0> kappa;
 }
 
 transformed data {
-  real kappa = 2.0;  // fixed scaling factor for reactive inspections
-
   // --- HSGP precomputation (done once, not every HMC step) ---
   int M_total = M * M;
 

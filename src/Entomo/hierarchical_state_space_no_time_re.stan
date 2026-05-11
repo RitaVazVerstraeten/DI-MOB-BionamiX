@@ -13,10 +13,7 @@ data {
   array[N] int<lower=1,upper=B> block;  // block index for each observation
   array[N] int<lower=1,upper=T> time;   // time index for each observation (unused here)
   array[N] int<lower=0> C_bt;    // number of dengue cases per block-time
-}
-
-transformed data {
-  real kappa = 2.0;  // fixed scaling factor for reactive inspections
+  real<lower=0> kappa;
 }
 
 parameters {

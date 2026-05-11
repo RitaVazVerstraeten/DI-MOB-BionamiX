@@ -278,7 +278,8 @@ build_stan_data <- function(cfg) {
       block = unl$df$block,
       time = unl$df$time,
       C_bt = unl$df$C_bt,
-      n_bt = as.integer(unl$df$N_HH + cfg$kappa * unl$df$C_bt)
+      n_bt = as.integer(unl$df$N_HH + cfg$kappa * unl$df$C_bt),
+      kappa = cfg$kappa
     ),
     df = unl$df,
     lag_vars_expanded = if (!is.null(lag$lag_vars_expanded)) lag$lag_vars_expanded else cfg$lag_vars
