@@ -73,7 +73,7 @@ cfg <- list(
   use_bym2        = FALSE,    # (only if use_spatial_AC = TRUE) TRUE = BYM2 (structured+unstructured); overrides use_icar
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
-  use_block_dev   = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
+  use_block_dev   = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
 
   # spatial
   shapefile_path = if (hostname == "frietjes")
@@ -141,7 +141,7 @@ predictor_spec <- paste0(
   "lag-", paste(cfg$lag_vars, collapse = "-"),
   "_unlag-", paste(cfg$unlagged_vars, collapse = "-")
 )
-run_suffix <- paste0(date_suffix, "_var_exp1")
+run_suffix <- paste0(date_suffix, "_var_exp2")
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
 run_output_dir    <- file.path(model_output_dir, run_suffix)
