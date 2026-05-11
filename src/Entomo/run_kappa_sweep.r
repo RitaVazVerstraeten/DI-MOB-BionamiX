@@ -72,12 +72,24 @@ for (i in seq_along(kappa_values)) {
   cat(sprintf("[%d/%d]  kappa = %g\n", i, n_total, kappa_val))
   cat("-------------------------------------------------------------\n")
 
+  # -- Patch 0: fix script_dir and skip renv::restore --------------------------
+  # When sourced from a temp file, script_dir resolves to the temp directory
+  # and renv::restore() fails. Override script_dir upfront and skip restore
+  # (renv is already active in the calling session).
+  script_dir_val <- dirname(normalizePath(stan_script))
+  patched <- gsub(
+    pattern     = "renv::restore\\(project = script_dir, prompt = FALSE\\)",
+    replacement = paste0('script_dir <- "', script_dir_val, '" # fixed by sweep'),
+    x           = glmm_lines,
+    perl        = TRUE
+  )
+
   # -- Patch 1: replace the kappa setting in cfg --------------------------------
   # Targets the line:  kappa = <number>,  # multiplier ...
   patched <- gsub(
     pattern     = "(\\bkappa\\s*=\\s*)[0-9]+(?:\\.[0-9]+)?",
     replacement = paste0("\\1", kappa_val),
-    x           = glmm_lines,
+    x           = patched,
     perl        = TRUE
   )
 
