@@ -66,14 +66,14 @@ cfg <- list(
   # model variant
   use_time_RE          = FALSE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
   use_temporal_AR      = TRUE,  # (ignored if use_time_RE = TRUE) TRUE = single global AR1 trend
-  use_temporal_AR_perCMF = TRUE, # (ignored if use_time_RE = TRUE) TRUE = independent AR1 per CMF
+  use_temporal_AR_perCMF = FALSE, # (ignored if use_time_RE = TRUE) TRUE = independent AR1 per CMF
   use_spatial_AC  = FALSE,    # (ignored if use_time_RE = TRUE) TRUE = spatial AC
   use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE and use_icar/bym2 = FALSE) TRUE = HSGP
   use_icar        = FALSE,   # (only if use_spatial_AC = TRUE) TRUE = plain ICAR
   use_bym2        = FALSE,    # (only if use_spatial_AC = TRUE) TRUE = BYM2 (structured+unstructured); overrides use_icar
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
-  use_block_dev   = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
+  use_block_dev   = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
 
   # spatial
   shapefile_path = if (hostname == "frietjes")
@@ -85,12 +85,12 @@ cfg <- list(
 
   # data prep
   n_blocks = NULL, # set NULL for all blocks/CMFs
-  lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
+  lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day"),
   max_lag = 2,
   kappa = 2,
   unlagged_vars = c("is_urban", "is_WUI"),
   # numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
-  numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
+  numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day"), 
   # MCMC
   chains = 2,
   iter_warmup = 500,
