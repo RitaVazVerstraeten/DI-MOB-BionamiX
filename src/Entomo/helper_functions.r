@@ -301,7 +301,8 @@ build_stan_data <- function(cfg) {
 make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
                           use_icar = FALSE, use_bym2 = FALSE,
                           use_time_RE = FALSE, use_spatial_AC = TRUE,
-                          use_block_dev = TRUE) {
+                          use_block_dev = TRUE,
+                          use_temporal_AR_perCMF = FALSE) {
   function() {
     init_vals <- list(
       alpha      = rnorm(1, -4.5, 0.4),
@@ -336,7 +337,11 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
           }
         }
       }
-      if (isTRUE(use_temporal_re)) {
+      if (isTRUE(use_temporal_AR_perCMF)) {
+        init_vals$v_raw   <- matrix(rnorm(stan_data$B * stan_data$T, 0, 0.3), stan_data$B, stan_data$T)
+        init_vals$sigma_v <- runif(1, 0.1, 0.5)
+        init_vals$rho     <- rnorm(1, 0.3, 0.15)
+      } else if (isTRUE(use_temporal_re)) {
         init_vals$v_global_raw <- rnorm(stan_data$T, 0, 0.3)
         init_vals$sigma_v      <- runif(1, 0.1, 0.5)
         init_vals$rho          <- rnorm(1, 0.3, 0.15)

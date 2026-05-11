@@ -2080,12 +2080,12 @@ print(tail(complete_by_month, 10))
 
 This section implements a hierarchical imputation strategy for the vegetation and moisture indices (NDVI, NDMI, NDWI). The strategy prioritizes:
 1. **Temporal interpolation** - Linear interpolation when both neighboring months have data
-2. **Manzana-specific climatology** - Monthly mean for each (manzana, month) if sufficient observations exist
+2. **Manzana-specific climatology** - Monthly mean for each (manzana, month) if sufficient observations exist (at least 2)
 3. **Manzana-specific climatology** - Used for all remaining gaps without both neighbors
 
 ```{r imputation function for NDVI NDMI NDWI}
 
-impute_NDXI_index <- function(df, index_name, id_col = "manzana", min_clim_obs = 3) {
+impute_NDXI_index <- function(df, index_name, id_col = "manzana", min_clim_obs = 2) {
   
   if (!id_col %in% names(df)) {
     stop(sprintf("ID column '%s' not found in input data.", id_col))

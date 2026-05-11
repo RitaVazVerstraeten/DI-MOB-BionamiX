@@ -64,8 +64,9 @@ cfg <- list(
   output_dir = if (hostname == "frietjes") "/home/rita/data/Entomo/fitting/stan" else "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
-  use_time_RE     = FALSE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
-  use_temporal_AR = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = global AR1 trend
+  use_time_RE          = FALSE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
+  use_temporal_AR      = FALSE,  # (ignored if use_time_RE = TRUE) TRUE = single global AR1 trend
+  use_temporal_AR_perCMF = TRUE, # (ignored if use_time_RE = TRUE) TRUE = independent AR1 per CMF
   use_spatial_AC  = FALSE,    # (ignored if use_time_RE = TRUE) TRUE = spatial AC
   use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE and use_icar/bym2 = FALSE) TRUE = HSGP
   use_icar        = FALSE,   # (only if use_spatial_AC = TRUE) TRUE = plain ICAR
@@ -84,14 +85,12 @@ cfg <- list(
 
   # data prep
   n_blocks = NULL, # set NULL for all blocks/CMFs
-  # lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
-  lag_vars = c("total_rainy_days", "temp_cat", "avg_VPD", "precip_max_day", "mean_ndvi"),
+  lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
   max_lag = 2,
   kappa = 4,
-  # unlagged_vars = c("is_urban", "is_WUI"),
-  unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers"),
+  unlagged_vars = c("is_urban", "is_WUI"),
+  # numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
   numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
-
   # MCMC
   chains = 2,
   iter_warmup = 500,
@@ -102,7 +101,7 @@ cfg <- list(
   parallel_chains = if (hostname == "frietjes") 4 else 1,
 
   # phi: set fix_phi = TRUE to pass phi as data (fixed); FALSE to estimate it
-  fix_phi = FALSE,
+  fix_phi = TRUE,
   phi_fixed = 25,   # beta-binomial concentration -> later replace with gamma(2, 0.25)
   # prior predictive check (set TRUE before first real fit)
   run_prior_predictive = FALSE,
@@ -120,7 +119,9 @@ date_suffix <- format(Sys.Date(), "%Y%m%d")
 model_spec <- if (isTRUE(cfg$use_time_RE)) {
   paste0("timeRE_blockRE_lag", cfg$max_lag, "_k", cfg$kappa)
 } else {
-  ar1_suffix <- ifelse(isTRUE(cfg$use_temporal_AR), "AR1", "noAR1")
+  ar1_suffix <- if (isTRUE(cfg$use_temporal_AR_perCMF)) "AR1perCMF"
+               else if (isTRUE(cfg$use_temporal_AR))      "AR1global"
+               else                                        "noAR1"
   gp_suffix  <- if (!isTRUE(cfg$use_spatial_AC))  "noGP"
                 else if (isTRUE(cfg$use_bym2))    "BYM2"
                 else if (isTRUE(cfg$use_icar))    "ICAR"
@@ -154,12 +155,14 @@ stan_dir <- "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo"
 cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   # iid time RE + iid block RE (no AR1, no GP)
   file.path(stan_dir, "hierarchical_state_space_timeRE_blockRE.stan")
-} else if (!isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_spatial_AC)) {
+} else if (!isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_temporal_AR_perCMF) && !isTRUE(cfg$use_spatial_AC)) {
   # Base: no AR, no GP, no blockRE
   file.path(stan_dir, "hierarchical_state_space.stan")
 } else if (!isTRUE(cfg$use_spatial_AC)) {
   # AR only variants (no GP)
-  if (isTRUE(cfg$use_block_dev)) {
+  if (isTRUE(cfg$use_temporal_AR_perCMF)) {
+    file.path(stan_dir, "hierarchical_state_space_AR_perCMF.stan")
+  } else if (isTRUE(cfg$use_block_dev)) {
     file.path(stan_dir, "hierarchical_state_space_AR_blockRE.stan")
   } else {
     file.path(stan_dir, "hierarchical_state_space_AR.stan")
@@ -433,12 +436,13 @@ fit <- mod$sample(
   thin = if (!is.null(cfg$thin)) cfg$thin else 1,
   init = make_init_fun(
     stan_data, cfg$use_temporal_AR,
-    use_hsgp       = isTRUE(cfg$use_hsgp) && !isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
-    use_icar       = isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
-    use_bym2       = isTRUE(cfg$use_bym2),
-    use_time_RE    = isTRUE(cfg$use_time_RE),
-    use_spatial_AC = isTRUE(cfg$use_spatial_AC),
-    use_block_dev  = isTRUE(cfg$use_block_dev)
+    use_hsgp              = isTRUE(cfg$use_hsgp) && !isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
+    use_icar              = isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
+    use_bym2              = isTRUE(cfg$use_bym2),
+    use_time_RE           = isTRUE(cfg$use_time_RE),
+    use_spatial_AC        = isTRUE(cfg$use_spatial_AC),
+    use_block_dev         = isTRUE(cfg$use_block_dev),
+    use_temporal_AR_perCMF = isTRUE(cfg$use_temporal_AR_perCMF)
   ),
   adapt_delta = cfg$adapt_delta,
   max_treedepth = cfg$max_treedepth,
@@ -462,7 +466,8 @@ if (isTRUE(cfg$use_time_RE)) {
     else if (isTRUE(cfg$use_icar)) summary_vars <- c(summary_vars, "sigma_icar")
     else                           summary_vars <- c(summary_vars, "sigma_gp", "rho_gp")
   }
-  if (isTRUE(cfg$use_temporal_AR)) summary_vars <- c(summary_vars, "sigma_v", "rho")
+  if (isTRUE(cfg$use_temporal_AR) || isTRUE(cfg$use_temporal_AR_perCMF))
+    summary_vars <- c(summary_vars, "sigma_v", "rho")
   if (!isTRUE(cfg$use_bym2) && isTRUE(cfg$use_block_dev))
     summary_vars <- c(summary_vars, "sigma_block_dev")
 }
