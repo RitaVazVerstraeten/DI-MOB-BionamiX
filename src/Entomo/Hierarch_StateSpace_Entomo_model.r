@@ -101,7 +101,7 @@ cfg <- list(
   parallel_chains = if (hostname == "frietjes") 4 else 1,
 
   # phi: set fix_phi = TRUE to pass phi as data (fixed); FALSE to estimate it
-  fix_phi = TRUE,
+  fix_phi = FALSE,
   phi_fixed = 25,   # beta-binomial concentration -> later replace with gamma(2, 0.25)
   # prior predictive check (set TRUE before first real fit)
   run_prior_predictive = FALSE,
