@@ -86,7 +86,7 @@ cfg <- list(
   # data prep
   n_blocks = NULL, # set NULL for all blocks/CMFs
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day"),
-  max_lag = 2,
+  max_lag = 1,
   kappa = 2,
   unlagged_vars = c("is_urban", "is_WUI"),
   # numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
