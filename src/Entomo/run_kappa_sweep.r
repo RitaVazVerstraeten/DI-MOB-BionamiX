@@ -1,7 +1,7 @@
 # =============================================================================
 # run_kappa_sweep.r
 #
-# Runs GLMM.r repeatedly over a range of kappa values (0 to 5).
+# Runs Hierarch_StateSpace_Entomo_model.r repeatedly over a range of kappa values.
 # For each kappa, results are written to:
 #   file.path(cfg$output_dir, kappa_sweep_subdir)/
 #     <predictor_spec>/..._k<kappa>_.../
@@ -14,28 +14,28 @@
 # ---------------------------------------------------------------------------
 # SWEEP SETTINGS — adjust these as needed
 # ---------------------------------------------------------------------------
-kappa_values      <- seq(0, 5, by = 0.5)   # e.g. 0, 1, 2, 3, 4, 5
+kappa_values      <- seq(1, 4, by = 1)   # e.g. 1, 2, 3, 4
                                           # Use seq(0, 5, by = 0.5) for finer steps
 kappa_sweep_subdir <- "kappa_tests"       # subdirectory appended to cfg$output_dir
 
-# Derive the sweep root the same way GLMM.r resolves cfg$output_dir, then
+# Derive the sweep root the same way the Stan model resolves cfg$output_dir, then
 # append kappa_sweep_subdir — keeping kappa_tests *inside* cfg$output_dir.
-glmm_output_dir <- if (Sys.info()["nodename"] == "frietjes") {
-  "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM"
+stan_output_dir <- if (Sys.info()["nodename"] == "frietjes") {
+  "/home/rita/data/Entomo/fitting/stan"
 } else {
-  "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM"
+  "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan"
 }
-kappa_tests_dir <- file.path(glmm_output_dir, kappa_sweep_subdir)
+kappa_tests_dir <- file.path(stan_output_dir, kappa_sweep_subdir)
 
-# Path to GLMM.r (assumed to be in the same directory as this script)
-glmm_script <- file.path(dirname(sys.frame(1)$ofile %||% "."), "GLMM.r")
-if (!file.exists(glmm_script)) {
+# Path to the Stan model script (assumed to be in the same directory as this script)
+stan_script <- file.path(dirname(sys.frame(1)$ofile %||% "."), "Hierarch_StateSpace_Entomo_model.r")
+if (!file.exists(stan_script)) {
   # Fallback: look relative to working directory
-  glmm_script <- "GLMM.r"
+  stan_script <- "Hierarch_StateSpace_Entomo_model.r"
 }
-if (!file.exists(glmm_script)) {
-  stop("GLMM.r not found. Run this script from the same directory as GLMM.r, ",
-       "or set the glmm_script path explicitly above.")
+if (!file.exists(stan_script)) {
+  stop("Hierarch_StateSpace_Entomo_model.r not found. Run this script from the same directory, ",
+       "or set the stan_script path explicitly above.")
 }
 
 # ---------------------------------------------------------------------------
@@ -44,9 +44,9 @@ if (!file.exists(glmm_script)) {
 `%||%` <- function(a, b) if (!is.null(a)) a else b
 
 # ---------------------------------------------------------------------------
-# Read GLMM.r once; we'll patch it per iteration
+# Read the Stan model script once; we'll patch it per iteration
 # ---------------------------------------------------------------------------
-glmm_lines <- readLines(glmm_script)
+glmm_lines <- readLines(stan_script)
 
 dir.create(kappa_tests_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -57,7 +57,7 @@ sweep_log <- list()
 n_total   <- length(kappa_values)
 
 cat("=============================================================\n")
-cat("  Kappa sweep: GLMM.r x", n_total, "runs\n")
+cat("  Kappa sweep: Hierarch_StateSpace_Entomo_model.r x", n_total, "runs\n")
 cat("  Kappa values:", paste(kappa_values, collapse = ", "), "\n")
 cat("  Output base: ", kappa_tests_dir, "\n")
 cat("=============================================================\n\n")
@@ -85,14 +85,14 @@ for (i in seq_along(kappa_values)) {
   # Targets the quoted paths inside cfg$output_dir (both if/else branches).
   # Result in patched script: file.path("<original_path>", "kappa_tests")
   patched <- gsub(
-    pattern     = '("[^"]*fitting[/\\\\]GLMM[^"]*")',
+    pattern     = '("[^"]*fitting[/\\\\]stan[^"]*")',
     replacement = paste0('file.path(\\1, "', kappa_sweep_subdir, '")'),
     x           = patched,
     perl        = TRUE
   )
 
   # -- Write patched script to a temp file --------------------------------------
-  tmp_file <- tempfile(pattern = sprintf("GLMM_k%g_", kappa_val), fileext = ".r")
+  tmp_file <- tempfile(pattern = sprintf("stan_k%g_", kappa_val), fileext = ".r")
   writeLines(patched, tmp_file)
   on.exit(unlink(tmp_file), add = TRUE)
 
