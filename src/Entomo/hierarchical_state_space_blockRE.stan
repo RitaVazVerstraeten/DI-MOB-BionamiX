@@ -71,7 +71,7 @@ model {
   w_unlagged     ~ normal(0, 0.5);
   u_block_raw    ~ normal(0, 1);
   sigma_block    ~ exponential(2);
-  delta0         ~ normal(0, 0.5);
+  delta0         ~ normal(0.5, 0.3);
   delta1         ~ normal(0, 0.3);
   if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
 
