@@ -111,7 +111,7 @@ model {
   // Temporal auto-correlation 
   v_global_raw    ~ normal(0, 1); //technical trick from Claude instead of putting prior on v_global which is harder for the sampler to explore
   
-  sigma_v         ~ exponential(4); // controls variation in municipality-wide temporal trend
+  sigma_v         ~ exponential(1); // controls variation in municipality-wide temporal trend
   
   rho             ~ normal(0.4, 0.2); //autocorrelation constrained ot -1, 1
   // v_global is centred exactly in transformed parameters (mean subtracted).
