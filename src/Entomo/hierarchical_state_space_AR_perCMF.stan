@@ -84,8 +84,8 @@ model {
   to_vector(w) ~ normal(0, 1.0);
   w_unlagged   ~ normal(0, 0.5);
   to_vector(v_raw) ~ normal(0, 1);
-  sigma_v      ~ exponential(1);
-  rho          ~ normal(0.4, 0.2);
+  sigma_v      ~ normal(0, 0.3); // half-normal via constraint <lower=0>
+  rho          ~ normal(0.35, 0.1);
   delta1       ~ normal(0, 0.5);
   if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
 
