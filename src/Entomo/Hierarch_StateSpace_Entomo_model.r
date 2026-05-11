@@ -73,7 +73,7 @@ cfg <- list(
   use_bym2        = FALSE,    # (only if use_spatial_AC = TRUE) TRUE = BYM2 (structured+unstructured); overrides use_icar
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
-  use_block_dev   = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
+  use_block_dev   = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
 
   # spatial
   shapefile_path = if (hostname == "frietjes")
@@ -613,7 +613,12 @@ if (requireNamespace("spdep", quietly = TRUE)) {
     moran_stan_list[[which(years_stan == yr)]] <- do.call(rbind, band_list)
   }
 
-  moran_stan_df <- do.call(rbind, moran_stan_list) %>%
+  moran_stan_df <- do.call(rbind, moran_stan_list)
+  if (is.null(moran_stan_df) || nrow(moran_stan_df) == 0) {
+    cat("Skipping Stan Moran's I plot: not enough blocks per year (need >= 10).\n")
+  } else {
+
+  moran_stan_df <- moran_stan_df %>%
     filter(!is.na(morans_I)) %>%
     mutate(year = factor(year))
 
@@ -649,6 +654,8 @@ if (requireNamespace("spdep", quietly = TRUE)) {
     row.names = FALSE
   )
   cat("Stan Moran's I correlogram saved to:", plots_output_dir, "\n")
+
+  } # end if moran_stan_df non-empty
 
 } else {
   cat("Skipping Stan Moran's I: package 'spdep' not installed.\n")
