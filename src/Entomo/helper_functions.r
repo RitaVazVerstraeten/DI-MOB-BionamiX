@@ -342,6 +342,9 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
         init_vals$v_raw   <- matrix(rnorm(stan_data$B * stan_data$T, 0, 0.3), stan_data$B, stan_data$T)
         init_vals$sigma_v <- runif(1, 0.1, 0.5)
         init_vals$rho     <- rnorm(1, 0.3, 0.15)
+      } else if (!isTRUE(use_temporal_re) && !isTRUE(use_spatial_AC) && isTRUE(use_block_dev)) {
+        init_vals$u_block_raw <- rnorm(stan_data$B, 0, 0.3)
+        init_vals$sigma_block <- runif(1, 0.05, 0.3)
       } else if (isTRUE(use_temporal_re)) {
         init_vals$v_global_raw <- rnorm(stan_data$T, 0, 0.3)
         init_vals$sigma_v      <- runif(1, 0.1, 0.5)

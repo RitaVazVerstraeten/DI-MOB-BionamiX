@@ -65,7 +65,7 @@ cfg <- list(
 
   # model variant
   use_time_RE          = FALSE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
-  use_temporal_AR      = TRUE,  # (ignored if use_time_RE = TRUE) TRUE = single global AR1 trend
+  use_temporal_AR      = FALSE,  # (ignored if use_time_RE = TRUE) TRUE = single global AR1 trend
   use_temporal_AR_perCMF = FALSE, # (ignored if use_time_RE = TRUE) TRUE = independent AR1 per CMF
   use_spatial_AC  = FALSE,    # (ignored if use_time_RE = TRUE) TRUE = spatial AC
   use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE and use_icar/bym2 = FALSE) TRUE = HSGP
@@ -86,7 +86,7 @@ cfg <- list(
   # data prep
   n_blocks = NULL, # set NULL for all blocks/CMFs
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day"),
-  max_lag = 1,
+  max_lag = 2,
   kappa = 2,
   unlagged_vars = c("is_urban", "is_WUI"),
   # numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
@@ -157,8 +157,12 @@ cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   # iid time RE + iid block RE (no AR1, no GP)
   file.path(stan_dir, "hierarchical_state_space_timeRE_blockRE.stan")
 } else if (!isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_temporal_AR_perCMF) && !isTRUE(cfg$use_spatial_AC)) {
-  # Base: no AR, no GP, no blockRE
-  file.path(stan_dir, "hierarchical_state_space.stan")
+  # No AR, no GP: base or blockRE-only
+  if (isTRUE(cfg$use_block_dev)) {
+    file.path(stan_dir, "hierarchical_state_space_blockRE.stan")
+  } else {
+    file.path(stan_dir, "hierarchical_state_space.stan")
+  }
 } else if (!isTRUE(cfg$use_spatial_AC)) {
   # AR only variants (no GP)
   if (isTRUE(cfg$use_temporal_AR_perCMF)) {
@@ -469,8 +473,12 @@ if (isTRUE(cfg$use_time_RE)) {
   }
   if (isTRUE(cfg$use_temporal_AR) || isTRUE(cfg$use_temporal_AR_perCMF))
     summary_vars <- c(summary_vars, "sigma_v", "rho")
-  if (!isTRUE(cfg$use_bym2) && isTRUE(cfg$use_block_dev))
-    summary_vars <- c(summary_vars, "sigma_block_dev")
+  if (!isTRUE(cfg$use_bym2) && isTRUE(cfg$use_block_dev)) {
+    if (isTRUE(cfg$use_temporal_AR) || isTRUE(cfg$use_temporal_AR_perCMF))
+      summary_vars <- c(summary_vars, "sigma_block_dev")  # deviation on top of AR1
+    else
+      summary_vars <- c(summary_vars, "sigma_block")      # blockRE-only model
+  }
 }
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
 
