@@ -345,7 +345,6 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
       } else if (!isTRUE(use_temporal_re) && !isTRUE(use_spatial_AC) && isTRUE(use_block_dev)) {
         init_vals$u_block_raw <- rnorm(stan_data$B, 0, 0.3)
         init_vals$sigma_block <- runif(1, 0.05, 0.3)
-        init_vals$delta0      <- rnorm(1, 0.3, 0.2)
       } else if (isTRUE(use_temporal_re)) {
         init_vals$v_global_raw <- rnorm(stan_data$T, 0, 0.3)
         init_vals$sigma_v      <- runif(1, 0.1, 0.5)
