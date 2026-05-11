@@ -84,7 +84,7 @@ model {
   to_vector(w) ~ normal(0, 1.0);
   w_unlagged   ~ normal(0, 0.5);
   v_global_raw ~ normal(0, 1);
-  sigma_v      ~ exponential(4);
+  sigma_v      ~ exponential(1);
   rho          ~ normal(0.4, 0.2);
   delta1       ~ normal(0, 0.5);
   if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
