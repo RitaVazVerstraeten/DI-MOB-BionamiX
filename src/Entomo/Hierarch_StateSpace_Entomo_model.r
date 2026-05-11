@@ -127,7 +127,8 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
                 else if (isTRUE(cfg$use_icar))    "ICAR"
                 else if (isTRUE(cfg$use_hsgp))    "HSGP"
                 else                              "GP"
-  re_suffix  <- ifelse(isTRUE(cfg$use_block_dev), "blockRE", "noBlockRE")
+  re_suffix  <- if (isTRUE(cfg$use_temporal_AR_perCMF)) "noBlockRE"
+               else ifelse(isTRUE(cfg$use_block_dev), "blockRE", "noBlockRE")
   n_block_suffix  <- ifelse(is.null(cfg$n_blocks), "All", cfg$n_blocks)
   n_block_suffix  <- paste0(n_block_suffix, "Blocks")
   paste0(ar1_suffix, "_", gp_suffix, "_", re_suffix,
@@ -140,10 +141,10 @@ predictor_spec <- paste0(
   "lag-", paste(cfg$lag_vars, collapse = "-"),
   "_unlag-", paste(cfg$unlagged_vars, collapse = "-")
 )
-# run_suffix <- paste0(date_suffix)
+run_suffix <- paste0(date_suffix, "var_exp2")
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
-run_output_dir    <- file.path(model_output_dir, date_suffix)
+run_output_dir    <- file.path(model_output_dir, run_suffix)
 plots_output_dir  <- file.path(run_output_dir, "plots")
 dir.create(run_output_dir,   recursive = TRUE, showWarnings = FALSE)
 dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
