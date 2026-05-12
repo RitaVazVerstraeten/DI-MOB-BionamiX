@@ -92,16 +92,16 @@ cfg <- list(
   # numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
   numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day"), 
   # MCMC
-  chains = 2,
-  iter_warmup = 500,
-  iter_sampling = 500,
+  chains = 4,
+  iter_warmup = 1000,
+  iter_sampling = 1000,
   # thin = 2,
   adapt_delta = 0.95,
   max_treedepth = 12,
   parallel_chains = if (hostname == "frietjes") 4 else 1,
 
   # phi: set fix_phi = TRUE to pass phi as data (fixed); FALSE to estimate it
-  fix_phi = TRUE,
+  fix_phi = FALSE,
   phi_fixed = 25,   # beta-binomial concentration -> later replace with gamma(2, 0.25)
   # prior predictive check (set TRUE before first real fit)
   run_prior_predictive = FALSE,
