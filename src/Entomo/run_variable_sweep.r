@@ -122,7 +122,7 @@ cfg <- list(
 
   n_blocks  = NULL,
   max_lag   = 2,
-  kappa     = 4,
+  kappa     = 2,
 
   chains          = 4,
   iter_warmup     = 1000,
