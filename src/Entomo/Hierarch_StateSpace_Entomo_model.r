@@ -490,8 +490,9 @@ writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", mo
 
 # ======================= log likelihood / LOO-CV ============================
 if (requireNamespace("loo", quietly = TRUE)) {
-  log_lik_draws <- fit$draws("log_lik", format = "matrix")
-  loo_result    <- loo::loo(log_lik_draws, cores = cfg$parallel_chains)
+  log_lik_draws <- fit$draws("log_lik", format = "array")
+  r_eff         <- loo::relative_eff(exp(log_lik_draws))
+  loo_result    <- loo::loo(log_lik_draws, r_eff = r_eff)
   cat("\n--- LOO-CV ---\n")
   print(loo_result)
   loo_output <- capture.output(print(loo_result))
