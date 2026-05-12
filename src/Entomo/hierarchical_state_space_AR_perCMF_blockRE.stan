@@ -1,4 +1,4 @@
-// Per-CMF AR(1) + iid block random effect — centered parameterization
+// Per-CMF AR(1) + iid block random effect — non-centered parameterization
 // Shared rho and sigma_v across CMFs (partial pooling); static block offset u_block
 // Lag weights follow per-predictor cumulative decay: w_implied[p,l] = w0[p] * prod(decay[p,1:(l-1)])
 data {
@@ -27,7 +27,7 @@ parameters {
   vector<lower=0,upper=1>[K] decay1;         // fraction of w0 retained at lag 1
   vector<lower=0,upper=1>[K] decay2;         // additional fraction retained at lag 2
   vector[Ku] w_unlagged;
-  matrix[B, T] v;                            // per-CMF AR(1) states (centered)
+  matrix[B, T] v_raw;                        // per-CMF AR(1) innovations (non-centered)
   real<lower=0> sigma_v;                     // shared innovation SD (partial pooling across CMFs)
   real<lower=-1,upper=1> rho;                // shared AR(1) coefficient
   vector[B] u_block_raw;                     // non-centred iid block random effects
@@ -42,6 +42,7 @@ transformed parameters {
   vector[N] p_R;
   vector[N] omega;
   vector[N] pi;
+  matrix[B, T] v;                            // per-CMF AR(1) states
   vector[B] u_block = sigma_block * u_block_raw;
   vector[N] x_effect;
 
@@ -56,13 +57,20 @@ transformed parameters {
   // 2. Environmental effects
   x_effect = X_lag_flat * to_vector(w_implied) + X_unlagged * w_unlagged;
 
-  // 3. Linear predictor: AR(1) trajectory + static block offset
+  // 3. Per-CMF AR(1): each CMF follows its own trajectory, sharing rho and sigma_v
+  for (b in 1:B) {
+    v[b, 1] = sigma_v * v_raw[b, 1] / sqrt(fmax(1e-6, 1 - rho^2));
+    for (t in 2:T)
+      v[b, t] = rho * v[b, t-1] + sigma_v * v_raw[b, t];
+  }
+
+  // 4. Linear predictor: AR(1) trajectory + static block offset
   vector[N] eta;
   for (i in 1:N)
     eta[i] = alpha + x_effect[i] + v[block[i], time[i]] + u_block[block[i]];
   p_bt = inv_logit(eta);
 
-  // 4. Reactive surveillance probability
+  // 5. Reactive surveillance probability
   for (i in 1:N) {
     if (C_bt[i] > 0) {
       p_R[i] = inv_logit(eta[i] + delta1 * C_bt[i]);
@@ -71,7 +79,7 @@ transformed parameters {
     }
   }
 
-  // 5. Effective observation probability
+  // 6. Effective observation probability
   for (i in 1:N) {
     if (n_bt[i] == 0) {
       omega[i] = 0;
@@ -89,20 +97,16 @@ transformed parameters {
 model {
   alpha ~ normal(-7.0, 1.5);
 
-  w0     ~ normal(0, 1.0);
-  decay1 ~ beta(2, 2);
-  decay2 ~ beta(2, 2);
+  w0               ~ normal(0, 1.0);
+  decay1           ~ beta(2, 2);
+  decay2           ~ beta(2, 2);
   w_unlagged       ~ normal(0, 0.5);
-  for (b in 1:B) {
-    v[b, 1] ~ normal(0, sigma_v / sqrt(1 - rho^2));
-    for (t in 2:T)
-      v[b, t] ~ normal(rho * v[b, t-1], sigma_v);
-  }
-  sigma_v      ~ normal(0, 0.3);  // half-normal via constraint <lower=0>
-  rho          ~ normal(0.35, 0.1);
-  u_block_raw  ~ normal(0, 1);
-  sigma_block  ~ normal(0, 0.5);
-  delta1       ~ normal(0, 0.5);
+  to_vector(v_raw) ~ normal(0, 1);
+  sigma_v          ~ normal(0, 0.3);  // half-normal via constraint <lower=0>
+  rho              ~ normal(0.35, 0.1);
+  u_block_raw      ~ normal(0, 1);
+  sigma_block      ~ normal(0, 0.5);
+  delta1           ~ normal(0, 0.5);
   if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
 
   for (i in 1:N)
