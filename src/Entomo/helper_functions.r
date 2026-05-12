@@ -307,7 +307,9 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
   function() {
     init_vals <- list(
       alpha      = rnorm(1, -4.5, 0.4),
-      w          = matrix(rnorm(stan_data$K * stan_data$Lp1, 0, 0.08), stan_data$K, stan_data$Lp1),
+      w0         = rnorm(stan_data$K, 0, 0.08),
+      decay1     = runif(stan_data$K, 0.4, 0.9),
+      decay2     = runif(stan_data$K, 0.4, 0.9),
       w_unlagged = rnorm(stan_data$Ku, 0, 0.1),
       delta1     = runif(1, 0.01, 0.05),
       phi_raw    = runif(1, 15, 30)
@@ -339,7 +341,7 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
         }
       }
       if (isTRUE(use_temporal_AR_perCMF)) {
-        init_vals$v_raw   <- matrix(rnorm(stan_data$B * stan_data$T, 0, 0.3), stan_data$B, stan_data$T)
+        init_vals$v       <- matrix(rnorm(stan_data$B * stan_data$T, 0, 0.3), stan_data$B, stan_data$T)
         init_vals$sigma_v <- runif(1, 0.1, 0.5)
         init_vals$rho     <- rnorm(1, 0.3, 0.15)
         if (isTRUE(use_block_dev)) {

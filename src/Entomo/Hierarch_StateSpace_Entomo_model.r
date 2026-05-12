@@ -101,7 +101,7 @@ cfg <- list(
   parallel_chains = if (hostname == "frietjes") 4 else 1,
 
   # phi: set fix_phi = TRUE to pass phi as data (fixed); FALSE to estimate it
-  fix_phi = TRUE,
+  fix_phi = FALSE,
   phi_fixed = 25,   # beta-binomial concentration -> later replace with gamma(2, 0.25)
   # prior predictive check (set TRUE before first real fit)
   run_prior_predictive = FALSE,
@@ -142,10 +142,10 @@ predictor_spec <- paste0(
   "lag-", paste(cfg$lag_vars, collapse = "-"),
   "_unlag-", paste(cfg$unlagged_vars, collapse = "-")
 )
-# run_suffix <- paste0(date_suffix, "_var_exp2")
+run_suffix <- paste0(date_suffix, "_monotone_decay")
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
-run_output_dir    <- file.path(model_output_dir, date_suffix)
+run_output_dir    <- file.path(model_output_dir, run_suffix)
 plots_output_dir  <- file.path(run_output_dir, "plots")
 dir.create(run_output_dir,   recursive = TRUE, showWarnings = FALSE)
 dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
@@ -465,7 +465,7 @@ fit <- mod$sample(
 invisible(file.remove(list.files(run_output_dir, pattern = "_(config|metric)\\.json$", full.names = TRUE)))
 
 # ======================= make model summary ============================
-summary_vars <- c("alpha", "delta1", "w", "w_unlagged")
+summary_vars <- c("alpha", "delta1", "w0", "decay1", "decay2", "w_unlagged")
 if (isTRUE(cfg$use_time_RE)) {
   summary_vars <- c(summary_vars, "sigma_time", "sigma_block")
 } else {
@@ -718,12 +718,16 @@ if (cfg$plot_traceplots) {
       cat("No scalar parameters found for traceplot.\n")
     }
 
-    # Lagged weights — draw by root name "w"; get element names from array dims
-    if ("w" %in% model_vars) {
-      draws_w  <- fit$draws(variables = "w", format = "array")
-      w_params <- dimnames(draws_w)[[3]]
-      cat("Plotting lag weight traceplots:", paste(w_params, collapse = ", "), "\n")
-      save_trace_chunks(w_params, draws_w, "traceplot_weights_w", chunk_size = 12, w = 12, h = 10)
+    # Base lag weights and decay factors
+    if ("w0" %in% model_vars) {
+      draws_w0  <- fit$draws(variables = "w0", format = "array")
+      w0_params <- dimnames(draws_w0)[[3]]
+      save_trace_chunks(w0_params, draws_w0, "traceplot_weights_w0", chunk_size = 12, w = 12, h = 10)
+    }
+    if ("decay1" %in% model_vars) {
+      draws_d1  <- fit$draws(variables = c("decay1", "decay2"), format = "array")
+      d1_params <- dimnames(draws_d1)[[3]]
+      save_trace_chunks(d1_params, draws_d1, "traceplot_weights_decay", chunk_size = 12, w = 12, h = 10)
     }
 
     # Unlagged weights

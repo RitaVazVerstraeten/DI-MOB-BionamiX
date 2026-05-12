@@ -1,5 +1,6 @@
-// Per-CMF AR(1) + iid block random effect
+// Per-CMF AR(1) + iid block random effect — centered parameterization
 // Shared rho and sigma_v across CMFs (partial pooling); static block offset u_block
+// Lag weights follow per-predictor cumulative decay: w_implied[p,l] = w0[p] * prod(decay[p,1:(l-1)])
 data {
   int<lower=1> N;
   array[N] int<lower=0> y;
@@ -22,15 +23,17 @@ data {
 
 parameters {
   real alpha;
-  matrix[K, Lp1] w;
+  vector[K] w0;                              // per-predictor base weight (lag 0)
+  vector<lower=0,upper=1>[K] decay1;         // fraction of w0 retained at lag 1
+  vector<lower=0,upper=1>[K] decay2;         // additional fraction retained at lag 2
   vector[Ku] w_unlagged;
-  matrix[B, T] v_raw;              // per-CMF AR(1) innovations
-  real<lower=0> sigma_v;           // shared innovation SD (partial pooling across CMFs)
-  real<lower=-1,upper=1> rho;      // shared AR(1) coefficient
-  vector[B] u_block_raw;           // non-centred iid block random effects
-  real<lower=0> sigma_block;       // block RE scale
+  matrix[B, T] v;                            // per-CMF AR(1) states (centered)
+  real<lower=0> sigma_v;                     // shared innovation SD (partial pooling across CMFs)
+  real<lower=-1,upper=1> rho;                // shared AR(1) coefficient
+  vector[B] u_block_raw;                     // non-centred iid block random effects
+  real<lower=0> sigma_block;                 // block RE scale
   real<lower=0> delta1;
-  real<lower=0> phi_raw;           // used only when fix_phi = 0
+  real<lower=0> phi_raw;                     // used only when fix_phi = 0
 }
 
 transformed parameters {
@@ -39,19 +42,19 @@ transformed parameters {
   vector[N] p_R;
   vector[N] omega;
   vector[N] pi;
-  matrix[B, T] v;                  // per-CMF AR(1) states
-  vector[B] u_block = sigma_block * u_block_raw; // non-centered
+  vector[B] u_block = sigma_block * u_block_raw;
   vector[N] x_effect;
 
-  // 1. Per-CMF AR(1): each CMF follows its own trajectory, sharing rho and sigma_v
-  for (b in 1:B) {
-    v[b, 1] = sigma_v * v_raw[b, 1] / sqrt(fmax(1e-6, 1 - rho^2));
-    for (t in 2:T)
-      v[b, t] = rho * v[b, t-1] + sigma_v * v_raw[b, t];
+  // 1. Implied lag weights: enforces |w[p,0]| >= |w[p,1]| >= |w[p,2]|
+  matrix[K, Lp1] w_implied;
+  for (p in 1:K) {
+    w_implied[p, 1] = w0[p];
+    w_implied[p, 2] = w0[p] * decay1[p];
+    w_implied[p, 3] = w0[p] * decay1[p] * decay2[p];
   }
 
   // 2. Environmental effects
-  x_effect = X_lag_flat * to_vector(w) + X_unlagged * w_unlagged;
+  x_effect = X_lag_flat * to_vector(w_implied) + X_unlagged * w_unlagged;
 
   // 3. Linear predictor: AR(1) trajectory + static block offset
   vector[N] eta;
@@ -86,9 +89,15 @@ transformed parameters {
 model {
   alpha ~ normal(-7.0, 1.5);
 
-  to_vector(w) ~ normal(0, 1.0);
-  w_unlagged   ~ normal(0, 0.5);
-  to_vector(v_raw) ~ normal(0, 1);
+  w0     ~ normal(0, 1.0);
+  decay1 ~ beta(2, 2);
+  decay2 ~ beta(2, 2);
+  w_unlagged       ~ normal(0, 0.5);
+  for (b in 1:B) {
+    v[b, 1] ~ normal(0, sigma_v / sqrt(1 - rho^2));
+    for (t in 2:T)
+      v[b, t] ~ normal(rho * v[b, t-1], sigma_v);
+  }
   sigma_v      ~ normal(0, 0.3);  // half-normal via constraint <lower=0>
   rho          ~ normal(0.35, 0.1);
   u_block_raw  ~ normal(0, 1);
