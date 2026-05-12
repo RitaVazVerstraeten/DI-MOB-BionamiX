@@ -89,7 +89,7 @@ model {
   w_unlagged      ~ normal(0, 0.5);
   v_global_raw    ~ normal(0, 1);
   sigma_v         ~ normal(0, 0.3);  // half-normal via constraint <lower=0>
-  rho             ~ normal(0.35, 0.1);
+  rho             ~ normal(0.45, 0.15); // allows 0.2–0.7 comfortably
   v_block_dev_raw ~ normal(0, 1);
   sigma_block_dev ~ exponential(2);
   delta1          ~ normal(0, 0.5);
