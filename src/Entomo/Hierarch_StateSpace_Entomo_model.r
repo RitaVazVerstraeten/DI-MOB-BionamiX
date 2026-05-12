@@ -530,10 +530,9 @@ if (exists("loo_result")) {
       C_bt      = stan_data$C_bt[bad_obs]
     )
     bad_df <- bad_df[order(-bad_df$pareto_k), ]
-    write.csv(bad_df, 
-              file.path(run_output_dir, 
-                        paste0("pareto_k_flagged_", model_spec, ".csv")),
-              row.names = FALSE)
+    writexl::write_xlsx(bad_df,
+                        file.path(run_output_dir,
+                                  paste0("pareto_k_flagged_", model_spec, ".xlsx")))
     cat("Flagged observations saved to:", run_output_dir, "\n")
   }
   
