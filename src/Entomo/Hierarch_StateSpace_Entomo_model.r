@@ -92,9 +92,9 @@ cfg <- list(
   # numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
   numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day"), 
   # MCMC
-  chains = 2,
-  iter_warmup = 500,
-  iter_sampling = 500,
+  chains = 4,
+  iter_warmup = 1000,
+  iter_sampling = 1000,
   # thin = 2,
   adapt_delta = 0.95,
   max_treedepth = 12,
