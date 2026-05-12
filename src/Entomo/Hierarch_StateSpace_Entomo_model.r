@@ -488,6 +488,19 @@ if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
 summary_output <- capture.output(print(fit$summary(variables = summary_vars), n = Inf))
 writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", model_spec, ".txt")))
 
+# ======================= log likelihood / LOO-CV ============================
+if (requireNamespace("loo", quietly = TRUE)) {
+  log_lik_draws <- fit$draws("log_lik", format = "matrix")
+  loo_result    <- loo::loo(log_lik_draws, cores = cfg$parallel_chains)
+  cat("\n--- LOO-CV ---\n")
+  print(loo_result)
+  loo_output <- capture.output(print(loo_result))
+  writeLines(loo_output, file.path(run_output_dir, paste0("loo_", model_spec, ".txt")))
+  cat("LOO-CV saved to:", run_output_dir, "\n")
+} else {
+  cat("Package 'loo' not installed; skipping LOO computation.\n")
+}
+
 # =========================== posterior draws for plotting ===========================
 
 post <- extract_means(fit, nrow(df))
