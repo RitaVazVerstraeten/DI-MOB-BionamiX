@@ -501,6 +501,176 @@ if (requireNamespace("loo", quietly = TRUE)) {
   cat("Package 'loo' not installed; skipping LOO computation.\n")
 }
 
+# ── Pareto k diagnostics ─────────────────────────────────────────────────────
+if (exists("loo_result")) {
+  
+  k_values <- loo_result$diagnostics$pareto_k
+  
+  cat("\n--- Pareto k Summary ---\n")
+  cat("Good    (k < 0.5) :", sum(k_values < 0.5),  
+      sprintf("(%.1f%%)\n", 100 * mean(k_values < 0.5)))
+  cat("OK      (0.5-0.7) :", sum(k_values >= 0.5 & k_values < 0.7),
+      sprintf("(%.1f%%)\n", 100 * mean(k_values >= 0.5 & k_values < 0.7)))
+  cat("Bad     (0.7-1.0) :", sum(k_values >= 0.7 & k_values < 1.0),
+      sprintf("(%.1f%%)\n", 100 * mean(k_values >= 0.7 & k_values < 1.0)))
+  cat("Very bad (k > 1.0):", sum(k_values >= 1.0),
+      sprintf("(%.1f%%)\n", 100 * mean(k_values >= 1.0)))
+  
+  # Save flagged observations for inspection
+  bad_obs <- which(k_values > 0.7)
+  if (length(bad_obs) > 0) {
+    bad_df <- data.frame(
+      obs_idx   = bad_obs,
+      pareto_k  = k_values[bad_obs],
+      block     = stan_data$block[bad_obs],
+      time      = stan_data$time[bad_obs],
+      y         = stan_data$y[bad_obs],
+      n_bt      = stan_data$n_bt[bad_obs],
+      C_bt      = stan_data$C_bt[bad_obs]
+    )
+    bad_df <- bad_df[order(-bad_df$pareto_k), ]
+    write.csv(bad_df, 
+              file.path(run_output_dir, 
+                        paste0("pareto_k_flagged_", model_spec, ".csv")),
+              row.names = FALSE)
+    cat("Flagged observations saved to:", run_output_dir, "\n")
+  }
+  
+  # Pareto k plot
+  png(file.path(run_output_dir, paste0("pareto_k_plot_", model_spec, ".png")),
+      width = 800, height = 400)
+  plot(loo_result, main = paste("Pareto k —", model_spec))
+  abline(h = 0.7, col = "orange", lty = 2)
+  abline(h = 1.0, col = "red",    lty = 2)
+  dev.off()
+}
+
+# =========================== posterior draws for quantive checks ===========================
+
+
+# 1. PPC statistics (quantitative complement to your visual PPC)
+if (cfg$plot_ppc) {
+  cat("\n--- PPC Summary Statistics ---\n")
+  
+  y_pred_draws_mat <- fit$draws("y_pred", format = "matrix")
+  y_obs            <- stan_data$y
+  
+  # Bayesian p-values for key statistics
+  ppc_stats <- data.frame(
+    statistic = c("mean", "sd", "prop_zero", "q95", "max"),
+    observed  = c(
+      mean(y_obs),
+      sd(y_obs),
+      mean(y_obs == 0),
+      quantile(y_obs, 0.95),
+      max(y_obs)
+    ),
+    pred_mean = c(
+      mean(apply(y_pred_draws_mat, 1, mean)),
+      mean(apply(y_pred_draws_mat, 1, sd)),
+      mean(apply(y_pred_draws_mat, 1, function(x) mean(x == 0))),
+      mean(apply(y_pred_draws_mat, 1, quantile, 0.95)),
+      mean(apply(y_pred_draws_mat, 1, max))
+    ),
+    bayes_p   = c(
+      mean(apply(y_pred_draws_mat, 1, mean)    > mean(y_obs)),
+      mean(apply(y_pred_draws_mat, 1, sd)      > sd(y_obs)),
+      mean(apply(y_pred_draws_mat, 1, function(x) mean(x == 0)) > mean(y_obs == 0)),
+      mean(apply(y_pred_draws_mat, 1, quantile, 0.95) > quantile(y_obs, 0.95)),
+      mean(apply(y_pred_draws_mat, 1, max)     > max(y_obs))
+    )
+  )
+  
+  print(ppc_stats)
+  write.csv(ppc_stats,
+            file.path(run_output_dir, paste0("ppc_stats_", model_spec, ".csv")),
+            row.names = FALSE)
+  rm(y_pred_draws_mat); gc()
+}
+
+# 2. Credible interval coverage
+cat("\n--- Credible Interval Coverage ---\n")
+
+y_pred_draws_mat <- fit$draws("y_pred", format = "matrix")
+y_obs            <- stan_data$y
+
+coverage_df <- do.call(rbind, lapply(c(0.50, 0.80, 0.90, 0.95), function(prob) {
+  lo    <- apply(y_pred_draws_mat, 2, quantile, (1 - prob) / 2)
+  hi    <- apply(y_pred_draws_mat, 2, quantile, 1 - (1 - prob) / 2)
+  data.frame(
+    nominal  = prob,
+    observed = mean(y_obs >= lo & y_obs <= hi),
+    diff     = mean(y_obs >= lo & y_obs <= hi) - prob
+  )
+}))
+
+print(coverage_df)
+write.csv(coverage_df,
+          file.path(run_output_dir, paste0("ci_coverage_", model_spec, ".csv")),
+          row.names = FALSE)
+rm(y_pred_draws_mat); gc()
+
+# 3. Convergence summary (named parameters only)
+cat("\n--- Convergence Summary ---\n")
+
+model_sum  <- fit$summary()
+key_params <- model_sum[!grepl("^v\\[|^log_lik|^y_pred|^p_bt|^p_R|^omega|^pi\\[",
+                                model_sum$variable), ]
+
+rhat_vals  <- key_params$rhat[!is.na(key_params$rhat)]
+ess_vals   <- key_params$ess_bulk[!is.na(key_params$ess_bulk)]
+
+cat("R-hat > 1.01:", sum(rhat_vals > 1.01), "of", length(rhat_vals), "\n")
+cat("R-hat > 1.05:", sum(rhat_vals > 1.05), "\n")
+cat("Max R-hat:   ", round(max(rhat_vals), 4), "\n")
+cat("ESS < 100:   ", sum(ess_vals < 100),  "of", length(ess_vals), "\n")
+cat("ESS < 400:   ", sum(ess_vals < 400), "\n")
+cat("Min ESS:     ", round(min(ess_vals)), "\n")
+
+# Flag bad parameters explicitly
+bad_params <- key_params[!is.na(key_params$rhat) & key_params$rhat > 1.05,
+                          c("variable", "rhat", "ess_bulk")]
+if (nrow(bad_params) > 0) {
+  cat("\nParameters with R-hat > 1.05:\n")
+  print(bad_params)
+}
+
+write.csv(key_params,
+          file.path(run_output_dir, paste0("convergence_", model_spec, ".csv")),
+          row.names = FALSE)
+
+# 4. Per-CMF predictive performance
+cat("\n--- Per-CMF Predictive Performance ---\n")
+
+y_pred_mean <- colMeans(fit$draws("y_pred", format = "matrix"))
+y_obs       <- stan_data$y
+
+cor_by_block <- tapply(seq_along(y_obs), stan_data$block, function(idx) {
+  if (length(idx) < 3) return(NA)
+  cor(y_obs[idx], y_pred_mean[idx], method = "spearman")
+})
+
+cat("Median per-CMF Spearman r:", 
+    round(median(cor_by_block, na.rm = TRUE), 3), "\n")
+cat("CMFs with r < 0.3:        ", 
+    sum(cor_by_block < 0.3, na.rm = TRUE), "\n")
+cat("CMFs with r < 0.0:        ", 
+    sum(cor_by_block < 0.0, na.rm = TRUE), "\n")
+
+block_perf <- data.frame(
+  block      = as.integer(names(cor_by_block)),
+  spearman_r = round(cor_by_block, 3),
+  n_obs      = as.integer(table(stan_data$block))
+)
+block_perf <- block_perf[order(block_perf$spearman_r), ]
+
+write.csv(block_perf,
+          file.path(run_output_dir, 
+                    paste0("cmf_performance_", model_spec, ".csv")),
+          row.names = FALSE)
+
+cat("Per-CMF performance saved.\n")
+
 # =========================== posterior draws for plotting ===========================
 
 post <- extract_means(fit, nrow(df))
