@@ -104,13 +104,14 @@ cfg <- list(
 
   use_time_RE     = FALSE,
   use_temporal_AR = TRUE,
+  use_temporal_AR_perCMF = TRUE,
   use_spatial_AC  = FALSE,
   use_hsgp        = FALSE,
   use_icar        = FALSE,
   use_bym2        = FALSE,
   hsgp_m          = 20,
   hsgp_c          = 1.5,
-  use_block_dev   = FALSE,
+  use_block_dev   = TRUE,
 
   shapefile_path = if (hostname == "frietjes")
     "/home/rita/data/Entomo"
@@ -123,9 +124,9 @@ cfg <- list(
   max_lag   = 2,
   kappa     = 4,
 
-  chains          = 2,
-  iter_warmup     = 500,
-  iter_sampling   = 500,
+  chains          = 4,
+  iter_warmup     = 1000,
+  iter_sampling   = 1000,
   adapt_delta     = 0.95,
   max_treedepth   = 12,
   parallel_chains = if (hostname == "frietjes") 4 else 1,
