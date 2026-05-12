@@ -101,7 +101,7 @@ cfg <- list(
   parallel_chains = if (hostname == "frietjes") 4 else 1,
 
   # phi: set fix_phi = TRUE to pass phi as data (fixed); FALSE to estimate it
-  fix_phi = FALSE,
+  fix_phi = TRUE,
   phi_fixed = 25,   # beta-binomial concentration -> later replace with gamma(2, 0.25)
   # prior predictive check (set TRUE before first real fit)
   run_prior_predictive = FALSE,
@@ -477,7 +477,7 @@ if (isTRUE(cfg$use_time_RE)) {
   if (isTRUE(cfg$use_temporal_AR) || isTRUE(cfg$use_temporal_AR_perCMF))
     summary_vars <- c(summary_vars, "sigma_v", "rho")
   if (!isTRUE(cfg$use_bym2) && isTRUE(cfg$use_block_dev)) {
-    if (isTRUE(cfg$use_temporal_AR))
+    if (isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_temporal_AR_perCMF))
       summary_vars <- c(summary_vars, "sigma_block_dev")        # global AR1 + block deviation
     else
       summary_vars <- c(summary_vars, "sigma_block")  # blockRE-only or perCMF+blockRE model
