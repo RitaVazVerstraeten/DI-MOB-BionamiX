@@ -48,23 +48,23 @@ transformed parameters {
     w_implied[p, 3] = w0[p] * decay1[p] * decay2[p];
   }
 
-  // 2. Per-CMF AR(1): each CMF follows its own trajectory, sharing rho and sigma_v
+  // 2. Environmental effects
+  x_effect = X_lag_flat * to_vector(w_implied) + X_unlagged * w_unlagged;
+
+  // 3. Per-CMF AR(1): each CMF follows its own trajectory, sharing rho and sigma_v
   for (b in 1:B) {
     v[b, 1] = sigma_v * v_raw[b, 1] / sqrt(fmax(1e-6, 1 - rho^2));
     for (t in 2:T)
       v[b, t] = rho * v[b, t-1] + sigma_v * v_raw[b, t];
   }
 
-  // 3. Environmental effects
-  x_effect = X_lag_flat * to_vector(w) + X_unlagged * w_unlagged;
-
-  // 3. Linear predictor and latent ecological probability
+  // 4. Linear predictor: AR(1) trajectory only (no block offset)
   vector[N] eta;
   for (i in 1:N)
     eta[i] = alpha + x_effect[i] + v[block[i], time[i]];
   p_bt = inv_logit(eta);
 
-  // 4. Reactive surveillance probability
+  // 5. Reactive surveillance probability
   for (i in 1:N) {
     if (C_bt[i] > 0) {
       p_R[i] = inv_logit(eta[i] + delta1 * C_bt[i]);
@@ -73,7 +73,7 @@ transformed parameters {
     }
   }
 
-  // 5. Effective observation probability
+  // 6. Effective observation probability
   for (i in 1:N) {
     if (n_bt[i] == 0) {
       omega[i] = 0;

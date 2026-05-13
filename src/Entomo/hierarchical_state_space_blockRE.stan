@@ -20,7 +20,9 @@ data {
 
 parameters {
   real alpha;
-  matrix[K, Lp1] w;
+  vector[K] w0;                              // per-predictor base weight (lag 0)
+  vector<lower=0,upper=1>[K] decay1;         // fraction of w0 retained at lag 1
+  vector<lower=0,upper=1>[K] decay2;         // additional fraction retained at lag 2
   vector[Ku] w_unlagged;
   vector[B] u_block_raw;           // non-centred iid block random effects
   real<lower=0> sigma_block;       // block RE scale
@@ -86,7 +88,7 @@ model {
   w_unlagged     ~ normal(0, 0.5);
   u_block_raw    ~ normal(0, 1);
   sigma_block    ~ normal(0, 0.5);
-  delta1         ~ normal(0, 0.3);
+  delta1         ~ normal(0, 0.5);
   if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
 
   for (i in 1:N)
