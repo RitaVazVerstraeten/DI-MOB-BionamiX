@@ -44,7 +44,7 @@ transformed parameters {
 
   for (i in 1:N) {
     if (C_bt[i] > 0) {
-      p_R[i] = inv_logit(eta[i] + delta1 * log1p(C_bt[i]));
+      p_R[i] = inv_logit(eta[i] + delta1 C_bt[i]);
     } else {
       p_R[i] = p_bt[i];
     }
@@ -69,8 +69,8 @@ model {
   to_vector(w)   ~ normal(0, 1.0);
   w_unlagged     ~ normal(0, 0.5);
   u_block_raw    ~ normal(0, 1);
-  sigma_block    ~ normal(0, 0.5);
-  delta1         ~ normal(0, 0.3);
+  sigma_block    ~ normal(0, 0.5); 
+  delta1         ~ normal(0, 0.5);
   if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
 
   for (i in 1:N)
