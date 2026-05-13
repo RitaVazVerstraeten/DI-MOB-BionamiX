@@ -497,6 +497,7 @@ if (requireNamespace("loo", quietly = TRUE)) {
   print(loo_result)
   loo_output <- capture.output(print(loo_result))
   writeLines(loo_output, file.path(run_output_dir, paste0("loo_", model_spec, ".txt")))
+  saveRDS(loo_result,    file.path(run_output_dir, paste0("loo_", model_spec, ".rds")))
   cat("LOO-CV saved to:", run_output_dir, "\n")
 } else {
   cat("Package 'loo' not installed; skipping LOO computation.\n")
