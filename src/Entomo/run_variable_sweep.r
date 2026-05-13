@@ -233,6 +233,7 @@ cat("Stan model compiled.\n")
 
 # ── Sweep log initialisation ──────────────────────────────────────────────────
 sweep_log <- vector("list", length(combinations))
+loo_list  <- list()   # named by predictor_spec; populated inside loop
 
 # ── Main sweep loop ───────────────────────────────────────────────────────────
 for (combo_i in seq_along(combinations)) {
@@ -417,6 +418,17 @@ for (combo_i in seq_along(combinations)) {
       }
     }
 
+    # LOO-CV — must run before CSV deletion (fit reads from CSV files)
+    if (requireNamespace("loo", quietly = TRUE)) {
+      log_lik_draws <- fit$draws("log_lik", format = "array")
+      r_eff         <- loo::relative_eff(exp(log_lik_draws))
+      loo_result    <- loo::loo(log_lik_draws, r_eff = r_eff)
+      loo_output    <- capture.output(print(loo_result))
+      writeLines(loo_output, file.path(run_output_dir, paste0("loo_", predictor_spec, ".txt")))
+      saveRDS(loo_result,    file.path(run_output_dir, paste0("loo_", predictor_spec, ".rds")))
+      loo_list[[predictor_spec]] <<- loo_result
+    }
+
     # Delete chain CSVs — plots and summary already saved, raw draws not needed
     invisible(file.remove(list.files(run_output_dir,
                                      pattern = "\\.csv$",
@@ -449,3 +461,44 @@ log_path     <- file.path(cfg$output_dir,
 write.csv(sweep_log_df, log_path, row.names = FALSE)
 cat("\nSweep complete. Log written to:", log_path, "\n")
 print(sweep_log_df)
+
+# ── LOO comparison across all variable combinations ───────────────────────────
+if (requireNamespace("loo", quietly = TRUE) && length(loo_list) >= 2) {
+  loo_cmp    <- loo::loo_compare(loo_list)
+  cmp_df     <- as.data.frame(loo_cmp)
+  cmp_df     <- cbind(model = rownames(cmp_df), cmp_df)
+  rownames(cmp_df) <- NULL
+
+  # Build extended table with approximate SE and z-score
+  loo_df <- data.frame(
+    model    = names(loo_list),
+    elpd_loo = sapply(loo_list, function(x) x$estimates["elpd_loo", "Estimate"]),
+    se_elpd  = sapply(loo_list, function(x) x$estimates["elpd_loo", "SE"]),
+    p_loo    = sapply(loo_list, function(x) x$estimates["p_loo",    "Estimate"]),
+    looic    = sapply(loo_list, function(x) x$estimates["looic",    "Estimate"]),
+    stringsAsFactors = FALSE
+  )
+  loo_df <- loo_df[order(-loo_df$elpd_loo), ]
+  loo_df$elpd_diff      <- loo_df$elpd_loo - max(loo_df$elpd_loo)
+  loo_df$z_score        <- loo_df$elpd_diff / loo_df$se_elpd
+  loo_df$z_score[loo_df$elpd_diff == 0] <- 0
+  rownames(loo_df) <- NULL
+
+  cat("\n--- LOO comparison ---\n")
+  print(loo_cmp)
+  cat("\n--- LOO extended table ---\n")
+  print(loo_df[, c("model", "elpd_loo", "se_elpd", "elpd_diff",
+                   "z_score", "p_loo", "looic")],
+        row.names = FALSE)
+
+  writeLines(capture.output(print(loo_cmp)),
+             file.path(cfg$output_dir, paste0("loo_comparison_", date_suffix, ".txt")))
+  writexl::write_xlsx(
+    loo_df[, c("model", "elpd_loo", "se_elpd", "elpd_diff",
+               "z_score", "p_loo", "looic")],
+    file.path(cfg$output_dir, paste0("loo_comparison_", date_suffix, ".xlsx"))
+  )
+  cat("LOO comparison saved to:", cfg$output_dir, "\n")
+} else if (length(loo_list) < 2) {
+  cat("Fewer than 2 successful LOO results — skipping comparison.\n")
+}
