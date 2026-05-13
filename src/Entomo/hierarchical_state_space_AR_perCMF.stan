@@ -20,7 +20,9 @@ data {
 
 parameters {
   real alpha;
-  matrix[K, Lp1] w;
+  vector[K] w0;                              // per-predictor base weight (lag 0)
+  vector<lower=0,upper=1>[K] decay1;         // fraction of w0 retained at lag 1
+  vector<lower=0,upper=1>[K] decay2;         // additional fraction retained at lag 2
   vector[Ku] w_unlagged;
   matrix[B, T] v_raw;              // per-CMF AR(1) innovations
   real<lower=0> sigma_v;           // shared innovation SD (partial pooling across CMFs)
@@ -38,14 +40,22 @@ transformed parameters {
   matrix[B, T] v;                  // per-CMF AR(1) states
   vector[N] x_effect;
 
-  // 1. Per-CMF AR(1): each CMF follows its own trajectory, sharing rho and sigma_v
+  // 1. Implied lag weights: enforces |w[p,0]| >= |w[p,1]| >= |w[p,2]|
+  matrix[K, Lp1] w_implied;
+  for (p in 1:K) {
+    w_implied[p, 1] = w0[p];
+    w_implied[p, 2] = w0[p] * decay1[p];
+    w_implied[p, 3] = w0[p] * decay1[p] * decay2[p];
+  }
+
+  // 2. Per-CMF AR(1): each CMF follows its own trajectory, sharing rho and sigma_v
   for (b in 1:B) {
     v[b, 1] = sigma_v * v_raw[b, 1] / sqrt(fmax(1e-6, 1 - rho^2));
     for (t in 2:T)
       v[b, t] = rho * v[b, t-1] + sigma_v * v_raw[b, t];
   }
 
-  // 2. Environmental effects
+  // 3. Environmental effects
   x_effect = X_lag_flat * to_vector(w) + X_unlagged * w_unlagged;
 
   // 3. Linear predictor and latent ecological probability
@@ -81,7 +91,9 @@ transformed parameters {
 model {
   alpha ~ normal(-7.0, 1.5);
 
-  to_vector(w) ~ normal(0, 1.0);
+  w0               ~ normal(0, 1.0);
+  decay1           ~ beta(2, 2);
+  decay2           ~ beta(2, 2);
   w_unlagged   ~ normal(0, 0.5);
   to_vector(v_raw) ~ normal(0, 1);
   sigma_v      ~ normal(0, 0.3); // half-normal via constraint <lower=0>
