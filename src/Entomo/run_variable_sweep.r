@@ -464,38 +464,22 @@ print(sweep_log_df)
 
 # ── LOO comparison across all variable combinations ───────────────────────────
 if (requireNamespace("loo", quietly = TRUE) && length(loo_list) >= 2) {
-  loo_cmp    <- loo::loo_compare(loo_list)
-  cmp_df     <- as.data.frame(loo_cmp)
-  cmp_df     <- cbind(model = rownames(cmp_df), cmp_df)
-  rownames(cmp_df) <- NULL
+  loo_cmp <- loo::loo_compare(loo_list)
+  print(loo_cmp, digits = 2, simplify = FALSE)
 
-  # Build extended table with approximate SE and z-score
-  loo_df <- data.frame(
-    model    = names(loo_list),
-    elpd_loo = sapply(loo_list, function(x) x$estimates["elpd_loo", "Estimate"]),
-    se_elpd  = sapply(loo_list, function(x) x$estimates["elpd_loo", "SE"]),
-    p_loo    = sapply(loo_list, function(x) x$estimates["p_loo",    "Estimate"]),
-    looic    = sapply(loo_list, function(x) x$estimates["looic",    "Estimate"]),
-    stringsAsFactors = FALSE
-  )
-  loo_df <- loo_df[order(-loo_df$elpd_loo), ]
-  loo_df$elpd_diff      <- loo_df$elpd_loo - max(loo_df$elpd_loo)
-  loo_df$z_score        <- loo_df$elpd_diff / loo_df$se_elpd
-  loo_df$z_score[loo_df$elpd_diff == 0] <- 0
-  rownames(loo_df) <- NULL
+  cmp_df <- as.data.frame(loo_cmp)
+  cmp_df$z_score <- cmp_df$elpd_diff / cmp_df$se_diff
+  cmp_df$z_score[cmp_df$elpd_diff == 0] <- 0
+  cat("\nz-score (elpd_diff / se_diff):\n")
+  print(cmp_df["z_score"], digits = 2)
 
-  cat("\n--- LOO comparison ---\n")
-  print(loo_cmp)
-  cat("\n--- LOO extended table ---\n")
-  print(loo_df[, c("model", "elpd_loo", "se_elpd", "elpd_diff",
-                   "z_score", "p_loo", "looic")],
-        row.names = FALSE)
+  cmp_out <- cbind(model = rownames(cmp_df), cmp_df)
+  rownames(cmp_out) <- NULL
 
-  writeLines(capture.output(print(loo_cmp)),
+  writeLines(capture.output(print(loo_cmp, digits = 2, simplify = FALSE)),
              file.path(cfg$output_dir, paste0("loo_comparison_", date_suffix, ".txt")))
   writexl::write_xlsx(
-    loo_df[, c("model", "elpd_loo", "se_elpd", "elpd_diff",
-               "z_score", "p_loo", "looic")],
+    cmp_out,
     file.path(cfg$output_dir, paste0("loo_comparison_", date_suffix, ".xlsx"))
   )
   cat("LOO comparison saved to:", cfg$output_dir, "\n")
