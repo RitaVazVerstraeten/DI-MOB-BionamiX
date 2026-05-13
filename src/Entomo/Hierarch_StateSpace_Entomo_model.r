@@ -73,7 +73,7 @@ cfg <- list(
   use_bym2        = FALSE,    # (only if use_spatial_AC = TRUE) TRUE = BYM2 (structured+unstructured); overrides use_icar
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
-  use_block_dev   = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
+  use_block_dev   = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
 
   # spatial
   shapefile_path = if (hostname == "frietjes")
@@ -611,34 +611,34 @@ write.csv(coverage_df,
           row.names = FALSE)
 rm(y_pred_draws_mat); gc()
 
-# 3. Convergence summary (named parameters only)
-cat("\n--- Convergence Summary ---\n")
+# # 3. Convergence summary (named parameters only)
+# cat("\n--- Convergence Summary ---\n")
 
-model_sum  <- fit$summary()
-key_params <- model_sum[!grepl("^v\\[|^log_lik|^y_pred|^p_bt|^p_R|^omega|^pi\\[",
-                                model_sum$variable), ]
+# model_sum  <- fit$summary()
+# key_params <- model_sum[!grepl("^v\\[|^log_lik|^y_pred|^p_bt|^p_R|^omega|^pi\\[",
+#                                 model_sum$variable), ]
 
-rhat_vals  <- key_params$rhat[!is.na(key_params$rhat)]
-ess_vals   <- key_params$ess_bulk[!is.na(key_params$ess_bulk)]
+# rhat_vals  <- key_params$rhat[!is.na(key_params$rhat)]
+# ess_vals   <- key_params$ess_bulk[!is.na(key_params$ess_bulk)]
 
-cat("R-hat > 1.01:", sum(rhat_vals > 1.01), "of", length(rhat_vals), "\n")
-cat("R-hat > 1.05:", sum(rhat_vals > 1.05), "\n")
-cat("Max R-hat:   ", round(max(rhat_vals), 4), "\n")
-cat("ESS < 100:   ", sum(ess_vals < 100),  "of", length(ess_vals), "\n")
-cat("ESS < 400:   ", sum(ess_vals < 400), "\n")
-cat("Min ESS:     ", round(min(ess_vals)), "\n")
+# cat("R-hat > 1.01:", sum(rhat_vals > 1.01), "of", length(rhat_vals), "\n")
+# cat("R-hat > 1.05:", sum(rhat_vals > 1.05), "\n")
+# cat("Max R-hat:   ", round(max(rhat_vals), 4), "\n")
+# cat("ESS < 100:   ", sum(ess_vals < 100),  "of", length(ess_vals), "\n")
+# cat("ESS < 400:   ", sum(ess_vals < 400), "\n")
+# cat("Min ESS:     ", round(min(ess_vals)), "\n")
 
-# Flag bad parameters explicitly
-bad_params <- key_params[!is.na(key_params$rhat) & key_params$rhat > 1.05,
-                          c("variable", "rhat", "ess_bulk")]
-if (nrow(bad_params) > 0) {
-  cat("\nParameters with R-hat > 1.05:\n")
-  print(bad_params)
-}
+# # Flag bad parameters explicitly
+# bad_params <- key_params[!is.na(key_params$rhat) & key_params$rhat > 1.05,
+#                           c("variable", "rhat", "ess_bulk")]
+# if (nrow(bad_params) > 0) {
+#   cat("\nParameters with R-hat > 1.05:\n")
+#   print(bad_params)
+# }
 
-write.csv(key_params,
-          file.path(run_output_dir, paste0("convergence_", model_spec, ".csv")),
-          row.names = FALSE)
+# write.csv(key_params,
+#           file.path(run_output_dir, paste0("convergence_", model_spec, ".csv")),
+#           row.names = FALSE)
 
 # 4. Per-CMF predictive performance
 cat("\n--- Per-CMF Predictive Performance ---\n")
