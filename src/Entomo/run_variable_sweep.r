@@ -190,6 +190,8 @@ model_spec <- paste0(spatial_level, "_", model_spec)
 
 options(mc.cores = if (hostname == "frietjes") 6 else 2)
 dir.create(cfg$output_dir, recursive = TRUE, showWarnings = FALSE)
+sweep_dir <- file.path(cfg$output_dir, paste0("variable_sweep_", model_spec, "_", date_suffix))
+dir.create(sweep_dir, recursive = TRUE, showWarnings = FALSE)
 
 # ── One-time spatial setup (outside the loop) ─────────────────────────────────
 # Use the last (fullest) combination to get block_ids — they don't depend on
@@ -254,7 +256,7 @@ for (combo_i in seq_along(combinations)) {
     "lag-",    paste(cfg$lag_vars,      collapse = "-"),
     "_unlag-", paste(cfg$unlagged_vars, collapse = "-")
   )
-  run_output_dir   <- file.path(cfg$output_dir, predictor_spec, model_spec, date_suffix)
+  run_output_dir   <- file.path(sweep_dir, predictor_spec)
   plots_output_dir <- file.path(run_output_dir, "plots")
   dir.create(run_output_dir,   recursive = TRUE, showWarnings = FALSE)
   dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
@@ -456,8 +458,7 @@ for (combo_i in seq_along(combinations)) {
 
 # ── Write sweep log ───────────────────────────────────────────────────────────
 sweep_log_df <- do.call(rbind, sweep_log)
-log_path     <- file.path(cfg$output_dir,
-                           paste0("variable_sweep_log_", date_suffix, ".csv"))
+log_path     <- file.path(sweep_dir, "variable_sweep_log.csv")
 write.csv(sweep_log_df, log_path, row.names = FALSE)
 cat("\nSweep complete. Log written to:", log_path, "\n")
 print(sweep_log_df)
@@ -477,12 +478,12 @@ if (requireNamespace("loo", quietly = TRUE) && length(loo_list) >= 2) {
   rownames(cmp_out) <- NULL
 
   writeLines(capture.output(print(loo_cmp, digits = 2, simplify = FALSE)),
-             file.path(cfg$output_dir, paste0("loo_comparison_", date_suffix, ".txt")))
+             file.path(sweep_dir, "loo_comparison.txt"))
   writexl::write_xlsx(
     cmp_out,
-    file.path(cfg$output_dir, paste0("loo_comparison_", date_suffix, ".xlsx"))
+    file.path(sweep_dir, "loo_comparison.xlsx")
   )
-  cat("LOO comparison saved to:", cfg$output_dir, "\n")
+  cat("LOO comparison saved to:", sweep_dir, "\n")
 } else if (length(loo_list) < 2) {
   cat("Fewer than 2 successful LOO results — skipping comparison.\n")
 }
