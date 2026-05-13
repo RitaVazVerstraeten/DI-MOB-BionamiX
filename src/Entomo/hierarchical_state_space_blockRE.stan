@@ -35,21 +35,35 @@ transformed parameters {
   vector[N] p_R;
   vector[N] omega;
   vector[N] pi;
-  vector[N] x_effect = X_lag_flat * to_vector(w) + X_unlagged * w_unlagged;
+  vector[N] x_effect;
 
+  // 1. Implied lag weights: enforces |w[p,0]| >= |w[p,1]| >= |w[p,2]|
+  matrix[K, Lp1] w_implied;
+  for (p in 1:K) {
+    w_implied[p, 1] = w0[p];
+    w_implied[p, 2] = w0[p] * decay1[p];
+    w_implied[p, 3] = w0[p] * decay1[p] * decay2[p];
+  }
+
+  // 2. Environmental effects
+  x_effect = X_lag_flat * to_vector(w_implied) + X_unlagged * w_unlagged;
+
+  // 3. Linear predictor + static block offset
   vector[N] eta;
   for (i in 1:N)
     eta[i] = alpha + x_effect[i] + u_block[block[i]];
   p_bt = inv_logit(eta);
 
+  // 4. Reactive surveillance probability
   for (i in 1:N) {
     if (C_bt[i] > 0) {
-      p_R[i] = inv_logit(eta[i] + delta1 * log1p(C_bt[i]));
+      p_R[i] = inv_logit(eta[i] + delta1 * C_bt[i]);
     } else {
       p_R[i] = p_bt[i];
     }
   }
 
+  // 5. Effective observation probability
   for (i in 1:N) {
     if (n_bt[i] == 0) {
       omega[i] = 0;
@@ -66,7 +80,9 @@ transformed parameters {
 
 model {
   alpha          ~ normal(-7.0, 1.5);
-  to_vector(w)   ~ normal(0, 1.0);
+  w0               ~ normal(0, 1.0);
+  decay1           ~ beta(2, 2);
+  decay2           ~ beta(2, 2);  
   w_unlagged     ~ normal(0, 0.5);
   u_block_raw    ~ normal(0, 1);
   sigma_block    ~ normal(0, 0.5);
