@@ -428,7 +428,7 @@ for (combo_i in seq_along(combinations)) {
       loo_output    <- capture.output(print(loo_result))
       writeLines(loo_output, file.path(run_output_dir, paste0("loo_", predictor_spec, ".txt")))
       saveRDS(loo_result,    file.path(run_output_dir, paste0("loo_", predictor_spec, ".rds")))
-      loo_list[[predictor_spec]] <<- loo_result
+      loo_list[[predictor_spec]] <- loo_result
     }
 
     # Delete chain CSVs — plots and summary already saved, raw draws not needed
