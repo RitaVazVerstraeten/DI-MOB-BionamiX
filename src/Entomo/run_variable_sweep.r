@@ -111,7 +111,7 @@ cfg <- list(
   use_bym2        = FALSE,
   hsgp_m          = 20,
   hsgp_c          = 1.5,
-  use_block_dev   = TRUE,
+  use_block_dev   = FALSE,
 
   shapefile_path = if (hostname == "frietjes")
     "/home/rita/data/Entomo"
