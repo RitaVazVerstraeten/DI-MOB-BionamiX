@@ -148,12 +148,22 @@ cfg$data_file <- file.path(cfg$data_dir, cfg$data_file_name)
 cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   file.path(stan_dir, "hierarchical_state_space_timeRE_blockRE.stan")
 } else if (!isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_spatial_AC)) {
-  file.path(stan_dir, "hierarchical_state_space.stan")
-} else if (!isTRUE(cfg$use_spatial_AC)) {
   if (isTRUE(cfg$use_block_dev))
-    file.path(stan_dir, "hierarchical_state_space_AR_blockRE.stan")
+    file.path(stan_dir, "hierarchical_state_space_blockRE.stan")
   else
-    file.path(stan_dir, "hierarchical_state_space_AR.stan")
+    file.path(stan_dir, "hierarchical_state_space.stan")
+} else if (!isTRUE(cfg$use_spatial_AC)) {
+  if (isTRUE(cfg$use_temporal_AR_perCMF)) {
+    if (isTRUE(cfg$use_block_dev))
+      file.path(stan_dir, "hierarchical_state_space_AR_perCMF_blockRE.stan")
+    else
+      file.path(stan_dir, "hierarchical_state_space_AR_perCMF.stan")
+  } else {
+    if (isTRUE(cfg$use_block_dev))
+      file.path(stan_dir, "hierarchical_state_space_AR_blockRE.stan")
+    else
+      file.path(stan_dir, "hierarchical_state_space_AR.stan")
+  }
 } else if (isTRUE(cfg$use_bym2)) {
   file.path(stan_dir, "hierarchical_state_space_AR_BYM2.stan")
 } else if (isTRUE(cfg$use_icar)) {
@@ -175,7 +185,9 @@ cat("Stan file:", cfg$stan_file, "\n")
 model_spec <- if (isTRUE(cfg$use_time_RE)) {
   paste0("timeRE_blockRE_lag", cfg$max_lag, "_k", cfg$kappa)
 } else {
-  ar1_suffix     <- ifelse(isTRUE(cfg$use_temporal_AR), "AR1", "noAR1")
+  ar1_suffix     <- if (!isTRUE(cfg$use_temporal_AR))       "noAR1"
+                   else if (isTRUE(cfg$use_temporal_AR_perCMF)) "AR1perCMF"
+                   else                                         "AR1"
   gp_suffix      <- if (!isTRUE(cfg$use_spatial_AC))  "noGP"
                     else if (isTRUE(cfg$use_bym2))    "BYM2"
                     else if (isTRUE(cfg$use_icar))    "ICAR"
@@ -477,8 +489,11 @@ if (requireNamespace("loo", quietly = TRUE) && length(loo_list) >= 2) {
   cmp_out <- cbind(model = rownames(cmp_df), cmp_df)
   rownames(cmp_out) <- NULL
 
-  writeLines(capture.output(print(loo_cmp, digits = 2, simplify = FALSE)),
-             file.path(sweep_dir, "loo_comparison.txt"))
+  writeLines(capture.output({
+    print(loo_cmp, digits = 2, simplify = FALSE)
+    cat("\nz-score (elpd_diff / se_diff):\n")
+    print(cmp_df["z_score"], digits = 2)
+  }), file.path(sweep_dir, "loo_comparison.txt"))
   writexl::write_xlsx(
     cmp_out,
     file.path(sweep_dir, "loo_comparison.xlsx")

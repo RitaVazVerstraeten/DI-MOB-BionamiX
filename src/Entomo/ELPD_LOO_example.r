@@ -11,14 +11,22 @@ results_root <- if (Sys.info()["nodename"] == "frietjes") {
 
 pred <- "lag-total_rainy_days-avg_VPD-precip_max_day_unlag-is_urban-is_WUI"
 
+# loo_files <- list(
+#     # AR + Block RE
+#    "AR1perCMF + blockRE"  = file.path(results_root, pred, "CMF_AR1perCMF_noGP_blockRE_lag2_k2_AllBlocks",  "20260513_free_lag_str", "loo_CMF_AR1perCMF_noGP_blockRE_lag2_k2_AllBlocks.rds"),
+#     # AR no Block RE
+#   "AR1perCMF, no blockRE" = file.path(results_root, pred, "CMF_AR1perCMF_noGP_noBlockRE_lag2_k2_AllBlocks", "20260513_free_lag_str", "loo_CMF_AR1perCMF_noGP_noBlockRE_lag2_k2_AllBlocks.rds"),
+#     # only Block RE
+#    "blockRE only"          = file.path(results_root, pred, "CMF_noAR1_noGP_blockRE_lag2_k2_AllBlocks",       "20260513_free_lag_str", "loo_CMF_noAR1_noGP_blockRE_lag2_k2_AllBlocks.rds")
+#   # add more entries here as needed
+# )
+
+
 loo_files <- list(
-    # AR + Block RE
-   "AR1perCMF + blockRE"  = file.path(results_root, pred, "CMF_AR1perCMF_noGP_blockRE_lag2_k2_AllBlocks",  "20260513_free_lag_str", "loo_CMF_AR1perCMF_noGP_blockRE_lag2_k2_AllBlocks.rds"),
-    # AR no Block RE
-  "AR1perCMF, no blockRE" = file.path(results_root, pred, "CMF_AR1perCMF_noGP_noBlockRE_lag2_k2_AllBlocks", "20260513_free_lag_str", "loo_CMF_AR1perCMF_noGP_noBlockRE_lag2_k2_AllBlocks.rds"),
-    # only Block RE
-   "blockRE only"          = file.path(results_root, pred, "CMF_noAR1_noGP_blockRE_lag2_k2_AllBlocks",       "20260513_free_lag_str", "loo_CMF_noAR1_noGP_blockRE_lag2_k2_AllBlocks.rds")
-  # add more entries here as needed
+    
+   "free_lags"  = file.path(results_root, pred, "CMF_AR1perCMF_noGP_blockRE_lag2_k2_AllBlocks",  "20260513_free_lag_str", "loo_CMF_AR1perCMF_noGP_blockRE_lag2_k2_AllBlocks.rds"),
+
+  "monotone_decay" = file.path(results_root, pred, "CMF_AR1perCMF_noGP_blockRE_lag2_k2_AllBlocks", "20260513_monotone_decay", "loo_CMF_AR1perCMF_noGP_blockRE_lag2_k2_AllBlocks.rds")
 )
 
 # ── Load and compare ───────────────────────────────────────────────────

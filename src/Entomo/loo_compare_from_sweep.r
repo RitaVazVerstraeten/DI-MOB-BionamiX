@@ -35,7 +35,10 @@ print(cmp_df["z_score"], digits = 2)
 cmp_out <- cbind(model = rownames(cmp_df), cmp_df)
 rownames(cmp_out) <- NULL
 
-writeLines(capture.output(print(loo_cmp, digits = 2, simplify = FALSE)),
-           file.path(sweep_dir, "loo_comparison.txt"))
+writeLines(capture.output({
+  print(loo_cmp, digits = 2, simplify = FALSE)
+  cat("\nz-score (elpd_diff / se_diff):\n")
+  print(cmp_df["z_score"], digits = 2)
+}), file.path(sweep_dir, "loo_comparison.txt"))
 writexl::write_xlsx(cmp_out, file.path(sweep_dir, "loo_comparison.xlsx"))
 cat("Saved to:", sweep_dir, "\n")
