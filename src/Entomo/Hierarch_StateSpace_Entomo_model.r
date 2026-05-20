@@ -69,11 +69,11 @@ cfg <- list(
   use_temporal_AR_perCMF = TRUE, # (ignored if use_time_RE = TRUE) TRUE = independent AR1 per CMF
   use_spatial_AC  = FALSE,    # (ignored if use_time_RE = TRUE) TRUE = spatial AC
   use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE and use_icar/bym2 = FALSE) TRUE = HSGP
-  use_icar        = FALSE,   # (only if use_spatial_AC = TRUE) TRUE = plain ICAR
+  use_icar        = TRUE,   # (only if use_spatial_AC = TRUE) TRUE = plain ICAR
   use_bym2        = FALSE,    # (only if use_spatial_AC = TRUE) TRUE = BYM2 (structured+unstructured); overrides use_icar
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
-  use_block_dev   = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
+  use_block_dev   = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
 
   # spatial
   shapefile_path = if (hostname == "frietjes")
@@ -179,8 +179,10 @@ cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   # BYM2: structured (ICAR) + unstructured spatial RE, single sigma_spatial
   file.path(stan_dir, "hierarchical_state_space_AR_BYM2.stan")
 } else if (isTRUE(cfg$use_icar)) {
-  # Plain ICAR: with or without per-block temporal deviation
-  if (isTRUE(cfg$use_block_dev)) {
+  # Plain ICAR: per-CMF AR, or global AR with/without per-block temporal deviation
+  if (isTRUE(cfg$use_temporal_AR_perCMF)) {
+    file.path(stan_dir, "hierarchical_state_space_AR_perCMF_ICAR.stan")
+  } else if (isTRUE(cfg$use_block_dev)) {
     file.path(stan_dir, "hierarchical_state_space_AR_blockRE_ICAR.stan")
   } else {
     file.path(stan_dir, "hierarchical_state_space_AR_ICAR_noBlockDev.stan")

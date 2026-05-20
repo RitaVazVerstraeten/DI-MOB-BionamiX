@@ -105,13 +105,13 @@ cfg <- list(
   use_time_RE     = FALSE,
   use_temporal_AR = TRUE,
   use_temporal_AR_perCMF = TRUE,
-  use_spatial_AC  = FALSE,
+  use_spatial_AC  = TRUE,
   use_hsgp        = FALSE,
-  use_icar        = FALSE,
+  use_icar        = TRUE,
   use_bym2        = FALSE,
   hsgp_m          = 20,
   hsgp_c          = 1.5,
-  use_block_dev   = TRUE,
+  use_block_dev   = FALSE,
 
   shapefile_path = if (hostname == "frietjes")
     "/home/rita/data/Entomo"
@@ -167,7 +167,9 @@ cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
 } else if (isTRUE(cfg$use_bym2)) {
   file.path(stan_dir, "hierarchical_state_space_AR_BYM2.stan")
 } else if (isTRUE(cfg$use_icar)) {
-  if (isTRUE(cfg$use_block_dev))
+  if (isTRUE(cfg$use_temporal_AR_perCMF))
+    file.path(stan_dir, "hierarchical_state_space_AR_perCMF_ICAR.stan")
+  else if (isTRUE(cfg$use_block_dev))
     file.path(stan_dir, "hierarchical_state_space_AR_blockRE_ICAR.stan")
   else
     file.path(stan_dir, "hierarchical_state_space_AR_ICAR_noBlockDev.stan")
