@@ -330,12 +330,13 @@ for (combo_i in seq_along(combinations)) {
       thin            = if (!is.null(cfg$thin)) cfg$thin else 1,
       init            = make_init_fun(
         stan_data,      cfg$use_temporal_AR,
-        use_hsgp        = isTRUE(cfg$use_hsgp) && !isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
-        use_icar        = isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
-        use_bym2        = isTRUE(cfg$use_bym2),
-        use_time_RE     = isTRUE(cfg$use_time_RE),
-        use_spatial_AC  = isTRUE(cfg$use_spatial_AC),
-        use_block_dev   = isTRUE(cfg$use_block_dev)
+        use_hsgp               = isTRUE(cfg$use_hsgp) && !isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
+        use_icar               = isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
+        use_bym2               = isTRUE(cfg$use_bym2),
+        use_time_RE            = isTRUE(cfg$use_time_RE),
+        use_spatial_AC         = isTRUE(cfg$use_spatial_AC),
+        use_block_dev          = isTRUE(cfg$use_block_dev),
+        use_temporal_AR_perCMF = isTRUE(cfg$use_temporal_AR_perCMF)
       ),
       adapt_delta     = cfg$adapt_delta,
       max_treedepth   = cfg$max_treedepth,
