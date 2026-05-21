@@ -284,10 +284,12 @@ for (combo_i in seq_along(combinations)) {
     stan_data <- prep$stan_data
     df        <- prep$df
 
-    # Inject pre-computed ICAR edges
-    stan_data$N_edges <- icar_edges$N_edges
-    stan_data$node1   <- icar_edges$node1
-    stan_data$node2   <- icar_edges$node2
+    # Inject pre-computed ICAR edges (only for spatial AC models)
+    if (isTRUE(cfg$use_spatial_AC)) {
+      stan_data$N_edges <- icar_edges$N_edges
+      stan_data$node1   <- icar_edges$node1
+      stan_data$node2   <- icar_edges$node2
+    }
 
     # phi setup
     stan_data$fix_phi <- as.integer(isTRUE(cfg$fix_phi))
@@ -360,8 +362,12 @@ for (combo_i in seq_along(combinations)) {
         else                            summary_vars <- c(summary_vars, "sigma_gp", "rho_gp")
       }
       if (isTRUE(cfg$use_temporal_AR)) summary_vars <- c(summary_vars, "sigma_v", "rho")
-      if (!isTRUE(cfg$use_bym2) && isTRUE(cfg$use_block_dev))
-        summary_vars <- c(summary_vars, "sigma_block_dev")
+      if (!isTRUE(cfg$use_bym2) && isTRUE(cfg$use_block_dev)) {
+        if (isTRUE(cfg$use_temporal_AR_perCMF))
+          summary_vars <- c(summary_vars, "sigma_block")
+        else
+          summary_vars <- c(summary_vars, "sigma_block_dev")
+      }
     }
     if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
     summary_output <- capture.output(print(fit$summary(variables = summary_vars), n = Inf))
