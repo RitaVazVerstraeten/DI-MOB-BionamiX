@@ -105,13 +105,13 @@ cfg <- list(
   use_time_RE     = FALSE,
   use_temporal_AR = TRUE,
   use_temporal_AR_perCMF = TRUE,
-  use_spatial_AC  = TRUE,
+  use_spatial_AC  = FALSE,
   use_hsgp        = FALSE,
-  use_icar        = TRUE,
+  use_icar        = FALSE,
   use_bym2        = FALSE,
   hsgp_m          = 20,
   hsgp_c          = 1.5,
-  use_block_dev   = FALSE,
+  use_block_dev   = TRUE,
 
   shapefile_path = if (hostname == "frietjes")
     "/home/rita/data/Entomo"
