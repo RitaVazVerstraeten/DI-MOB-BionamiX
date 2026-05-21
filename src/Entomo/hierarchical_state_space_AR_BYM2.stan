@@ -127,7 +127,7 @@ model {
   // Interpretable hyperpriors
   sigma_spatial ~ normal(0, 1);       // total spatial SD; half-normal
   phi_mix       ~ beta(0.5, 0.5);     // weakly informative; allows any mix
-  if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
+  if (fix_phi == 0) phi_raw ~ gamma(13, 0.1);
 
   // Likelihood
   for (i in 1:N)

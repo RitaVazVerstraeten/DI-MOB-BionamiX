@@ -79,7 +79,7 @@ model {
   // dengue case correction
   delta1 ~ normal(0, 0.5);  // half-normal (lower=0): positive bias expected
 
-  if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);  // prior when estimating: mean=20, weakly regularising
+  if (fix_phi == 0) phi_raw ~ gamma(13, 0.1);  // prior when estimating: mean=20, weakly regularising
 
   for (i in 1:N)
     y[i] ~ beta_binomial(n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6));

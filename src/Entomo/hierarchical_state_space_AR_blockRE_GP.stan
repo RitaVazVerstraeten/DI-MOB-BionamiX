@@ -125,7 +125,7 @@ model {
   z_gp            ~ normal(0, 1);       // non-centred GP weights
   sigma_gp  ~ normal(0, 1);       // GP marginal SD (half-normal)
   rho_gp    ~ inv_gamma(3, 150);  // mode at 75m, matching observed residual spatial peak
-  if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
+  if (fix_phi == 0) phi_raw ~ gamma(13, 0.1);
 
   for (i in 1:N) {
     y[i] ~ beta_binomial(n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6));

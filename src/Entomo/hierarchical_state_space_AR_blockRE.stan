@@ -93,7 +93,7 @@ model {
   v_block_dev_raw ~ normal(0, 1);
   sigma_block_dev ~ exponential(2);
   delta1          ~ normal(0, 0.5);
-  if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
+  if (fix_phi == 0) phi_raw ~ gamma(13, 0.1);
 
   for (i in 1:N) {
     y[i] ~ beta_binomial(n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6));

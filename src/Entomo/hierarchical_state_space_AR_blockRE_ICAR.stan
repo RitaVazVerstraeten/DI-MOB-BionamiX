@@ -138,7 +138,7 @@ model {
   // Marginal SD: half-normal weakly regularising prior
   sigma_icar ~ normal(0, 1); // controlls magnitude of spatial variation sigma_icar = 0.3 means
   // neighbouring blocks differ by 0.3 log-odds on average
-  if (fix_phi == 0) phi_raw ~ gamma(2, 0.1);
+  if (fix_phi == 0) phi_raw ~ gamma(13, 0.1);
 
   for (i in 1:N) {
     y[i] ~ beta_binomial(n_bt[i], fmax(pi[i] * phi, 1e-6), fmax((1 - pi[i]) * phi, 1e-6));
