@@ -142,7 +142,7 @@ predictor_spec <- paste0(
   "lag-", paste(cfg$lag_vars, collapse = "-"),
   "_unlag-", paste(cfg$unlagged_vars, collapse = "-")
 )
-run_suffix <- paste0(date_suffix, "_free_lag_str")
+run_suffix <- paste0(date_suffix, "_free_lag_str_logCases")
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
 run_output_dir    <- file.path(model_output_dir, run_suffix)
@@ -719,6 +719,17 @@ if (cfg$plot_random_effects) {
   }
 }
 
+
+# v_bt spaghetti plot and u_block dot plot (present in AR-perCMF+blockRE models)
+model_vars <- fit$metadata()$stan_variables
+if ("v_cmf_out" %in% model_vars) {
+  cat("Generating v_bt per-block AR(1) trajectory plot...\n")
+  save_v_bt_plot(fit, df, stan_data, plots_output_dir, model_spec)
+}
+if ("u_block_out" %in% model_vars) {
+  cat("Generating u_block random effects plot...\n")
+  save_u_block_plot(fit, plots_output_dir, model_spec)
+}
 
 if (cfg$plot_ppc) {
   cat("Generating posterior predictive check plot...\n")

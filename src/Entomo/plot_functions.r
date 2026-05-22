@@ -806,6 +806,118 @@ save_trace_plots <- function(fit, output_dir, run_suffix, use_temporal_re) {
   }
 }
 
+#' Save Per-CMF AR(1) State (v_bt) Spaghetti Plot
+#'
+#' Extracts posterior mean of v_cmf_out[b,t] and plots one line per block over time.
+#'
+#' @param fit CmdStan fit object
+#' @param df Data frame with year_month_date column (used to map time indices to dates)
+#' @param stan_data List with B (n blocks) and T (n time points)
+#' @param output_dir Character string path to output directory
+#' @param run_suffix Character string suffix for filename
+#' @return NULL (saves plot to PNG file)
+save_v_bt_plot <- function(fit, df, stan_data, output_dir, run_suffix) {
+  draws_v <- tryCatch(fit$draws("v_cmf_out", format = "matrix"), error = function(e) NULL)
+  if (is.null(draws_v)) {
+    cat("v_cmf_out not found in fit; skipping v_bt plot.\n")
+    return(invisible(NULL))
+  }
+
+  B <- stan_data$B
+  T <- stan_data$T
+  time_dates <- sort(unique(df$year_month_date))
+
+  make_long <- function(draws_mat, value_name) {
+    v_mean <- matrix(colMeans(draws_mat), nrow = B, ncol = T)
+    do.call(rbind, lapply(seq_len(B), function(b) {
+      data.frame(block = factor(b), year_month_date = time_dates, value = v_mean[b, ])
+    }))
+  }
+
+  # Top panel: AR(1) states v_bt
+  p_top <- ggplot(make_long(draws_v, "v_bt"),
+                  aes(x = year_month_date, y = value, group = block, colour = block)) +
+    geom_line(alpha = 0.4, linewidth = 0.35) +
+    geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40") +
+    labs(title = "Per-CMF AR(1) state v_bt (posterior mean)",
+         subtitle = sprintf("B = %d blocks", B),
+         x = NULL, y = "v_bt") +
+    theme_minimal() +
+    theme(legend.position = "none",
+          axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+  # Bottom panel: raw innovations v_raw (parameter, same [b,t] layout)
+  draws_raw <- tryCatch(fit$draws("v_raw", format = "matrix"), error = function(e) NULL)
+
+  if (!is.null(draws_raw)) {
+    p_bot <- ggplot(make_long(draws_raw, "v_raw"),
+                    aes(x = year_month_date, y = value, group = block, colour = block)) +
+      geom_line(alpha = 0.4, linewidth = 0.35) +
+      geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40") +
+      labs(title = "Raw innovations v_raw (posterior mean)",
+           x = "Time", y = "v_raw") +
+      theme_minimal() +
+      theme(legend.position = "none",
+            axis.text.x = element_text(angle = 45, hjust = 1))
+
+    p_combined <- p_top / p_bot
+    ggsave(
+      file.path(output_dir, paste0("v_bt_per_block_", run_suffix, ".png")),
+      p_combined, width = 12, height = 9, dpi = 150
+    )
+  } else {
+    p_top <- p_top + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    ggsave(
+      file.path(output_dir, paste0("v_bt_per_block_", run_suffix, ".png")),
+      p_top, width = 12, height = 6, dpi = 150
+    )
+  }
+  cat("v_bt per-block plot saved.\n")
+}
+
+#' Save Block Random Effects (u_block) Dot Plot
+#'
+#' Extracts posterior mean and 90% CI of u_block_out[b] and plots a lollipop chart
+#' sorted by posterior mean.
+#'
+#' @param fit CmdStan fit object
+#' @param output_dir Character string path to output directory
+#' @param run_suffix Character string suffix for filename
+#' @return NULL (saves plot to PNG file)
+save_u_block_plot <- function(fit, output_dir, run_suffix) {
+  draws_mat <- tryCatch(fit$draws("u_block_out", format = "matrix"), error = function(e) NULL)
+  if (is.null(draws_mat)) {
+    cat("u_block_out not found in fit; skipping u_block plot.\n")
+    return(invisible(NULL))
+  }
+
+  u_df <- data.frame(
+    block = seq_len(ncol(draws_mat)),
+    u     = colMeans(draws_mat),
+    q05   = apply(draws_mat, 2, quantile, 0.05),
+    q95   = apply(draws_mat, 2, quantile, 0.95)
+  )
+  u_df <- u_df[order(u_df$u), ]
+  u_df$rank <- seq_len(nrow(u_df))
+
+  p_u <- ggplot(u_df, aes(x = rank, y = u)) +
+    geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40") +
+    geom_linerange(aes(ymin = q05, ymax = q95), colour = "steelblue", alpha = 0.4, linewidth = 0.5) +
+    geom_point(colour = "steelblue", size = 1.2) +
+    labs(
+      title    = "Block random effects u_block (posterior mean ± 90% CI)",
+      subtitle = "Sorted by posterior mean",
+      x = "Block (ranked)", y = "u_block"
+    ) +
+    theme_minimal()
+
+  ggsave(
+    file.path(output_dir, paste0("u_block_", run_suffix, ".png")),
+    p_u, width = 10, height = 5, dpi = 150
+  )
+  cat("u_block plot saved.\n")
+}
+
 #' Save Time Series Diagnostic Plots
 #'
 #' Creates four time series plots: aggregate time series, block-specific time series,
