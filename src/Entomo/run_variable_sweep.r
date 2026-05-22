@@ -43,7 +43,25 @@ source(file.path(script_dir, "plot_functions.r"))
 
 # ── Define your variable combinations here ───────────────────────────────────
 # Each list entry = one model run. Add, remove, or reorder rows freely.
-# numeric_vars = lag_vars minus any ending in _cat (those are treated as categorical).
+# numeric_vars = lag_vars minus any ending in _cat, plus continuous unlagged
+# variables that should be standardized.
+forced_unlagged_vars <- list(
+  numeric = c("mean_ndvi"),
+  binary  = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_shortage", "water_containers")
+)
+get_combo_vars <- function(lag_vars, unlag_vars) {
+  all_forced <- c(forced_unlagged_vars$numeric, forced_unlagged_vars$binary)
+  list(
+    lag   = setdiff(lag_vars, all_forced),
+    unlag = unique(c(unlag_vars, intersect(lag_vars, all_forced)))
+  )
+}
+get_numeric_vars <- function(lag_vars, unlag_vars) {
+  unique(c(
+    lag_vars[!grepl("_cat$", lag_vars)],
+    intersect(unlag_vars, forced_unlagged_vars$numeric)
+  ))
+}
 combinations <- list(
   # original variables from GLMM + extra's 
   list(lag = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
@@ -212,7 +230,10 @@ dir.create(sweep_dir, recursive = TRUE, showWarnings = FALSE)
 # which variables are included, only on the data file and spatial resolution.
 cfg$lag_vars      <- combinations[[length(combinations)]]$lag
 cfg$unlagged_vars <- combinations[[length(combinations)]]$unlag
-cfg$numeric_vars  <- cfg$lag_vars[!grepl("_cat$", cfg$lag_vars)]
+combo_vars <- get_combo_vars(cfg$lag_vars, cfg$unlagged_vars)
+cfg$lag_vars      <- combo_vars$lag
+cfg$unlagged_vars <- combo_vars$unlag
+cfg$numeric_vars  <- get_numeric_vars(cfg$lag_vars, cfg$unlagged_vars)
 prep_init <- build_stan_data(cfg)
 block_ids <- sort(unique(as.character(prep_init$df[[cfg$block_col]])))
 
@@ -263,7 +284,10 @@ for (combo_i in seq_along(combinations)) {
 
   cfg$lag_vars      <- combo$lag
   cfg$unlagged_vars <- combo$unlag
-  cfg$numeric_vars  <- combo$lag[!grepl("_cat$", combo$lag)]
+  combo_vars <- get_combo_vars(cfg$lag_vars, cfg$unlagged_vars)
+  cfg$lag_vars      <- combo_vars$lag
+  cfg$unlagged_vars <- combo_vars$unlag
+  cfg$numeric_vars  <- get_numeric_vars(cfg$lag_vars, cfg$unlagged_vars)
 
   # predictor_spec encodes the variable set → unique output dir per combo
   predictor_spec   <- paste0(
@@ -370,7 +394,12 @@ for (combo_i in seq_along(combinations)) {
       }
     }
     if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
-    summary_output <- capture.output(print(fit$summary(variables = summary_vars), n = Inf))
+    model_sum      <- rename_w_in_summary(fit$summary(variables = summary_vars), prep$lag_vars_expanded, prep$unlagged_vars)
+    summary_output <- capture.output({
+      old_width <- options(width = 10000)
+      print(as.data.frame(model_sum), digits = 3, row.names = FALSE)
+      options(old_width)
+    })
     writeLines(summary_output,
                file.path(run_output_dir, paste0("model_summary_", model_spec, ".txt")))
 

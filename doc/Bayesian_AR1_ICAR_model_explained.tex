@@ -1,0 +1,239 @@
+\documentclass[12pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage[normalem]{ulem}
+\usepackage{lastpage}
+\usepackage{fancyhdr}
+
+% Page layout
+\geometry{margin=1in}
+
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\fancyfoot[C]{\thepage/\pageref{LastPage}}
+
+% Document information
+\title{Bayesian Hierarchical State-Space Models:\\
+\large Per-CMF AR(1) with Block RE and ICAR Spatial Effects}
+\author{Rita Verstraeten}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+This document describes two Bayesian models for estimating the mosquito immature stages presence probability $p_{bt}$ at the CMF (circumscripción) level in Cienfuegos, Cuba, over monthly time periods.
+Both models are implemented in Stan and differ only in how spatial heterogeneity between CMFs is captured:
+
+\begin{description}
+  \item[\texttt{AR\_perCMF\_blockRE}] The spatial component is an i.i.d.\ random intercept per CMF,
+    capturing stable differences in baseline mosquito risk independently of neighbourhood structure.
+  \item[\texttt{AR\_perCMF\_ICAR}] The spatial component is an Intrinsic CAR (ICAR) random effect
+    that borrows strength from geographically adjacent CMFs, encoding the assumption that
+    neighbouring areas tend to have similar residual risk.
+\end{description}
+
+All other model components --- the latent ecological process, environmental effects, temporal
+dynamics, reactive surveillance correction, and observation model --- are identical.
+
+\section{Model Structure}
+
+\subsection{Latent Ecological Process}
+
+For CMF $b$ at time $t$, the true mosquito presence probability is modelled as a latent
+spatio-temporal process on the logit scale:
+\begin{equation}
+  \text{logit}(p_{bt}) = \alpha
+  + \underbrace{\sum_{k=1}^{K} \sum_{\ell=0}^{L} w_{k\ell}\, X_{k,b,t-\ell}}_{\text{distributed lag effects}}
+  + \underbrace{\sum_{k=1}^{K_u} w_k^u\, X_{k,b}^u}_{\text{static spatial covariates}}
+  + v_{bt}
+  + s_b,
+  \label{eq:lp}
+\end{equation}
+where $\alpha$ is the global intercept, $v_{bt}$ is the per-CMF AR(1) temporal random effect
+(Section~\ref{sec:ar}), and $s_b$ is the spatial random effect (Section~\ref{sec:spatial}).
+Dengue cases $C_{bt}$ do not enter this equation; they affect only the observation process.
+
+\subsection{Environmental Covariate Effects}
+
+Environmental covariates enter the linear predictor in two ways.
+
+\textbf{Lagged covariates} ($K$ variables, maximum lag $L = 2$ months) capture delayed ecological
+responses to climatic drivers. Each combination of variable $k$ and lag $\ell$ receives an
+independent weight $w_{k\ell}$:
+\begin{equation}
+  \text{lagged effect} = \sum_{k=1}^{K} \sum_{\ell=0}^{L} w_{k\ell}\, X_{k,b,t-\ell}.
+\end{equation}
+Continuous lagged variables are $z$-standardized before lag construction. Candidate lagged
+variables include climatic drivers of Aedes larval development: rainfall indicators
+(\texttt{total\_rainy\_days}, \texttt{total\_precip}, \texttt{precip\_max\_day},
+\texttt{consec\_rainy\_days}, or categorical variants), vapour pressure deficit
+(\texttt{avg\_VPD}), and temperature (\texttt{avg\_temp} or \texttt{temp\_cat}).
+NDVI (\texttt{mean\_ndvi}) is always placed in the unlagged set.
+
+\textbf{Unlagged (static spatial) covariates} ($K_u$ variables) capture persistent structural
+features of the CMF that do not vary month to month (except for ndvi):
+\begin{equation}
+  \text{static effect} = \sum_{k=1}^{K_u} w_k^u\, X_{k,b}^u.
+\end{equation}
+These include \texttt{mean\_ndvi} (greenness, a proxy for landscape type), binary land-use indicators (\texttt{is\_urban}, wild-land urban interface \texttt{is\_WUI}, water-interface \texttt{is\_WI}), and domestic water infrastructure variables (\texttt{has\_aljibes}, \texttt{water\_shortage}, \texttt{water\_containers}). Binary variables are not standardized.
+
+\subsection{Per-CMF AR(1) Temporal Effect}
+\label{sec:ar}
+
+Each CMF follows its own AR(1) trajectory, capturing block-specific seasonality and persistence
+in mosquito presence:
+\begin{align}
+  v_{b,1} &= \frac{\sigma_v\, \varepsilon_{b,1}}{\sqrt{1 - \rho^2}}, \\
+  v_{b,t} &= \rho\, v_{b,t-1} + \sigma_v\, \varepsilon_{b,t}, \quad \varepsilon_{b,t} \overset{\text{iid}}{\sim} \text{Normal}(0,1), \quad t \geq 2.
+\end{align}
+The first time point is initialised at the stationary distribution of the AR(1) process.
+The AR(1) coefficient $\rho \in (-1,1)$ and innovation SD $\sigma_v > 0$ are \textbf{shared across
+all CMFs} (partial pooling), so each CMF trajectory is an independent realisation of the same
+stochastic process. This lets each CMF track its own seasonal rhythm while the global persistence
+and variability are informed by all CMFs jointly (see Table~\ref{tab:priors}).
+
+\section{Spatial Random Effects}
+\label{sec:spatial}
+
+\subsection{Model 1 --- I.I.D.\ Block Random Effect (\texttt{AR\_perCMF\_blockRE})}
+
+Each CMF receives a static scalar offset drawn independently from a common distribution:
+\begin{equation}
+  s_b = u_b^{\text{block}} = \sigma_{\text{block}}\, z_b, \qquad z_b \overset{\text{iid}}{\sim} \text{Normal}(0,1).
+\end{equation}
+This accounts for stable, unmeasured CMF-level risk factors (e.g.\ sewer infrastructure, housing
+density). Because the offsets are independent, this model does not assume that neighbouring CMFs
+are more similar than distant ones --- it only shrinks all CMF effects toward zero.
+
+\subsection{Model 2 --- ICAR Spatial Effect (\texttt{AR\_perCMF\_ICAR})}
+
+The ICAR prior penalises differences between adjacent CMFs, encoding spatial smoothness:
+\begin{equation}
+  p(\tilde{\mathbf{u}}) \propto \exp\!\left(-\frac{1}{2} \sum_{(b,b') \in \mathcal{E}} \bigl(\tilde{u}_b - \tilde{u}_{b'}\bigr)^2\right),
+\end{equation}
+where $\mathcal{E}$ is the set of undirected edges of the CMF adjacency graph (shared boundaries,
+100\,m snap tolerance). The scaled effect is $s_b = u_b^{\text{ICAR}} = \sigma_{\text{ICAR}}\,\tilde{u}_b$.
+
+Because the ICAR prior is improper (it only constrains \emph{differences}, not absolute levels),
+an identifiability constraint is imposed:
+\begin{equation}
+  \sum_{b=1}^{B} \tilde{u}_b \sim \text{Normal}(0,\, 0.001\,B).
+\end{equation}
+In Stan this is coded as a single sparse dot product over the edge list, costing $O(|\mathcal{E}|)$
+per HMC step. The ICAR model is preferred when residual spatial autocorrelation remains after
+accounting for covariates --- for example, due to short-range Aedes dispersal across CMF
+boundaries or spatially clustered unmeasured risk factors.
+
+\section{Reactive Surveillance and Observation Model}
+
+\subsection{Reactive Inspection Bias}
+
+Dengue cases $C_{bt}$ trigger $\kappa$ additional household inspections beyond routine surveillance.
+Because these inspections target locations associated with cases, they inflate observed positivity
+relative to the ecological probability $p_{bt}$. The reactive observation probability is:
+\begin{equation}
+  p_{bt}^R = \text{logit}^{-1}\!\bigl(\text{logit}(p_{bt}) + \delta_1\, C_{bt}\bigr),
+  \quad \delta_1 \geq 0,
+\end{equation}
+where $\delta_1 \geq 0$ scales the log-odds boost per additional dengue case. The total inspection count is $n_{bt} = N_b^{HH} + \kappa C_{bt}$ with $\kappa = 2$
+fixed, and the reactive fraction is $\omega_{bt} = \min(1,\, \kappa C_{bt} / n_{bt})$.
+
+\subsection{Effective Observation Probability and Likelihood}
+
+The effective probability that a randomly selected inspection is positive mixes the two
+surveillance regimes:
+\begin{equation}
+  \pi_{bt} = \begin{cases}
+    p_{bt} & \text{if } C_{bt} = 0, \\
+    (1 - \omega_{bt})\,p_{bt} + \omega_{bt}\,p_{bt}^R & \text{if } C_{bt} > 0.
+  \end{cases}
+\end{equation}
+The observation model is a Beta-Binomial to accommodate overdispersion beyond the Binomial:
+\begin{equation}
+  y_{bt} \sim \text{BetaBinomial}\!\left(n_{bt},\; \pi_{bt}\phi,\; (1-\pi_{bt})\phi\right),
+\end{equation}
+where $\phi > 0$ is the concentration parameter controlling overdispersion ($\phi \to \infty$
+recovers the Binomial). It is either fixed from a data-driven estimate or estimated from data
+(see Table~\ref{tab:priors}).
+
+\section{Prior Distributions}
+
+Table~\ref{tab:priors} summarises all prior distributions. Parameters marked with an asterisk
+are model-specific; all others are shared between \texttt{AR\_perCMF\_blockRE} and
+\texttt{AR\_perCMF\_ICAR}.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{p{2.0cm}p{3.2cm}p{3.0cm}p{5.8cm}}
+\toprule
+\textbf{Parameter} & \textbf{Role} & \textbf{Prior} & \textbf{Reasoning} \\
+\midrule
+$\alpha$ & Global intercept & Normal$(-7.0,\; 1.5)$ & Centred on low baseline prevalence (0.5--5\% positivity corresponds to logit $\approx -5.3$ to $-2.9$). \\
+\addlinespace
+$w_{k\ell}$ & Lag weight for covariate $k$ at lag $\ell$ & Normal$(0,\; 1.0)$ & Weakly regularising; allows effects of up to $\pm 2$ log-odds per SD shift. \\
+\addlinespace
+$w_k^u$ & Unlagged covariate weight & Normal$(0,\; 0.5)$ & Tighter than lag weights; static spatial predictors typically have smaller marginal effects. \\
+\addlinespace
+$\rho$ & AR(1) coefficient (shared) & Normal$(0.35,\; 0.1)$, $\rho \in (-1,1)$ & Centred on moderate positive persistence, consistent with seasonal mosquito data; constrained to stationarity. \\
+\addlinespace
+$\sigma_v$ & AR(1) innovation SD (shared) & Normal$^+(0,\; 0.3)$ & Allows moderate month-to-month variability within each CMF trajectory; half-normal via lower bound. \\
+\addlinespace
+$\sigma_{\text{block}}^*$ & SD of i.i.d.\ block offsets & Normal$^+(0,\; 0.5)$ & Mean $\approx 0.4$ log-odds; allows substantial between-CMF heterogeneity while shrinking toward zero. \\
+\addlinespace
+$\sigma_{\text{ICAR}}^*$ & Marginal SD of ICAR effect & Normal$^+(0,\; 0.3)$ & Similar scale to $\sigma_{\text{block}}$; slightly tighter because the ICAR prior already pools across neighbours. \\
+\addlinespace
+$\delta_1$ & Reactive surveillance boost & Normal$^+(0,\; 0.5)$ & Constrained positive (reactive inspections inflate, not deflate, positivity); weakly regularised. \\
+\addlinespace
+$\phi$ & Beta-Binomial concentration & Gamma$(13,\; 0.1)$ or fixed & Centred on the empirically observed posterior (mean 130, mode 120, SD $\approx 36$); still weakly informative. Fixed to a data-driven estimate when \texttt{fix\_phi = TRUE}. \\
+\bottomrule
+\end{tabular}
+\caption{Prior distributions for all model parameters. $^*$Model-specific: $\sigma_{\text{block}}$ applies to \texttt{AR\_perCMF\_blockRE}; $\sigma_{\text{ICAR}}$ applies to \texttt{AR\_perCMF\_ICAR}. Normal$^+$ denotes a half-normal (lower bound 0 in Stan).}
+\label{tab:priors}
+\end{table}
+
+\section{Model Selection via LOO-IC}
+
+\subsection{Leave-One-Out Information Criterion}
+
+To compare model variants --- differing in spatial component (block RE vs.\ ICAR) or in
+covariate composition --- we use the Leave-One-Out Information Criterion (LOO-IC), estimated by
+Pareto-smoothed importance sampling \mbox{(PSIS-LOO;} Vehtari et al.\ 2017;
+\href{https://mc-stan.org/loo/reference/elpd.html}{Stan : Understanding ELPD an LOO}):
+\begin{equation}
+  \text{LOO-IC} = -2\,\widehat{\text{elpd}}_{\text{loo}},
+  \qquad
+  \widehat{\text{elpd}}_{\text{loo}} = \sum_{i=1}^{N} \log \hat{p}(y_i \mid y_{-i}).
+\end{equation}
+Each summand estimates how well the fitted model predicts a held-out observation, integrated
+over the posterior. The LOO-IC is computed from \texttt{log\_lik[i]} stored in the Stan
+\texttt{generated quantities} block.
+
+\subsection{Comparing Models}
+
+\texttt{loo::loo\_compare} ranks models by $\widehat{\text{elpd}}_{\text{loo}}$ (higher is better)
+and reports, for each model $m$ relative to the best:
+\begin{equation}
+  \Delta\widehat{\text{elpd}}_m \leq 0,
+  \qquad
+  z_m = \frac{\Delta\widehat{\text{elpd}}_m}{\text{SE}(\Delta\widehat{\text{elpd}}_m)}.
+\end{equation}
+A rule of thumb: $|z_m| > 2$ indicates a practically meaningful difference in predictive
+performance. Models with $|z_m| \leq 2$ are considered equivalent within the uncertainty of
+the PSIS-LOO estimates. In the variable sweep, each covariate combination is fitted with both
+spatial structures; the LOO comparison across all runs simultaneously identifies the better
+spatial component \emph{and} the better covariate set.
+
+\end{document}

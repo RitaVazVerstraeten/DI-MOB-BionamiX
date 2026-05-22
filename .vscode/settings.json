@@ -1,0 +1,4 @@
+{
+    "latex-workshop.latex.outDir": "%DIR%/out.nosync",
+    "latex-workshop.view.pdf.viewer": "tab"
+}

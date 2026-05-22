@@ -282,7 +282,8 @@ build_stan_data <- function(cfg) {
       kappa = cfg$kappa
     ),
     df = unl$df,
-    lag_vars_expanded = if (!is.null(lag$lag_vars_expanded)) lag$lag_vars_expanded else cfg$lag_vars
+    lag_vars_expanded = if (!is.null(lag$lag_vars_expanded)) lag$lag_vars_expanded else cfg$lag_vars,
+    unlagged_vars     = cfg$unlagged_vars
   )
 }
 
@@ -362,6 +363,27 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
 
     init_vals
   }
+}
+
+#' Rename w[k,l] and w_unlagged[i] rows in a cmdstanr summary tibble to actual variable names
+rename_w_in_summary <- function(model_sum, lag_vars_expanded, unlagged_vars = NULL) {
+  # w[k, l] → variable_lagN
+  w_rows <- grepl("^w\\[", model_sum$variable)
+  if (any(w_rows) && !is.null(lag_vars_expanded)) {
+    parsed  <- regmatches(model_sum$variable[w_rows],
+                          regexpr("[0-9]+,[0-9]+", model_sum$variable[w_rows]))
+    k_idx   <- as.integer(sub(",.*", "", parsed))
+    l_idx   <- as.integer(sub(".*,", "", parsed))
+    model_sum$variable[w_rows] <- paste0(lag_vars_expanded[k_idx], "_lag", l_idx - 1)
+  }
+  # w_unlagged[i] → variable name
+  wu_rows <- grepl("^w_unlagged\\[", model_sum$variable)
+  if (any(wu_rows) && !is.null(unlagged_vars)) {
+    i_idx   <- as.integer(regmatches(model_sum$variable[wu_rows],
+                                     regexpr("[0-9]+", model_sum$variable[wu_rows])))
+    model_sum$variable[wu_rows] <- unlagged_vars[i_idx]
+  }
+  model_sum
 }
 
 #' Extract Posterior Means from Stan Fit

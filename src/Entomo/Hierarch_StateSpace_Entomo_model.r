@@ -85,12 +85,12 @@ cfg <- list(
 
   # data prep
   n_blocks = NULL, # set NULL for all blocks/CMFs
-  lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day"),
+  lag_vars = c("total_rainy_days", "temp_cat", "avg_VPD", "precip_max_day"),
   max_lag = 2,
   kappa = 2,
-  unlagged_vars = c("is_urban", "is_WUI"),
+  unlagged_vars = c("mean_ndvi", "is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers"),
   # numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
-  numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day"), 
+  numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
   # MCMC
   chains = 4,
   iter_warmup = 1000,
@@ -487,7 +487,12 @@ if (isTRUE(cfg$use_time_RE)) {
 }
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
 
-summary_output <- capture.output(print(fit$summary(variables = summary_vars), n = Inf))
+model_sum      <- rename_w_in_summary(fit$summary(variables = summary_vars), prep$lag_vars_expanded, prep$unlagged_vars)
+summary_output <- capture.output({
+  old_width <- options(width = 10000)
+  print(as.data.frame(model_sum), digits = 3, row.names = FALSE)
+  options(old_width)
+})
 writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", model_spec, ".txt")))
 
 # ======================= log likelihood / LOO-CV ============================
