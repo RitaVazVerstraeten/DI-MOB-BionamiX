@@ -88,7 +88,7 @@ transformed parameters {
   // Work on linear predictor scale to avoid numerical issues
   for (i in 1:N) {
     if (C_bt[i] > 0) {
-      p_R[i] = inv_logit(eta[i] + delta1 * C_bt[i]);
+      p_R[i] = inv_logit(eta[i] + delta1 * log(C_bt[i]));
     } else {
       p_R[i] = p_bt[i];  // no reactive bias when no cases
     }

@@ -85,7 +85,7 @@ transformed parameters {
   // When C_bt = 0, p_R = p_bt (no reactive bias).
   for (i in 1:N) {
     if (C_bt[i] > 0) {
-      p_R[i] = inv_logit(eta[i] + delta1 * C_bt[i]);
+      p_R[i] = inv_logit(eta[i] + delta1 * log(C_bt[i]));
     } else {
       p_R[i] = p_bt[i];
     }

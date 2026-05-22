@@ -82,7 +82,7 @@ transformed parameters {
   // 5. Reactive surveillance probability (linear case effect on log-odds)
   for (i in 1:N) {
     if (C_bt[i] > 0)
-      p_R[i] = inv_logit(eta[i] + delta1 * C_bt[i]);
+      p_R[i] = inv_logit(eta[i] + delta1 * log(C_bt[i]));
     else
       p_R[i] = p_bt[i];
   }
