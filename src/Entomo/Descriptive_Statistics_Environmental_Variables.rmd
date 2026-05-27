@@ -839,6 +839,20 @@ env_all <- env_all %>%
 cor(env_all$total_precip, env_all$precip_max_day_resid, use = "complete.obs")
 ```
 
+### Correct correlation between total_rainy_days and precip_max_day 
+
+```{r residualize precip_max_day on total_rainy_days}
+resid_fit <- lm(precip_max_day ~ total_rainy_days, data = env_all)
+
+env_all <- env_all %>%
+  mutate(
+    precip_max_day_resid_on_trd = resid(resid_fit)
+  )
+
+# 3) Quick check: should be ~uncorrelated with total_precip
+cor(env_all$total_rainy_days, env_all$precip_max_day_resid_on_trd, use = "complete.obs")
+```
+
 ### Correct correlation between avg_temp and total_precip 
 
 Let's create a plot of temp_cat and precip_cat to check the time-series for wett-warm, wett-cold, etc. categories 
@@ -910,7 +924,7 @@ ggsave(file.path(output_dir, "cat_temp_precip.png"), plot = temp_precip_cats, wi
 
 Re-check the correlation plot with the new variable. 
 ```{r pairwise_plot_numeric_vars after correction, fig.cap="Pairwise scatterplot matrix of numeric explanatory variables after correction"}
-all_numeric <- c(all_numeric, "precip_max_day_resid")
+all_numeric <- c(all_numeric, "precip_max_day_resid", "precip_max_day_resid_on_trd")
 
 # remove the original variables causing issues with collinearity 
 all_numeric_no_colin <- all_numeric[!all_numeric %in% c("precip_max_day", "mean_ndmi", "mean_ndwi", "WS2M", "rel_hum")]
@@ -2657,7 +2671,7 @@ env_epi_ento_CMF <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_M
 ```{r env_vs_positivity_one_on_one, fig.width=16, fig.height=12, fig.cap="Temporal variables vs mosquito positivity rate manzanas"}
 # Temporal-only associations (corrected: one point per month)
 
-temporal_only_vars <- c("avg_temp", "total_precip", "rel_hum", "WS2M", "precip_max_day", "precip_max_day_resid")
+temporal_only_vars <- c("avg_temp", "total_precip", "total_rainy_days", "rel_hum", "avg_VPD", "WS2M", "precip_max_day", "precip_max_day_resid")
 
 # 1) Monthly outcome (weighted by inspected houses)
 monthly_pos <- env_epi_ento %>%
@@ -2743,7 +2757,7 @@ lagged_long <- lagged_data %>%
     mutate(
       Variable = factor(
         Variable,
-        levels = c("avg_temp", "total_precip", "precip_max_day", "precip_max_day_resid", "rel_hum", "WS2M")
+        levels = c("avg_temp", "total_precip", "total_rainy_days", "rel_hum", "avg_VPD", "WS2M", "precip_max_day", "precip_max_day_resid")
       )
     )
 
@@ -2813,8 +2827,372 @@ print(p_temporal_lagged_spline)
 ggsave(file.path(output_dir, "19b_manzana_temporal_env_vs_monthly_lag_0_1_2_positivity_spline.png"), p_temporal_lagged_spline, width = 14, height = 8, dpi = 300)
 ```
 
+```{r spline + linear fit in one plot}
+p_temporal_lagged_spline <- ggplot(plot_data, aes(x = Value, y = Positivity_Rate)) +
+  geom_point(color = "firebrick", alpha = 0.4, size = 0.8) +
+  
+  # Linear fit as reference
+  geom_smooth(method  = "lm", 
+              formula = y ~ x,
+              color   = "grey50", 
+              linetype = "dashed",
+              se      = TRUE) +
+  
+  # Spline fit
+  geom_smooth(method   = "gam", 
+              formula  = y ~ s(x, bs = "cs", k = 4),
+              color    = "steelblue",
+              fill     = "steelblue",
+              alpha    = 0.2) +
+  
+  facet_grid(Lag ~ Variable, scales = "free_x") +
+  labs(
+    title    = "Environmental variables vs larval positivity by lag",
+    subtitle = "Blue = spline (k=4), dashed grey = linear reference, R = Spearman correlation",
+    x        = "Lagged environmental value",
+    y        = "Positivity rate"
+  ) +
+  theme_bw() +
+  theme(strip.text = element_text(size = 8))
+
+# add correlation per panel 
+library(ggpubr)
+
+p_temporal_lagged_spline <- p_temporal_lagged_spline +
+  stat_cor(method   = "spearman",
+           aes(label = after_stat(r.label)),
+           color    = "firebrick",
+           size     = 3,
+           label.x.npc = "left",
+           label.y.npc = "top")
+
+show(p_temporal_lagged_spline)
+```
+
+
 The spline is definitely not worth it... not better 
 
+```{r lagged correlation plot with only 1 value per month}
+# Aggregate to unique monthly values first
+plot_data_monthly <- plot_data %>%
+  group_by(Lag, Variable, Value) %>%
+  summarise(
+    Positivity_Rate = mean(Positivity_Rate, na.rm = TRUE),
+    n_cmf           = n(),
+    .groups         = "drop"
+  )
+
+```
+
+#### Monthly aggregated env values vs larval infestation
+```{r monthly lagged environmental variables correlation to positivity}
+library(purrr)
+library(stringr)
+# ── Parameters ────────────────────────────────────────────────────────────────
+temporal_only_vars <- c("avg_temp", "total_precip", "total_rainy_days", 
+                        "rel_hum", "avg_VPD", "WS2M", 
+                        "precip_max_day", "precip_max_day_resid")
+max_lag <- 3
+
+# ── 1. Monthly outcome (weighted by inspected houses) ─────────────────────────
+monthly_pos <- env_epi_ento %>%
+  group_by(year_month) %>%
+  summarise(
+    Positivity_Rate = sum(Houses_pos_IS,     na.rm = TRUE) / 
+                      sum(Inspected_houses,  na.rm = TRUE) * 100,
+    .groups = "drop"
+  ) %>%
+  arrange(year_month)
+
+# ── 2. Monthly environmental predictors (one row per month) ───────────────────
+monthly_env <- env_epi_ento %>%
+  group_by(year_month) %>%
+  summarise(
+    across(all_of(temporal_only_vars), ~mean(.x, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  arrange(year_month)
+
+# ── 3. Create lagged versions ─────────────────────────────────────────────────
+# For each lag, shift the environmental predictors forward by lag months
+# so that env at time t-lag is matched to outcome at time t
+lagged_data <- do.call(rbind, lapply(0:max_lag, function(lag) {
+
+  env_lagged <- monthly_env %>%
+    mutate(
+      year_month_outcome = if (lag == 0) {
+        year_month
+      } else {
+        format(
+          as.Date(paste0(year_month, "_01"), "%Y_%m_%d") %m+% months(lag),
+          "%Y_%m"
+        )
+      }
+    ) %>%
+    rename_with(
+      ~paste0(.x, "_lag", lag),
+      all_of(temporal_only_vars)
+    )
+
+  monthly_pos %>%
+    left_join(
+      env_lagged %>%
+        select(year_month_outcome,
+               ends_with(paste0("_lag", lag))),
+      by = c("year_month" = "year_month_outcome")
+    ) %>%
+    pivot_longer(
+      cols      = ends_with(paste0("_lag", lag)),
+      names_to  = "Variable",
+      values_to = "Value"
+    ) %>%
+    mutate(
+      Variable = sub(paste0("_lag", lag, "$"), "", Variable),
+      Lag      = paste0("Lag ", lag)
+    )
+}))
+
+
+# ── 4. Spearman rho per variable × lag ───────────────────────────────────────
+rho_tbl <- lagged_data %>%
+  filter(!is.na(Value), !is.na(Positivity_Rate)) %>%
+  group_by(Variable, Lag) %>%
+  summarise(
+    rho   = cor(Value, Positivity_Rate, method = "spearman"),
+    n_obs = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(label = paste0("ρ = ", round(rho, 2), " (n=", n_obs, ")"))
+
+# ── 5. Final plot data ────────────────────────────────────────────────────────
+plot_data <- lagged_data %>%
+  filter(!is.na(Value), !is.na(Positivity_Rate)) %>%
+  left_join(rho_tbl, by = c("Variable", "Lag"))
+
+# ── 6. Plot ───────────────────────────────────────────────────────────────────
+p_temporal_lagged_spline <- ggplot(plot_data, 
+                                    aes(x = Value, y = Positivity_Rate)) +
+  
+  geom_point(color = "firebrick", alpha = 0.6, size = 2) +
+  
+  # Linear reference
+  geom_smooth(method   = "lm",
+              formula  = y ~ x,
+              color    = "grey50",
+              linetype = "dashed",
+              se       = TRUE,
+              linewidth = 0.7) +
+  
+  # Spline fit — k=4 appropriate for ~48 monthly data points
+  geom_smooth(method  = "gam",
+              formula = y ~ s(x, bs = "cs", k = 4),
+              color   = "steelblue",
+              fill    = "steelblue",
+              alpha   = 0.2,
+              linewidth = 1) +
+  
+  # Spearman rho annotation
+  geom_text(
+    data     = rho_tbl,
+    aes(label = label),
+    x        = -Inf, y = Inf,
+    hjust    = -0.1, vjust = 1.3,
+    size     = 3,
+    color    = "darkgreen",
+    inherit.aes = FALSE
+  ) +
+  
+  # Rug to show data density
+  geom_rug(sides = "b", alpha = 0.3, color = "firebrick") +
+  
+  facet_grid(Lag ~ Variable, scales = "free_x") +
+  
+  labs(
+    title    = "Monthly environmental variables at lag 0, 1, 2, 3 vs larval positivity",
+    subtitle = "Each point = one unique month (n≈48); blue = spline (k=4 (3 df)); dashed = linear",
+    x        = "Environmental value (lagged)",
+    y        = "Positivity rate (%)",
+    caption  = "Spearman ρ computed on monthly unique values"
+  ) +
+  
+  theme_bw(base_size = 11) +
+  theme(
+    strip.text.x     = element_text(size = 8, face = "bold"),
+    strip.text.y     = element_text(size = 9, face = "bold"),
+    panel.spacing    = unit(0.4, "lines"),
+    plot.title       = element_text(size = 12, face = "bold"),
+    plot.subtitle    = element_text(size = 9, color = "grey40")
+  )
+
+print(p_temporal_lagged_spline)
+
+ggsave(
+  file.path(output_dir, 
+            "19b_monthly_temporal_env_vs_positivity_lag0123_spline.png"),
+  p_temporal_lagged_spline,
+  width  = 20,
+  height = 12,
+  dpi    = 300
+)
+
+# ── 7. Print rho table for quick reference ────────────────────────────────────
+cat("\n── Spearman correlations by variable and lag ──\n")
+rho_tbl %>%
+  select(Variable, Lag, rho, n_obs) %>%
+  arrange(Variable, Lag) %>%
+  print(n = Inf)
+```
+
+#### Monthly aggregated env values vs larval infestation - precipitation outlier removed
+
+```{r monthly lagged environmental variables correlation to positivity no outlier in precipitation}
+mm_vars <- c("total_precip", "precip_max_day", "precip_max_day_resid")
+
+plot_data_clean <- plot_data %>%
+  group_by(Variable) %>%
+  filter(!(Variable %in% mm_vars & Value > quantile(Value, 0.98, na.rm = TRUE))) %>%
+  ungroup()
+
+rho_tbl_clean <- plot_data_clean %>%
+  filter(!is.na(Value), !is.na(Positivity_Rate)) %>%
+  group_by(Variable, Lag) %>%
+  summarise(
+    rho   = cor(Value, Positivity_Rate, method = "spearman"),
+    n_obs = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(label = paste0("ρ = ", round(rho, 2), " (n=", n_obs, ")"))
+
+plot_data_clean <- plot_data_clean %>%
+  select(-rho, -n_obs, -label) %>%
+  left_join(rho_tbl_clean, by = c("Variable", "Lag"))
+
+
+
+# ── 6. Plot ───────────────────────────────────────────────────────────────────
+p_temporal_lagged_spline <- ggplot(plot_data_clean, 
+                                    aes(x = Value, y = Positivity_Rate)) +
+  
+  geom_point(color = "firebrick", alpha = 0.6, size = 2) +
+  
+  # Linear reference
+  geom_smooth(method   = "lm",
+              formula  = y ~ x,
+              color    = "grey50",
+              linetype = "dashed",
+              se       = TRUE,
+              linewidth = 0.7) +
+  
+  # Spline fit — k=4 appropriate for ~48 monthly data points
+  geom_smooth(method  = "gam",
+              formula = y ~ s(x, bs = "cs", k = 4),
+              color   = "steelblue",
+              fill    = "steelblue",
+              alpha   = 0.2,
+              linewidth = 1) +
+  
+  # Spearman rho annotation
+  geom_text(
+    data     = rho_tbl_clean,
+    aes(label = label),
+    x        = -Inf, y = Inf,
+    hjust    = -0.1, vjust = 1.3,
+    size     = 3,
+    color    = "darkgreen",
+    inherit.aes = FALSE
+  ) +
+  
+  # Rug to show data density
+  geom_rug(sides = "b", alpha = 0.3, color = "firebrick") +
+  
+  facet_grid(Lag ~ Variable, scales = "free_x") +
+  
+  labs(
+    title    = "Monthly environmental variables at lag 0, 1, 2, 3 vs larval positivity w/o precipitation outlier",
+    subtitle = "Each point = one unique month (n≈48); blue = spline (k=4 (3 df)); dashed = linear",
+    x        = "Environmental value (lagged)",
+    y        = "Positivity rate (%)",
+    caption  = "Spearman ρ computed on monthly unique values"
+  ) +
+  
+  theme_bw(base_size = 11) +
+  theme(
+    strip.text.x     = element_text(size = 8, face = "bold"),
+    strip.text.y     = element_text(size = 9, face = "bold"),
+    panel.spacing    = unit(0.4, "lines"),
+    plot.title       = element_text(size = 12, face = "bold"),
+    plot.subtitle    = element_text(size = 9, color = "grey40")
+  )
+
+print(p_temporal_lagged_spline)
+
+ggsave(
+  file.path(output_dir, 
+            "19b_monthly_temporal_env_vs_positivity_lag0123_outlierRemoved_spline.png"),
+  p_temporal_lagged_spline,
+  width  = 20,
+  height = 12,
+  dpi    = 300
+)
+
+# ── 7. Print rho table for quick reference ────────────────────────────────────
+cat("\n── Spearman correlations by variable and lag ──\n")
+rho_tbl %>%
+  select(Variable, Lag, rho, n_obs) %>%
+  arrange(Variable, Lag) %>%
+  print(n = Inf)
+
+
+all_vars <- unique(plot_data_clean$Variable)
+
+for (var in all_vars) {
+  p_var <- plot_data_clean %>%
+    filter(Variable == var) %>%
+    ggplot(aes(x = Value, y = Positivity_Rate)) +
+    geom_point(color = "firebrick", alpha = 0.6, size = 2) +
+    geom_smooth(method   = "lm",
+                formula  = y ~ x,
+                color    = "grey50",
+                linetype = "dashed",
+                se       = TRUE,
+                linewidth = 1.0) +
+    geom_smooth(method    = "gam",
+                formula   = y ~ s(x, bs = "cs", k = 4),
+                color     = "steelblue",
+                fill      = "steelblue",
+                alpha     = 0.2,
+                linewidth = 1) +
+    geom_text(
+      data = rho_tbl_clean %>% filter(Variable == var),
+      aes(label = label),
+      x = -Inf, y = Inf,
+      hjust = -0.1, vjust = 1.3,
+      size = 3, color = "darkgreen",
+      inherit.aes = FALSE
+    ) +
+    geom_rug(sides = "b", alpha = 0.3, color = "firebrick") +
+    facet_grid(Lag~., scales = "free_x") +
+    labs(
+      title    = stringr::str_wrap(
+                   paste("Monthly", var, "at lag 0, 1, 2 vs larval positivity"),
+                   width = 40),
+      subtitle = stringr::str_wrap(
+                   "Each point = one unique month (n≈48); blue = spline (k=4 (3 df)); dashed = linear",
+                   width = 45),
+      x        = paste(var, "(lagged)"),
+      y        = "Positivity rate (%)",
+      caption  = "Spearman ρ computed on monthly unique values"
+
+    ) +
+    theme_bw(base_size = 11)
+
+  ggsave(
+    file.path(output_dir, paste0("DLNM_correlation_", var, "_larval_positivity.png")),
+    p_var, width = 4, height = 12, dpi = 300
+  )
+}
+
+```
 
 #### Binary spatial variables 
 

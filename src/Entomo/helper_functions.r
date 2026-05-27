@@ -246,6 +246,100 @@ build_icar_edges <- function(sf_blocks, block_ids, sf_block_col, snap_m = 100) {
   )
 }
 
+#' Build Stan Data with DLNM Cross-Basis Predictors
+#'
+#' Replaces the distributed-lag flat matrix (X_lag_flat / K / Lp1) with a
+#' DLNM cross-basis matrix (X_cb / P_cb) built via dlnm::crossbasis().
+#' Uses the full (unfiltered) data to construct lag matrices, then filters
+#' rows where time <= max_lag exactly as build_lag_design does.
+#'
+#' @param cfg Config list. Must include dlnm_vars (character vector of predictor
+#'   names), max_lag, and optionally dlnm_argvar (named list of per-variable
+#'   argvar specs) and dlnm_arglag (single arglag spec shared across vars).
+#'   Defaults: argvar = list(fun="ns", df=3), arglag = list(fun="ns", df=3).
+#' @return Same shape as build_stan_data(): list(stan_data, df, dlnm_vars, cb_mats, unlagged_vars)
+build_dlnm_stan_data <- function(cfg) {
+  if (!requireNamespace("dlnm", quietly = TRUE))
+    stop("Package 'dlnm' required — install.packages('dlnm')")
+
+  input_data <- load_base_data(cfg$data_file)
+  block_col  <- if (!is.null(cfg$block_col)) cfg$block_col else "manzana"
+  idx        <- index_and_subset(input_data, cfg$n_blocks, block_col = block_col)
+
+  vars_to_std <- intersect(cfg$numeric_vars, names(idx$df))
+  idx$df[, vars_to_std] <- standardize_matrix(as.matrix(idx$df[, vars_to_std]))
+
+  B      <- idx$B
+  L      <- cfg$max_lag
+  df_all <- idx$df   # full data (all time points)
+
+  # Default basis specs
+  default_argvar <- list(fun = "ns", df = 3)
+  default_arglag <- list(fun = "ns", df = 3)
+
+  cat("Building DLNM cross-bases (max_lag =", L, "):\n")
+  cb_mats <- list()
+
+  for (var in cfg$dlnm_vars) {
+    if (!var %in% names(df_all))
+      stop(sprintf("DLNM variable '%s' not found in data", var))
+
+    # Build Q[N_all, L+1]: lag matrix before row filtering
+    # Row order matches df_all row order (block x time, sorted)
+    Q <- matrix(NA_real_, nrow = nrow(df_all), ncol = L + 1)
+    for (b in seq_len(B)) {
+      rows <- which(df_all$block == b)
+      x    <- df_all[[var]][rows]
+      for (l in 0:L) {
+        Q[rows, l + 1] <- if (l == 0) x else c(rep(NA_real_, l), x[seq_len(length(x) - l)])
+      }
+    }
+
+    argvar <- if (!is.null(cfg$dlnm_argvar) && var %in% names(cfg$dlnm_argvar))
+      cfg$dlnm_argvar[[var]] else default_argvar
+    arglag <- if (!is.null(cfg$dlnm_arglag)) cfg$dlnm_arglag else default_arglag
+
+    cb_mats[[var]] <- dlnm::crossbasis(Q, lag = c(0, L), argvar = argvar, arglag = arglag)
+    cat(sprintf("  %-32s  %d columns\n", var, ncol(cb_mats[[var]])))
+  }
+
+  # Filter rows (same rule as build_lag_design)
+  keep    <- df_all$time > L
+  df_filt <- df_all[keep, ]
+
+  X_cb <- do.call(cbind, lapply(cb_mats, function(cb) {
+    m <- cb[keep, , drop = FALSE]
+    matrix(as.numeric(m), nrow = sum(keep), ncol = ncol(cb))
+  }))
+  P_cb <- ncol(X_cb)
+  cat("DLNM total cross-basis columns P_cb =", P_cb, "\n")
+
+  binary_unlagged_vars <- setdiff(cfg$unlagged_vars, cfg$numeric_vars)
+  unl <- prepare_unlagged(df_filt, cfg$unlagged_vars, binary_unlagged_vars)
+
+  list(
+    stan_data = list(
+      N          = nrow(unl$df),
+      y          = unl$df$y_bt,
+      P_cb       = P_cb,
+      X_cb       = X_cb,
+      Ku         = unl$Ku,
+      X_unlagged = unl$X_unlagged_std,
+      B          = idx$B,
+      T          = idx$T,
+      block      = unl$df$block,
+      time       = unl$df$time,
+      C_bt       = unl$df$C_bt,
+      n_bt       = as.integer(unl$df$N_HH + cfg$kappa * unl$df$C_bt),
+      kappa      = cfg$kappa
+    ),
+    df            = unl$df,
+    dlnm_vars     = cfg$dlnm_vars,
+    cb_mats       = cb_mats,
+    unlagged_vars = cfg$unlagged_vars
+  )
+}
+
 build_stan_data <- function(cfg) {
   input_data <- load_base_data(cfg$data_file)
   block_col <- if (!is.null(cfg$block_col)) cfg$block_col else "manzana"
@@ -304,15 +398,20 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
                           use_icar = FALSE, use_bym2 = FALSE,
                           use_time_RE = FALSE, use_spatial_AC = TRUE,
                           use_block_dev = TRUE,
-                          use_temporal_AR_perCMF = FALSE) {
+                          use_temporal_AR_perCMF = FALSE,
+                          use_dlnm = FALSE) {
   function() {
     init_vals <- list(
       alpha      = rnorm(1, -4.5, 0.4),
-      w          = matrix(rnorm(stan_data$K * stan_data$Lp1, 0, 0.08), stan_data$K, stan_data$Lp1),
       w_unlagged = rnorm(stan_data$Ku, 0, 0.1),
       delta1     = runif(1, 0.01, 0.05),
       phi_raw    = runif(1, 15, 30)
     )
+    if (isTRUE(use_dlnm)) {
+      init_vals$w_cb <- rnorm(stan_data$P_cb, 0, 0.08)
+    } else {
+      init_vals$w <- matrix(rnorm(stan_data$K * stan_data$Lp1, 0, 0.08), stan_data$K, stan_data$Lp1)
+    }
 
     if (isTRUE(use_time_RE)) {
       init_vals$v_time_raw  <- rnorm(stan_data$T, 0, 0.3)

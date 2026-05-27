@@ -65,8 +65,8 @@ cfg <- list(
 
   # model variant
   use_time_RE          = FALSE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
-  use_temporal_AR      = TRUE,  # (ignored if use_time_RE = TRUE) TRUE = single global AR1 trend
-  use_temporal_AR_perCMF = TRUE, # (ignored if use_time_RE = TRUE) TRUE = independent AR1 per CMF
+  use_temporal_AR      = FALSE,  # (ignored if use_time_RE = TRUE) TRUE = single global AR1 trend
+  use_temporal_AR_perCMF = FALSE, # (ignored if use_time_RE = TRUE) TRUE = independent AR1 per CMF
   use_spatial_AC  = FALSE,    # (ignored if use_time_RE = TRUE) TRUE = spatial AC
   use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE and use_icar/bym2 = FALSE) TRUE = HSGP
   use_icar        = FALSE,   # (only if use_spatial_AC = TRUE) TRUE = plain ICAR
@@ -74,6 +74,7 @@ cfg <- list(
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
   use_block_dev   = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
+  use_dlnm        = TRUE,  # TRUE = replace lag flat matrix with DLNM cross-basis (blockRE only for now)
 
   # spatial
   shapefile_path = if (hostname == "frietjes")
@@ -85,12 +86,20 @@ cfg <- list(
 
   # data prep
   n_blocks = NULL, # set NULL for all blocks/CMFs
-  lag_vars = c("total_rainy_days", "temp_cat", "avg_VPD", "precip_max_day"),
-  max_lag = 2,
+  lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),
+  max_lag = 5,
   kappa = 2,
   unlagged_vars = c("mean_ndvi", "is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers"),
-  # numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
-  numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
+  # numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
+  numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd", "mean_ndvi"),
+  # DLNM settings (only used when use_dlnm = TRUE)
+  dlnm_vars   = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),  # vars for crossbasis
+  dlnm_argvar = list(                   # per-variable predictor basis; defaults to ns (natural spline (df=3) if omitted
+    total_rainy_days    = list(fun = "lin"),
+    avg_VPD             = list(fun = "lin"),
+    precip_max_day_resid_on_trd = list(fun = "ns", df = 3)
+  ),
+  dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
   # MCMC
   chains = 4,
   iter_warmup = 1000,
@@ -118,6 +127,9 @@ cfg <- list(
 date_suffix <- format(Sys.Date(), "%Y%m%d")
 model_spec <- if (isTRUE(cfg$use_time_RE)) {
   paste0("timeRE_blockRE_lag", cfg$max_lag, "_k", cfg$kappa)
+} else if (isTRUE(cfg$use_dlnm)) {
+  n_block_suffix <- paste0(ifelse(is.null(cfg$n_blocks), "All", cfg$n_blocks), "Blocks")
+  paste0("DLNM_noAR1_noGP_blockRE_lag", cfg$max_lag, "_k", cfg$kappa, "_", n_block_suffix)
 } else {
   ar1_suffix <- if (isTRUE(cfg$use_temporal_AR_perCMF)) "AR1perCMF"
                else if (isTRUE(cfg$use_temporal_AR))      "AR1global"
@@ -135,14 +147,15 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
   paste0(ar1_suffix, "_", gp_suffix, "_", re_suffix,
          "_lag", cfg$max_lag, "_k", cfg$kappa, "_", n_block_suffix)
 }
-model_spec <- paste0(spatial_level,'_', model_spec)
-# model_tag <- ifelse(isTRUE(cfg$use_time_RE), "timeRE_blockRE",
-#              ifelse(isTRUE(cfg$use_temporal_AR), "withAR1", "noAR1"))
-predictor_spec <- paste0(
-  "lag-", paste(cfg$lag_vars, collapse = "-"),
-  "_unlag-", paste(cfg$unlagged_vars, collapse = "-")
-)
-run_suffix <- paste0(date_suffix, "_free_lag_str_logCases")
+model_spec <- paste0(spatial_level, "_", model_spec)
+predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
+  paste0("dlnm-", paste(cfg$dlnm_vars, collapse = "-"),
+         "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
+} else {
+  paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
+         "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
+}
+run_suffix <- paste0(date_suffix)
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
 run_output_dir    <- file.path(model_output_dir, run_suffix)
@@ -157,6 +170,9 @@ stan_dir <- "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo"
 cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   # iid time RE + iid block RE (no AR1, no GP)
   file.path(stan_dir, "hierarchical_state_space_timeRE_blockRE.stan")
+} else if (isTRUE(cfg$use_dlnm)) {
+  # DLNM cross-basis: blockRE only (no AR, no spatial AC)
+  file.path(stan_dir, "hierarchical_state_space_blockRE_DLNM.stan")
 } else if (!isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_temporal_AR_perCMF) && !isTRUE(cfg$use_spatial_AC)) {
   # No AR, no GP: base or blockRE-only
   if (isTRUE(cfg$use_block_dev)) {
@@ -221,7 +237,7 @@ cat("Model variant:" , "Predictors: ", predictor_spec, "\n","level, RE and AR: "
 # STANDARDIZE NUMERIC COVARIATES - done in helper functions
 # =========================
 
-prep <- build_stan_data(cfg)
+prep <- if (isTRUE(cfg$use_dlnm)) build_dlnm_stan_data(cfg) else build_stan_data(cfg)
 stan_data <- prep$stan_data
 df <- prep$df
 
@@ -452,7 +468,8 @@ fit <- mod$sample(
     use_time_RE           = isTRUE(cfg$use_time_RE),
     use_spatial_AC        = isTRUE(cfg$use_spatial_AC),
     use_block_dev         = isTRUE(cfg$use_block_dev),
-    use_temporal_AR_perCMF = isTRUE(cfg$use_temporal_AR_perCMF)
+    use_temporal_AR_perCMF = isTRUE(cfg$use_temporal_AR_perCMF),
+    use_dlnm              = isTRUE(cfg$use_dlnm)
   ),
   adapt_delta = cfg$adapt_delta,
   max_treedepth = cfg$max_treedepth,
@@ -467,7 +484,7 @@ fit <- mod$sample(
 invisible(file.remove(list.files(run_output_dir, pattern = "_(config|metric)\\.json$", full.names = TRUE)))
 
 # ======================= make model summary ============================
-summary_vars <- c("alpha", "delta1", "w", "w_unlagged")
+summary_vars <- c("alpha", "delta1", if (isTRUE(cfg$use_dlnm)) "w_cb" else "w", "w_unlagged")
 if (isTRUE(cfg$use_time_RE)) {
   summary_vars <- c(summary_vars, "sigma_time", "sigma_block")
 } else {
@@ -487,7 +504,11 @@ if (isTRUE(cfg$use_time_RE)) {
 }
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
 
-model_sum      <- rename_w_in_summary(fit$summary(variables = summary_vars), prep$lag_vars_expanded, prep$unlagged_vars)
+model_sum      <- rename_w_in_summary(
+  fit$summary(variables = summary_vars),
+  lag_vars_expanded = if (isTRUE(cfg$use_dlnm)) NULL else prep$lag_vars_expanded,
+  unlagged_vars     = prep$unlagged_vars
+)
 summary_output <- capture.output({
   old_width <- options(width = 10000)
   print(as.data.frame(model_sum), digits = 3, row.names = FALSE)
@@ -920,8 +941,13 @@ if (cfg$plot_traceplots) {
       cat("No scalar parameters found for traceplot.\n")
     }
 
-    # Lagged weights — draw by root name "w"; get element names from array dims
-    if ("w" %in% model_vars) {
+    # Lagged/DLNM weights
+    if ("w_cb" %in% model_vars) {
+      draws_w  <- fit$draws(variables = "w_cb", format = "array")
+      w_params <- dimnames(draws_w)[[3]]
+      cat("Plotting DLNM weight traceplots:", paste(head(w_params, 6), collapse = ", "), "...\n")
+      save_trace_chunks(w_params, draws_w, "traceplot_weights_wcb", chunk_size = 12, w = 12, h = 10)
+    } else if ("w" %in% model_vars) {
       draws_w  <- fit$draws(variables = "w", format = "array")
       w_params <- dimnames(draws_w)[[3]]
       cat("Plotting lag weight traceplots:", paste(w_params, collapse = ", "), "\n")

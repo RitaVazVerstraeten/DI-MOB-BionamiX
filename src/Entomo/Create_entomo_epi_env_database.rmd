@@ -2641,6 +2641,13 @@ resid_fit <- lm(precip_max_day ~ precip_cat, data = env_epi_ento, na.action = na
 env_epi_ento <- env_epi_ento %>%
   mutate(precip_max_day_resid = resid(resid_fit))
 
+resid_fit <- lm(precip_max_day ~ total_rainy_days, data = env_epi_ento)
+
+env_epi_ento <- env_epi_ento %>%
+  mutate(
+    precip_max_day_resid_on_trd = resid(resid_fit)
+  )
+
 env_epi_ento_cmf <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_CMF_2016_01_to_2019_12.csv")
 
 # na.exclude pads residuals with NA for missing rows so lengths match the dataframe
@@ -2648,6 +2655,14 @@ resid_fit <- lm(precip_max_day ~ precip_cat, data = env_epi_ento_cmf, na.action 
 
 env_epi_ento_cmf <- env_epi_ento_cmf %>%
   mutate(precip_max_day_resid = resid(resid_fit))
+
+resid_fit <- lm(precip_max_day ~ total_rainy_days, data = env_epi_ento_cmf)
+
+env_epi_ento_cmf <- env_epi_ento_cmf %>%
+  mutate(
+    precip_max_day_resid_on_trd = resid(resid_fit)
+  )
+
 ```
 
 # Save the final dataset 

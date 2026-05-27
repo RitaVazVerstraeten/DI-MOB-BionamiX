@@ -825,7 +825,19 @@ save_v_bt_plot <- function(fit, df, stan_data, output_dir, run_suffix) {
 
   B <- stan_data$B
   T <- stan_data$T
-  time_dates <- sort(unique(df$year_month_date))
+
+  # df is lag-filtered: first max_lag time steps are absent, so unique dates < T.
+  # Reconstruct the full T-length date vector by extrapolating backward from the
+  # earliest surviving date using its time index.
+  date_map   <- unique(df[, c("time", "year_month_date")])
+  date_map   <- date_map[order(date_map$time), ]
+  min_time   <- min(date_map$time)   # = max_lag + 1
+  min_date   <- min(date_map$year_month_date)
+  time_dates <- seq(
+    from       = min_date - months(min_time - 1L),
+    by         = "month",
+    length.out = T
+  )
 
   make_long <- function(draws_mat, value_name) {
     v_mean <- matrix(colMeans(draws_mat), nrow = B, ncol = T)
