@@ -752,6 +752,11 @@ if ("u_block_out" %in% model_vars) {
   save_u_block_plot(fit, plots_output_dir, model_spec)
 }
 
+if (isTRUE(cfg$use_dlnm)) {
+  cat("Generating DLNM exposure-response and lag-response plots...\n")
+  save_dlnm_response_plots(fit, prep, plots_output_dir, model_spec)
+}
+
 if (cfg$plot_ppc) {
   cat("Generating posterior predictive check plot...\n")
   save_ppc(df, fit, plots_output_dir, model_spec)

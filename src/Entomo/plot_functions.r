@@ -1162,3 +1162,91 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
   cat("  Time series plots saved to:", timeseries_dir, "\n")
 }
 
+#' Save DLNM Exposure-Response and Lag-Response Plots
+#'
+#' For each DLNM predictor, recovers the bivariate exposure-lag-response surface
+#' from posterior draws of w_cb using dlnm::crosspred(), then saves:
+#'   - overall cumulative effect (marginalised over all lags)
+#'   - 3-D surface (effect by predictor value and lag)
+#'
+#' Predictor-to-column mapping is derived from the per-predictor crossbasis
+#' column counts stored in prep$cb_mats, so it is robust to different df
+#' settings across predictors.
+#'
+#' @param fit     CmdStanR fit object
+#' @param prep    Return value of build_dlnm_stan_data() (contains cb_mats, dlnm_vars, df)
+#' @param output_dir  Directory to write PNGs into
+#' @param run_suffix  String appended to each filename
+save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
+  if (!requireNamespace("dlnm", quietly = TRUE)) {
+    cat("dlnm not installed; skipping DLNM response plots.\n")
+    return(invisible(NULL))
+  }
+
+  cb_mats   <- prep$cb_mats
+  dlnm_vars <- prep$dlnm_vars
+  df        <- prep$df
+
+  # Cumulative column offsets: predictor i uses cols col_starts[i] .. col_starts[i]+ncols[i]-1
+  cb_ncols   <- sapply(dlnm_vars, function(v) ncol(cb_mats[[v]]))
+  col_starts <- cumsum(c(1L, cb_ncols[-length(cb_ncols)]))
+
+  # All posterior draws of w_cb [S x P_cb]
+  w_cb_draws <- fit$draws("w_cb", format = "matrix")
+
+  for (i in seq_along(dlnm_vars)) {
+    var  <- dlnm_vars[i]
+    cols <- col_starts[i] + seq_len(cb_ncols[i]) - 1L
+
+    draws_i <- w_cb_draws[, cols, drop = FALSE]
+
+    # Name coef/vcov to match crossbasis column names (required by crosspred)
+    cb_colnames <- colnames(cb_mats[[var]])
+    coef_i <- setNames(colMeans(draws_i), cb_colnames)
+    vcov_i <- cov(draws_i)
+    dimnames(vcov_i) <- list(cb_colnames, cb_colnames)
+
+    # Prediction grid in standardised units (matching the scale used to build Q)
+    if (!var %in% names(df)) {
+      cat(sprintf("  Skipping %s: column not found in prep$df\n", var))
+      next
+    }
+    x_vals  <- df[[var]][is.finite(df[[var]])]
+    at_vals <- seq(min(x_vals), max(x_vals), length.out = 50)
+
+    pred_i <- tryCatch(
+      dlnm::crosspred(cb_mats[[var]], coef = coef_i, vcov = vcov_i,
+                      at = at_vals, cumul = TRUE),
+      error = function(e) {
+        cat(sprintf("  crosspred failed for %s: %s\n", var, conditionMessage(e)))
+        NULL
+      }
+    )
+    if (is.null(pred_i)) next
+
+    # ── Overall cumulative effect ──────────────────────────────────────────────
+    png(file.path(output_dir, paste0("dlnm_overall_", var, "_", run_suffix, ".png")),
+        width = 800, height = 500)
+    plot(pred_i, "overall",
+         main   = paste("Cumulative effect —", var),
+         xlab   = paste0(var, " (standardised)"),
+         ylab   = "Effect on log-odds (p_bt)",
+         col    = "steelblue",
+         ci.arg = list(col = adjustcolor("steelblue", 0.25), border = NA))
+    abline(h = 0, lty = 2, col = "grey50")
+    dev.off()
+
+    # ── 3-D surface ───────────────────────────────────────────────────────────
+    png(file.path(output_dir, paste0("dlnm_3d_", var, "_", run_suffix, ".png")),
+        width = 800, height = 700)
+    plot(pred_i,
+         xlab   = paste0(var, " (std)"),
+         zlab   = "Effect on log-odds",
+         main   = paste("DLNM surface —", var),
+         theta  = 220, phi = 25, ltheta = -135)
+    dev.off()
+
+    cat(sprintf("  DLNM plots saved: %s\n", var))
+  }
+}
+
