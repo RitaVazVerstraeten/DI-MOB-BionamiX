@@ -1183,40 +1183,51 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     return(invisible(NULL))
   }
 
-  cb_mats   <- prep$cb_mats
-  dlnm_vars <- prep$dlnm_vars
-  df        <- prep$df
+  cb_mats        <- prep$cb_mats
+  dlnm_vars      <- prep$dlnm_vars
+  df             <- prep$df
+  dlnm_var_stats <- prep$dlnm_var_stats   # list(var = list(mean, sd)), NULL if absent
 
-  # Cumulative column offsets: predictor i uses cols col_starts[i] .. col_starts[i]+ncols[i]-1
   cb_ncols   <- sapply(dlnm_vars, function(v) ncol(cb_mats[[v]]))
   col_starts <- cumsum(c(1L, cb_ncols[-length(cb_ncols)]))
 
-  # All posterior draws of w_cb [S x P_cb]
   w_cb_draws <- fit$draws("w_cb", format = "matrix")
 
   for (i in seq_along(dlnm_vars)) {
     var  <- dlnm_vars[i]
     cols <- col_starts[i] + seq_len(cb_ncols[i]) - 1L
 
-    draws_i <- w_cb_draws[, cols, drop = FALSE]
-
-    # Name coef/vcov to match crossbasis column names (required by crosspred)
-    cb_colnames <- colnames(cb_mats[[var]])
-    coef_i <- setNames(colMeans(draws_i), cb_colnames)
-    vcov_i <- cov(draws_i)
-    dimnames(vcov_i) <- list(cb_colnames, cb_colnames)
-
-    # Prediction grid in standardised units (matching the scale used to build Q)
     if (!var %in% names(df)) {
       cat(sprintf("  Skipping %s: column not found in prep$df\n", var))
       next
     }
-    x_vals  <- df[[var]][is.finite(df[[var]])]
-    at_vals <- seq(min(x_vals), max(x_vals), length.out = 50)
+
+    # Back-transform parameters (original = std * sd + mean)
+    stats_i <- if (!is.null(dlnm_var_stats) && var %in% names(dlnm_var_stats))
+      dlnm_var_stats[[var]] else list(mean = 0, sd = 1)
+    v_mean <- stats_i$mean
+    v_sd   <- stats_i$sd
+
+    # Build at grid: choose nice round values in ORIGINAL space, then standardise
+    x_orig_range <- range(df[[var]], na.rm = TRUE) * v_sd + v_mean
+    at_orig_nice <- pretty(x_orig_range, n = 40)   # round numbers in original units
+    at_std_nice  <- (at_orig_nice - v_mean) / v_sd  # back to standardised for crosspred
+
+    # Keep only values within the observed standardised range (no extrapolation)
+    obs_range <- range(df[[var]][is.finite(df[[var]])])
+    keep       <- at_std_nice >= obs_range[1] & at_std_nice <= obs_range[2]
+    at_std     <- at_std_nice[keep]
+    at_orig    <- at_orig_nice[keep]
+
+    draws_i     <- w_cb_draws[, cols, drop = FALSE]
+    cb_colnames <- colnames(cb_mats[[var]])
+    coef_i      <- setNames(colMeans(draws_i), cb_colnames)
+    vcov_i      <- cov(draws_i)
+    dimnames(vcov_i) <- list(cb_colnames, cb_colnames)
 
     pred_i <- tryCatch(
       dlnm::crosspred(cb_mats[[var]], coef = coef_i, vcov = vcov_i,
-                      at = at_vals, cumul = TRUE),
+                      at = at_std, cumul = TRUE),
       error = function(e) {
         cat(sprintf("  crosspred failed for %s: %s\n", var, conditionMessage(e)))
         NULL
@@ -1224,26 +1235,37 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     )
     if (is.null(pred_i)) next
 
-    # ── Overall cumulative effect ──────────────────────────────────────────────
+    # ── Overall cumulative effect (original x-axis) ───────────────────────────
     png(file.path(output_dir, paste0("dlnm_overall_", var, "_", run_suffix, ".png")),
         width = 800, height = 500)
     plot(pred_i, "overall",
+         xaxt   = "n",
          main   = paste("Cumulative effect —", var),
-         xlab   = paste0(var, " (standardised)"),
+         xlab   = var,
          ylab   = "Effect on log-odds (p_bt)",
          col    = "steelblue",
          ci.arg = list(col = adjustcolor("steelblue", 0.25), border = NA))
+    axis(1, at = at_std, labels = round(at_orig, 2))
     abline(h = 0, lty = 2, col = "grey50")
     dev.off()
 
-    # ── 3-D surface ───────────────────────────────────────────────────────────
+    # ── 3-D surface (original x-axis labels via tick override) ────────────────
+    # Choose a sparse subset of ticks so the 3-D x-axis is readable
+    tick_idx  <- round(seq(1, length(at_std), length.out = 6))
+    tick_std  <- at_std[tick_idx]
+    tick_orig <- round(at_orig[tick_idx], 2)
+
     png(file.path(output_dir, paste0("dlnm_3d_", var, "_", run_suffix, ".png")),
         width = 800, height = 700)
     plot(pred_i,
-         xlab   = paste0(var, " (std)"),
+         xlab   = var,
          zlab   = "Effect on log-odds",
          main   = paste("DLNM surface —", var),
-         theta  = 220, phi = 25, ltheta = -135)
+         theta  = 220, phi = 25, ltheta = -135,
+         xaxt   = "n")
+    # Persp x-axis lives on the bottom edge; approximate with mtext annotation
+    mtext(paste0("x: ", paste(tick_orig, collapse = "  ")),
+          side = 1, line = 2.5, cex = 0.75, col = "grey30")
     dev.off()
 
     cat(sprintf("  DLNM plots saved: %s\n", var))

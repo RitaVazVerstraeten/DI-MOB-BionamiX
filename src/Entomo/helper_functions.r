@@ -267,6 +267,18 @@ build_dlnm_stan_data <- function(cfg) {
   idx        <- index_and_subset(input_data, cfg$n_blocks, block_col = block_col)
 
   vars_to_std <- intersect(cfg$numeric_vars, names(idx$df))
+
+  # Save mean/SD for DLNM vars BEFORE standardizing (needed for back-transformation in plots)
+  dlnm_var_stats <- setNames(lapply(cfg$dlnm_vars, function(v) {
+    if (v %in% vars_to_std) {
+      x <- idx$df[[v]][is.finite(idx$df[[v]])]
+      s <- sd(x)
+      list(mean = mean(x), sd = if (s == 0 | is.na(s)) 1 else s)
+    } else {
+      list(mean = 0, sd = 1)   # not standardized; original = standardized
+    }
+  }), cfg$dlnm_vars)
+
   idx$df[, vars_to_std] <- standardize_matrix(as.matrix(idx$df[, vars_to_std]))
 
   B      <- idx$B
@@ -333,10 +345,11 @@ build_dlnm_stan_data <- function(cfg) {
       n_bt       = as.integer(unl$df$N_HH + cfg$kappa * unl$df$C_bt),
       kappa      = cfg$kappa
     ),
-    df            = unl$df,
-    dlnm_vars     = cfg$dlnm_vars,
-    cb_mats       = cb_mats,
-    unlagged_vars = cfg$unlagged_vars
+    df             = unl$df,
+    dlnm_vars      = cfg$dlnm_vars,
+    cb_mats        = cb_mats,
+    dlnm_var_stats = dlnm_var_stats,
+    unlagged_vars  = cfg$unlagged_vars
   )
 }
 
