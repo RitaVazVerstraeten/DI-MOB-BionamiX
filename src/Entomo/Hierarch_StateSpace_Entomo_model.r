@@ -127,8 +127,13 @@ date_suffix <- format(Sys.Date(), "%Y%m%d")
 model_spec <- if (isTRUE(cfg$use_time_RE)) {
   paste0("timeRE_blockRE_lag", cfg$max_lag, "_k", cfg$kappa)
 } else if (isTRUE(cfg$use_dlnm)) {
+  ar1_suffix     <- if (isTRUE(cfg$use_temporal_AR_perCMF)) "AR1perCMF"
+                    else if (isTRUE(cfg$use_temporal_AR))   "AR1global"
+                    else                                     "noAR1"
+  re_suffix      <- if (isTRUE(cfg$use_block_dev)) "blockRE" else "noBlockRE"
   n_block_suffix <- paste0(ifelse(is.null(cfg$n_blocks), "All", cfg$n_blocks), "Blocks")
-  paste0("DLNM_noAR1_noGP_blockRE_lag", cfg$max_lag, "_k", cfg$kappa, "_", n_block_suffix)
+  paste0("DLNM_", ar1_suffix, "_noGP_", re_suffix,
+         "_lag", cfg$max_lag, "_k", cfg$kappa, "_", n_block_suffix)
 } else {
   ar1_suffix <- if (isTRUE(cfg$use_temporal_AR_perCMF)) "AR1perCMF"
                else if (isTRUE(cfg$use_temporal_AR))      "AR1global"
