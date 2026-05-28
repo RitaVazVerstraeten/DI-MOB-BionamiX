@@ -65,8 +65,8 @@ cfg <- list(
 
   # model variant
   use_time_RE          = FALSE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
-  use_temporal_AR      = FALSE,  # (ignored if use_time_RE = TRUE) TRUE = single global AR1 trend
-  use_temporal_AR_perCMF = FALSE, # (ignored if use_time_RE = TRUE) TRUE = independent AR1 per CMF
+  use_temporal_AR      = TRUE,  # (ignored if use_time_RE = TRUE) TRUE = single global AR1 trend
+  use_temporal_AR_perCMF = TRUE, # (ignored if use_time_RE = TRUE) TRUE = independent AR1 per CMF
   use_spatial_AC  = FALSE,    # (ignored if use_time_RE = TRUE) TRUE = spatial AC
   use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE and use_icar/bym2 = FALSE) TRUE = HSGP
   use_icar        = FALSE,   # (only if use_spatial_AC = TRUE) TRUE = plain ICAR
@@ -170,8 +170,12 @@ cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   # iid time RE + iid block RE (no AR1, no GP)
   file.path(stan_dir, "hierarchical_state_space_timeRE_blockRE.stan")
 } else if (isTRUE(cfg$use_dlnm)) {
-  # DLNM cross-basis: blockRE only (no AR, no spatial AC)
-  file.path(stan_dir, "hierarchical_state_space_blockRE_DLNM.stan")
+  # DLNM cross-basis: with or without per-CMF AR(1)
+  if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_block_dev)) {
+    file.path(stan_dir, "hierarchical_state_space_AR_perCMF_blockRE_DLNM.stan")
+  } else {
+    file.path(stan_dir, "hierarchical_state_space_blockRE_DLNM.stan")
+  }
 } else if (!isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_temporal_AR_perCMF) && !isTRUE(cfg$use_spatial_AC)) {
   # No AR, no GP: base or blockRE-only
   if (isTRUE(cfg$use_block_dev)) {
