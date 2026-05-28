@@ -1210,6 +1210,8 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
 
     # Build at grid: choose nice round values in ORIGINAL space, then standardise
     x_orig_range <- range(df[[var]], na.rm = TRUE) * v_sd + v_mean
+    cat(sprintf("  [%s] original range: [%.3f, %.3f]  cen=mean=%.3f\n",
+                var, x_orig_range[1], x_orig_range[2], v_mean))
     at_orig_nice <- pretty(x_orig_range, n = 40)   # round numbers in original units
     at_std_nice  <- (at_orig_nice - v_mean) / v_sd  # back to standardised for crosspred
 
