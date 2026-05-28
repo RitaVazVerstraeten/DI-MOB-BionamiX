@@ -829,6 +829,9 @@ library(dplyr)
 # 1) Fit regression of precip_max_day on total_precip
 resid_fit <- lm(precip_max_day ~ total_precip, data = env_all)
 
+b <- coef(resid_fit)
+cat(sprintf("precip_max_day = %.3f + %.3f * total_precip\n", b[1], b[2]))
+
 # 2) Add residualized variable
 env_all <- env_all %>%
   mutate(
@@ -843,6 +846,9 @@ cor(env_all$total_precip, env_all$precip_max_day_resid, use = "complete.obs")
 
 ```{r residualize precip_max_day on total_rainy_days}
 resid_fit <- lm(precip_max_day ~ total_rainy_days, data = env_all)
+
+b <- coef(resid_fit)
+cat(sprintf("precip_max_day = %.3f + %.3f * total_rainy_days\n", b[1], b[2]))
 
 env_all <- env_all %>%
   mutate(

@@ -1227,7 +1227,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
 
     pred_i <- tryCatch(
       dlnm::crosspred(cb_mats[[var]], coef = coef_i, vcov = vcov_i,
-                      at = at_std, cumul = TRUE),
+                      at = at_std, cen = 0, cumul = TRUE),
       error = function(e) {
         cat(sprintf("  crosspred failed for %s: %s\n", var, conditionMessage(e)))
         NULL
@@ -1249,24 +1249,51 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     abline(h = 0, lty = 2, col = "grey50")
     dev.off()
 
-    # ── 3-D surface (original x-axis labels via tick override) ────────────────
-    # Choose a sparse subset of ticks so the 3-D x-axis is readable
-    tick_idx  <- round(seq(1, length(at_std), length.out = 6))
-    tick_std  <- at_std[tick_idx]
-    tick_orig <- round(at_orig[tick_idx], 2)
+    # ── 3-D surface (original x-axis) ─────────────────────────────────────────
+    # Call persp() directly with at_orig as x so tick labels are in original units.
+    L_val   <- as.integer(attr(cb_mats[[var]], "lag")[2])
+    lag_seq <- 0:L_val
+    z_mat   <- pred_i$matfit
+
+    # Colour facets by height
+    z_breaks  <- seq(min(z_mat, na.rm = TRUE), max(z_mat, na.rm = TRUE), length.out = 51)
+    pal       <- colorRampPalette(c("firebrick", "white", "steelblue"))(50)
+    z_mid     <- (z_mat[-1, -1] + z_mat[-1, -ncol(z_mat)] +
+                  z_mat[-nrow(z_mat), -1] + z_mat[-nrow(z_mat), -ncol(z_mat)]) / 4
+    facet_col <- pal[cut(z_mid, breaks = z_breaks, include.lowest = TRUE)]
 
     png(file.path(output_dir, paste0("dlnm_3d_", var, "_", run_suffix, ".png")),
         width = 800, height = 700)
-    plot(pred_i,
-         xlab   = var,
-         zlab   = "Effect on log-odds",
-         main   = paste("DLNM surface —", var),
-         theta  = 220, phi = 25, ltheta = -135,
-         xaxt   = "n")
-    # Persp x-axis lives on the bottom edge; approximate with mtext annotation
-    mtext(paste0("x: ", paste(tick_orig, collapse = "  ")),
-          side = 1, line = 2.5, cex = 0.75, col = "grey30")
+    persp(x        = at_orig,
+          y        = lag_seq,
+          z        = z_mat,
+          xlab     = var,
+          ylab     = "Lag (months)",
+          zlab     = "Effect on log-odds",
+          main     = paste("DLNM surface —", var),
+          theta    = 220, phi = 25, ltheta = -135,
+          col      = facet_col,
+          border   = NA,
+          ticktype = "detailed")
     dev.off()
+
+    # ── Per-lag slice plots (one per lag, same style as cumulative) ──────────
+    for (l in lag_seq) {
+      png(file.path(output_dir,
+                    paste0("dlnm_lag", l, "_", var, "_", run_suffix, ".png")),
+          width = 800, height = 500)
+      plot(pred_i, "slices",
+           lag    = l,
+           xaxt   = "n",
+           main   = paste0("Effect at lag ", l, " — ", var),
+           xlab   = var,
+           ylab   = "Effect on log-odds (p_bt)",
+           col    = "steelblue",
+           ci.arg = list(col = adjustcolor("steelblue", 0.25), border = NA))
+      axis(1, at = at_std, labels = round(at_orig, 2))
+      abline(h = 0, lty = 2, col = "grey50")
+      dev.off()
+    }
 
     cat(sprintf("  DLNM plots saved: %s\n", var))
   }
