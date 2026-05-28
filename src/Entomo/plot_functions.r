@@ -1251,63 +1251,30 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     abline(h = 0, lty = 2, col = "grey50")
     dev.off()
 
-    # ── 3-D surface with CI wireframe overlay ────────────────────────────────────
+    # ── 3-D surface (original x-axis) ─────────────────────────────────────────
     L_val   <- as.integer(attr(cb_mats[[var]], "lag")[2])
     lag_seq <- 0:L_val
     z_mat   <- pred_i$matfit
-    z_lo    <- pred_i$matlow
-    z_hi    <- pred_i$mathigh
 
-    # z range covers mean + both CI surfaces so wireframes fit inside the axes
-    z_all    <- c(z_mat, z_lo, z_hi)
-    z_breaks <- seq(min(z_mat, na.rm = TRUE), max(z_mat, na.rm = TRUE), length.out = 51)
-    pal      <- colorRampPalette(c("firebrick", "white", "steelblue"))(50)
-    z_mid    <- (z_mat[-1, -1] + z_mat[-1, -ncol(z_mat)] +
-                 z_mat[-nrow(z_mat), -1] + z_mat[-nrow(z_mat), -ncol(z_mat)]) / 4
+    z_breaks  <- seq(min(z_mat, na.rm = TRUE), max(z_mat, na.rm = TRUE), length.out = 51)
+    pal       <- colorRampPalette(c("firebrick", "white", "steelblue"))(50)
+    z_mid     <- (z_mat[-1, -1] + z_mat[-1, -ncol(z_mat)] +
+                  z_mat[-nrow(z_mat), -1] + z_mat[-nrow(z_mat), -ncol(z_mat)]) / 4
     facet_col <- pal[cut(z_mid, breaks = z_breaks, include.lowest = TRUE)]
 
-    nx     <- length(at_orig)
-    nlag   <- length(lag_seq)
-    # Thin the exposure axis for wireframe to avoid overplotting (max ~8 lines)
-    x_thin <- unique(round(seq(1, nx, length.out = min(8L, nx))))
-
     png(file.path(output_dir, paste0("dlnm_3d_", var, "_", run_suffix, ".png")),
-        width = 900, height = 750)
-    pp <- persp(x        = at_orig,
-                y        = lag_seq,
-                z        = z_mat,
-                zlim     = range(z_all, na.rm = TRUE),
-                xlab     = var,
-                ylab     = "Lag (months)",
-                zlab     = "Effect on log-odds of p_bt",
-                main     = paste("DLNM surface —", var),
-                theta    = 220, phi = 25, ltheta = -135,
-                col      = facet_col,
-                border   = NA,
-                ticktype = "detailed")
-
-    # Lower 95% CI — dashed grey lines along lag and (thinned) exposure axes
-    for (j in seq_len(nlag))
-      lines(trans3d(at_orig, rep(lag_seq[j], nx), z_lo[, j], pmat = pp),
-            col = "grey30", lty = 2, lwd = 0.8)
-    for (i in x_thin)
-      lines(trans3d(rep(at_orig[i], nlag), lag_seq, z_lo[i, ], pmat = pp),
-            col = "grey30", lty = 2, lwd = 0.8)
-
-    # Upper 95% CI — dotted grey lines
-    for (j in seq_len(nlag))
-      lines(trans3d(at_orig, rep(lag_seq[j], nx), z_hi[, j], pmat = pp),
-            col = "grey30", lty = 3, lwd = 0.8)
-    for (i in x_thin)
-      lines(trans3d(rep(at_orig[i], nlag), lag_seq, z_hi[i, ], pmat = pp),
-            col = "grey30", lty = 3, lwd = 0.8)
-
-    legend("topright",
-           legend = c("Mean", "Lower 95% CI", "Upper 95% CI"),
-           lty    = c(1, 2, 3),
-           col    = c("steelblue", "grey30", "grey30"),
-           lwd    = c(2, 0.8, 0.8),
-           bty    = "n", cex = 0.85)
+        width = 800, height = 700)
+    persp(x        = at_orig,
+          y        = lag_seq,
+          z        = z_mat,
+          xlab     = var,
+          ylab     = "Lag (months)",
+          zlab     = "Effect on log-odds of p_bt",
+          main     = paste("DLNM surface —", var),
+          theta    = 220, phi = 25, ltheta = -135,
+          col      = facet_col,
+          border   = NA,
+          ticktype = "detailed")
     dev.off()
 
     # ── Per-lag slice plots (one per lag, same style as cumulative) ──────────
