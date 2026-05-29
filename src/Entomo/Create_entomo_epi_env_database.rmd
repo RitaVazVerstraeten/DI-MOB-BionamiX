@@ -990,18 +990,25 @@ It represents the difference between the amount of moisture the air can hold whe
 
 The vapour pressure deficit (VPD) is the absolute difference between Es and Ea and is an important metric of atmospheric moisture because it has a near linear relationship with evaporative potential. Thus, as temperature warms, for a given decrease in RH, there will be a larger increase in VPD and the amount of water stress mosquitoes experience Brown et al. (2023). see: https://pmc.ncbi.nlm.nih.gov/articles/PMC10299817
 
-VPD is calculated as the absolute difference between saturation and actual vapor pressure: $e_a$ and $e_s$ 
+VPD is calculated as the absolute difference between saturation and actual vapor pressure: $e_s$ and $e_a$.
 
+Following FAO-56 (Allen et al., 1998, Chapter 3), saturation vapour pressure is non-linear in temperature, so using mean temperature underestimates $e_s$. The recommended approach is to compute $e_s$ as the mean of the saturation vapour pressures at daily minimum and maximum temperature:
 
-$$e_s(T) = 0.6108 x exp(\frac{17.27T}{T +  237.3}),$$ 
-Where T is in C and $e_s$ is in kPa. 
+$$e_s = \frac{e_s(T_{max}) + e_s(T_{min})}{2},$$
 
-$$e_a = e_s x \frac{RH}{100}, $$
-Where RH is in %
+where the saturation vapour pressure at a given temperature $T$ (°C) is:
 
-Finally, 
+$$e_s(T) = 0.6108 \exp\!\left(\frac{17.27\, T}{T + 237.3}\right) \quad \text{(kPa)}$$
+
+Similarly, actual vapour pressure is computed by pairing $RH_{max}$ with $e_s(T_{min})$ and $RH_{min}$ with $e_s(T_{max})$, because relative humidity is highest near the daily temperature minimum and lowest near the daily temperature maximum (Allen et al., 1998):
+
+$$e_a = \frac{e_s(T_{min})\,\dfrac{RH_{max}}{100} + e_s(T_{max})\,\dfrac{RH_{min}}{100}}{2}$$
+
+Finally:
 
 $$VPD = e_s - e_a$$
+
+**Reference:** Allen, R.G., Pereira, L.S., Raes, D., Smith, M. (1998). *Crop evapotranspiration — Guidelines for computing crop water requirements.* FAO Irrigation and Drainage Paper No. 56. FAO, Rome. Available at: https://www.fao.org/3/x0490e/x0490e00.htm
 
 ```{r calculate VPD}
 meteo_daily <- read_xlsx("/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx")
@@ -1018,11 +1025,13 @@ meteo_daily <- meteo_daily %>%
 
 meteo_daily$date <- as.Date(paste0(meteo_daily$Ano, meteo_daily$Mes, meteo_daily$Dia), format = "%Y_%m_%d") 
 
-# calculate saturation VP
-meteo_daily$e_s  <- 0.6108 * exp((17.27*meteo_daily$Temp_med)/(meteo_daily$Temp_med+237.3)) 
+# calculate saturation VP as mean of e_s(Tmax) and e_s(Tmin) (FAO-56, Ch. 3)
+meteo_daily$e_s <- (0.6108 * exp((17.27 * meteo_daily$Temp_max) / (meteo_daily$Temp_max + 237.3)) +
+                    0.6108 * exp((17.27 * meteo_daily$Temp_min) / (meteo_daily$Temp_min + 237.3))) / 2
 
-# calculate absolute VP 
-meteo_daily$e_a <- meteo_daily$e_s * (meteo_daily$Humedad_r_med/100)
+# calculate actual VP as mean of e_s(Tmin)*RH_max and e_s(Tmax)*RH_min (FAO-56, Ch. 3)
+meteo_daily$e_a <- (0.6108 * exp((17.27 * meteo_daily$Temp_min) / (meteo_daily$Temp_min + 237.3)) * meteo_daily$Humedad_r_max / 100 +
+                    0.6108 * exp((17.27 * meteo_daily$Temp_max) / (meteo_daily$Temp_max + 237.3)) * meteo_daily$Humedad_r_min / 100) / 2
 
 # calculate VPD (kPa)
 meteo_daily$VPD <- meteo_daily$e_s - meteo_daily$e_a
