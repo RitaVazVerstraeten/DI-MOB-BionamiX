@@ -65,8 +65,8 @@ cfg <- list(
 
   # model variant
   use_time_RE          = FALSE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
-  use_temporal_AR      = FALSE,  # (ignored if use_time_RE = TRUE) TRUE = single global AR1 trend
-  use_temporal_AR_perCMF = FALSE, # (ignored if use_time_RE = TRUE) TRUE = independent AR1 per CMF
+  use_temporal_AR      = TRUE,  # (ignored if use_time_RE = TRUE) TRUE = single global AR1 trend
+  use_temporal_AR_perCMF = TRUE, # (ignored if use_time_RE = TRUE) TRUE = independent AR1 per CMF
   use_spatial_AC  = FALSE,    # (ignored if use_time_RE = TRUE) TRUE = spatial AC
   use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE and use_icar/bym2 = FALSE) TRUE = HSGP
   use_icar        = FALSE,   # (only if use_spatial_AC = TRUE) TRUE = plain ICAR
@@ -102,7 +102,7 @@ cfg <- list(
   # MCMC
   chains = 4,
   iter_warmup = 1000,
-  iter_sampling = 1000,
+  iter_sampling = 1500,
   adapt_delta = 0.97, # target average acceptance probability for the NUTS sampler in stan
   max_treedepth = 10, # caps how many steps the NUTS sampler can take in a single iteration.
   parallel_chains = if (hostname == "frietjes") 4 else 1,
