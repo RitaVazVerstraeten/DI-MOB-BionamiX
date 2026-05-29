@@ -93,7 +93,7 @@ model {
   w_unlagged   ~ normal(0, 0.5);
   to_vector(v_raw) ~ normal(0, 1);
   tau          ~ normal(0, 1.0);   // prior on marginal SD; posterior ~0.8 in (sigma_v, rho) form
-  rho          ~ normal(0.35, 0.1);
+  rho          ~ normal(0.40, 0.2);
   u_block_raw  ~ normal(0, 1);
   sigma_block  ~ normal(0, 0.5);
   delta1       ~ normal(0, 0.5);
