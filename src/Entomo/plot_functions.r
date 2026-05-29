@@ -1193,6 +1193,10 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
 
   w_cb_draws <- fit$draws("w_cb", format = "matrix")
 
+  # ── Pass 1: compute all crosspred objects and grids ───────────────────────
+  preds <- vector("list", length(dlnm_vars))
+  names(preds) <- dlnm_vars
+
   for (i in seq_along(dlnm_vars)) {
     var  <- dlnm_vars[i]
     cols <- col_starts[i] + seq_len(cb_ncols[i]) - 1L
@@ -1202,24 +1206,21 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
       next
     }
 
-    # Back-transform parameters (original = std * sd + mean)
     stats_i <- if (!is.null(dlnm_var_stats) && var %in% names(dlnm_var_stats))
       dlnm_var_stats[[var]] else list(mean = 0, sd = 1)
     v_mean <- stats_i$mean
     v_sd   <- stats_i$sd
 
-    # Build at grid: choose nice round values in ORIGINAL space, then standardise
     x_orig_range <- range(df[[var]], na.rm = TRUE) * v_sd + v_mean
     cat(sprintf("  [%s] original range: [%.3f, %.3f]  cen=mean=%.3f\n",
                 var, x_orig_range[1], x_orig_range[2], v_mean))
-    at_orig_nice <- pretty(x_orig_range, n = 40)   # round numbers in original units
-    at_std_nice  <- (at_orig_nice - v_mean) / v_sd  # back to standardised for crosspred
+    at_orig_nice <- pretty(x_orig_range, n = 40)
+    at_std_nice  <- (at_orig_nice - v_mean) / v_sd
 
-    # Keep only values within the observed standardised range (no extrapolation)
     obs_range <- range(df[[var]][is.finite(df[[var]])])
-    keep       <- at_std_nice >= obs_range[1] & at_std_nice <= obs_range[2]
-    at_std     <- at_std_nice[keep]
-    at_orig    <- at_orig_nice[keep]
+    keep      <- at_std_nice >= obs_range[1] & at_std_nice <= obs_range[2]
+    at_std    <- at_std_nice[keep]
+    at_orig   <- at_orig_nice[keep]
 
     draws_i     <- w_cb_draws[, cols, drop = FALSE]
     cb_colnames <- colnames(cb_mats[[var]])
@@ -1236,6 +1237,28 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
       }
     )
     if (is.null(pred_i)) next
+
+    preds[[var]] <- list(pred = pred_i, at_std = at_std, at_orig = at_orig,
+                         v_mean = v_mean, v_sd = v_sd,
+                         L_val = as.integer(attr(cb_mats[[var]], "lag")[2]))
+  }
+
+  # ── Global z-range for comparable 3-D axes and colour scale ───────────────
+  all_z <- unlist(lapply(preds, function(p) if (!is.null(p)) p$pred$matfit))
+  z_global <- range(all_z, na.rm = TRUE)
+  z_breaks_global <- seq(z_global[1], z_global[2], length.out = 51)
+  pal <- colorRampPalette(c("firebrick", "white", "steelblue"))(50)
+
+  # ── Pass 2: plot ──────────────────────────────────────────────────────────
+  for (i in seq_along(dlnm_vars)) {
+    var <- dlnm_vars[i]
+    if (is.null(preds[[var]])) next
+
+    pred_i  <- preds[[var]]$pred
+    at_std  <- preds[[var]]$at_std
+    at_orig <- preds[[var]]$at_orig
+    L_val   <- preds[[var]]$L_val
+    lag_seq <- 0:L_val
 
     # ── Overall cumulative effect (original x-axis) ───────────────────────────
     png(file.path(output_dir, paste0("dlnm_overall_", var, "_", run_suffix, ".png")),
