@@ -523,19 +523,53 @@ summary_output <- capture.output({
 })
 writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", model_spec, ".txt")))
 
-# ======================= log likelihood / LOO-CV ============================
+# ======================= model selection criteria (LOO / WAIC / log-lik) ====
 if (requireNamespace("loo", quietly = TRUE)) {
   log_lik_draws <- fit$draws("log_lik", format = "array")
-  r_eff         <- loo::relative_eff(exp(log_lik_draws))
-  loo_result    <- loo::loo(log_lik_draws, r_eff = r_eff)
-  cat("\n--- LOO-CV ---\n")
-  print(loo_result)
-  loo_output <- capture.output(print(loo_result))
-  writeLines(loo_output, file.path(run_output_dir, paste0("loo_", model_spec, ".txt")))
-  saveRDS(loo_result,    file.path(run_output_dir, paste0("loo_", model_spec, ".rds")))
-  cat("LOO-CV saved to:", run_output_dir, "\n")
+  log_lik_mat   <- fit$draws("log_lik", format = "matrix")
+
+  r_eff      <- loo::relative_eff(exp(log_lik_draws))
+  loo_result <- loo::loo(log_lik_draws, r_eff = r_eff)
+  waic_result <- loo::waic(log_lik_mat)
+
+  # Total log-likelihood summary (sum across observations, per draw)
+  draw_llik   <- rowSums(log_lik_mat)
+  llik_summary <- c(
+    mean   = mean(draw_llik),
+    sd     = sd(draw_llik),
+    q5     = quantile(draw_llik, 0.05),
+    median = median(draw_llik),
+    q95    = quantile(draw_llik, 0.95)
+  )
+
+  criteria_output <- capture.output({
+    cat("Model:", model_spec, "\n")
+    cat("Run:  ", run_suffix,  "\n\n")
+
+    cat("=== LOO-CV ===\n")
+    print(loo_result)
+
+    cat("\n=== WAIC ===\n")
+    print(waic_result)
+
+    cat("\n=== Total log-likelihood (sum over observations, posterior draws) ===\n")
+    cat(sprintf("  Mean   : %.2f\n", llik_summary["mean"]))
+    cat(sprintf("  SD     : %.2f\n", llik_summary["sd"]))
+    cat(sprintf("  5%%     : %.2f\n", llik_summary["q5.5%"]))
+    cat(sprintf("  Median : %.2f\n", llik_summary["median"]))
+    cat(sprintf("  95%%    : %.2f\n", llik_summary["q95.95%"]))
+  })
+
+  cat(paste(criteria_output, collapse = "\n"), "\n")
+
+  crit_file <- file.path(run_output_dir,
+                         paste0("model_selection_criteria_", model_spec, ".txt"))
+  writeLines(criteria_output, crit_file)
+  saveRDS(loo_result,  file.path(run_output_dir, paste0("loo_",  model_spec, ".rds")))
+  saveRDS(waic_result, file.path(run_output_dir, paste0("waic_", model_spec, ".rds")))
+  cat("Model selection criteria saved to:", run_output_dir, "\n")
 } else {
-  cat("Package 'loo' not installed; skipping LOO computation.\n")
+  cat("Package 'loo' not installed; skipping model selection criteria.\n")
 }
 
 # ── Pareto k diagnostics ─────────────────────────────────────────────────────
