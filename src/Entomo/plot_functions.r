@@ -1271,7 +1271,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
           ylab     = "Lag (months)",
           zlab     = "Effect on log-odds of p_bt",
           main     = paste("DLNM surface —", var),
-          theta    = 220, phi = 25, ltheta = -135,
+          theta    = 40, phi = 25, ltheta = 45,
           col      = facet_col,
           border   = NA,
           ticktype = "detailed")
