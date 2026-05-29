@@ -501,7 +501,7 @@ if (isTRUE(cfg$use_time_RE)) {
     else                           summary_vars <- c(summary_vars, "sigma_gp", "rho_gp")
   }
   if (isTRUE(cfg$use_temporal_AR) || isTRUE(cfg$use_temporal_AR_perCMF))
-    summary_vars <- c(summary_vars, "sigma_v", "rho")
+    summary_vars <- c(summary_vars, "tau", "sigma_v", "rho")
   if (!isTRUE(cfg$use_bym2) && isTRUE(cfg$use_block_dev)) {
     if (isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_temporal_AR_perCMF))
       summary_vars <- c(summary_vars, "sigma_block_dev")        # global AR1 + block deviation
@@ -962,7 +962,7 @@ if (cfg$plot_traceplots) {
     scalar_include <- c("alpha", "sigma_gp", "rho_gp", "sigma_icar",
                         "sigma_spatial", "phi_mix",
                         "delta1",
-                        "sigma_v", "rho", "sigma_block_dev",
+                        "tau", "sigma_v", "rho", "sigma_block_dev",
                         "sigma_time", "sigma_block",
                         "phi")
     scalar_vars <- intersect(scalar_include, model_vars)

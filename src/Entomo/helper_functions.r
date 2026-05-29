@@ -452,9 +452,9 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
         }
       }
       if (isTRUE(use_temporal_AR_perCMF)) {
-        init_vals$v_raw   <- matrix(rnorm(stan_data$B * stan_data$T, 0, 0.3), stan_data$B, stan_data$T)
-        init_vals$sigma_v <- runif(1, 0.1, 0.5)
-        init_vals$rho     <- rnorm(1, 0.3, 0.15)
+        init_vals$v_raw <- matrix(rnorm(stan_data$B * stan_data$T, 0, 0.3), stan_data$B, stan_data$T)
+        init_vals$tau   <- runif(1, 0.3, 0.8)   # marginal stationary SD (replaces sigma_v)
+        init_vals$rho   <- rnorm(1, 0.3, 0.15)
         if (isTRUE(use_block_dev) && !isTRUE(use_icar)) {
           init_vals$u_block_raw <- rnorm(stan_data$B, 0, 0.3)
           init_vals$sigma_block <- runif(1, 0.05, 0.3)
@@ -588,7 +588,7 @@ save_trace_plots <- function(fit, output_dir, run_suffix, use_temporal_re) {
   draws_array <- fit$draws(format = "array")
 
   params_main <- c("alpha", "sigma_u", "delta0", "delta1")
-  if (use_temporal_re) params_main <- c(params_main, "sigma_v", "rho")
+  if (use_temporal_re) params_main <- c(params_main, "tau", "sigma_v", "rho")
 
   ggsave(
     file.path(output_dir, paste0("traceplot_params_", run_suffix, ".png")),

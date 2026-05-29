@@ -1,6 +1,8 @@
 // Per-CMF AR(1) + iid block random effect + DLNM cross-basis environmental predictors.
-// AR(1) machinery (shared rho, sigma_v across CMFs)
-// Lagged environmental effects with pre-built cross-basis matrix X_cb[N, P_cb].
+// AR(1) re-parameterised as (tau, rho): tau = marginal stationary SD of the AR(1) process;
+//   sigma_v (innovation SD) = tau * sqrt(1 - rho^2) is derived.
+// This decouples what the data identifies — tau from trajectory spread, rho from autocorrelation — and allows a numerically stable stationary initialisation at t=1
+// without the 1/sqrt(1-rho^2) blow-up that caused low E-BFMI in the (sigma_v, rho) form.
 // Build X_cb in R with build_dlnm_stan_data(); pass P_cb = ncol(X_cb).
 data {
   int<lower=1> N;
@@ -26,7 +28,7 @@ parameters {
   vector[P_cb] w_cb;
   vector[Ku] w_unlagged;
   matrix[B, T] v_raw;                 // per-CMF AR(1) innovations (non-centred)
-  real<lower=0> sigma_v;              // shared innovation SD (partial pooling across CMFs)
+  real<lower=0> tau;                  // marginal stationary SD of the AR(1) process
   real<lower=-1,upper=1> rho;         // shared AR(1) coefficient
   vector[B] u_block_raw;              // non-centred iid block random effects
   real<lower=0> sigma_block;
@@ -36,6 +38,8 @@ parameters {
 
 transformed parameters {
   real<lower=0> phi = fix_phi ? phi_data : phi_raw;
+  // Derived innovation SD: near rho=1 sigma_v->0 (smooth process), no blow-up.
+  real<lower=0> sigma_v = tau * sqrt(fmax(1e-8, 1.0 - rho * rho));
   matrix[B, T] v;                     // per-CMF AR(1) states
   vector[B] u_block = sigma_block * u_block_raw;
   vector[N] p_bt;
@@ -44,10 +48,11 @@ transformed parameters {
   vector[N] pi;
   vector[N] x_effect = X_cb * w_cb + X_unlagged * w_unlagged;
 
-  // 1. Per-CMF AR(1): non-stationary initialisation at t = 1 avoids
-  // the 1/sqrt(1-rho^2) blow-up near |rho|=1 that causes low E-BFMI.
+  // 1. Per-CMF AR(1): stationary initialisation using tau (marginal SD).
+  // No 1/sqrt(1-rho^2) term needed — tau IS the marginal SD, so v[b,1] ~ N(0, tau^2)
+  // is exactly the stationary distribution, stably parameterised for all |rho| < 1.
   for (b in 1:B) {
-    v[b, 1] = sigma_v * v_raw[b, 1];
+    v[b, 1] = tau * v_raw[b, 1];
     for (t in 2:T)
       v[b, t] = rho * v[b, t-1] + sigma_v * v_raw[b, t];
   }
@@ -87,7 +92,7 @@ model {
   w_cb         ~ normal(0, 1.0);
   w_unlagged   ~ normal(0, 0.5);
   to_vector(v_raw) ~ normal(0, 1);
-  sigma_v      ~ normal(0, 0.3);
+  tau          ~ normal(0, 1.0);   // prior on marginal SD; posterior ~0.8 in (sigma_v, rho) form
   rho          ~ normal(0.35, 0.1);
   u_block_raw  ~ normal(0, 1);
   sigma_block  ~ normal(0, 0.5);
@@ -99,6 +104,8 @@ model {
 }
 
 generated quantities {
+  real tau_out     = tau;            // marginal stationary SD (primary AR param)
+  real sigma_v_out = sigma_v;        // derived innovation SD = tau * sqrt(1 - rho^2)
   vector[N] p_bt_out     = p_bt;
   vector[N] p_R_out      = p_R;
   matrix[B, T] v_cmf_out = v;

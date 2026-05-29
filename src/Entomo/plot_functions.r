@@ -1274,22 +1274,18 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     abline(h = 0, lty = 2, col = "grey50")
     dev.off()
 
-    # ── 3-D surface (original x-axis) ─────────────────────────────────────────
-    L_val   <- as.integer(attr(cb_mats[[var]], "lag")[2])
-    lag_seq <- 0:L_val
-    z_mat   <- pred_i$matfit
-
-    z_breaks  <- seq(min(z_mat, na.rm = TRUE), max(z_mat, na.rm = TRUE), length.out = 51)
-    pal       <- colorRampPalette(c("firebrick", "white", "steelblue"))(50)
-    z_mid     <- (z_mat[-1, -1] + z_mat[-1, -ncol(z_mat)] +
-                  z_mat[-nrow(z_mat), -1] + z_mat[-nrow(z_mat), -ncol(z_mat)]) / 4
-    facet_col <- pal[cut(z_mid, breaks = z_breaks, include.lowest = TRUE)]
+    # ── 3-D surface (original x-axis, shared z-scale across predictors) ──────
+    z_mat  <- pred_i$matfit
+    z_mid  <- (z_mat[-1, -1] + z_mat[-1, -ncol(z_mat)] +
+               z_mat[-nrow(z_mat), -1] + z_mat[-nrow(z_mat), -ncol(z_mat)]) / 4
+    facet_col <- pal[cut(z_mid, breaks = z_breaks_global, include.lowest = TRUE)]
 
     png(file.path(output_dir, paste0("dlnm_3d_", var, "_", run_suffix, ".png")),
         width = 800, height = 700)
     persp(x        = at_orig,
           y        = lag_seq,
           z        = z_mat,
+          zlim     = z_global,
           xlab     = var,
           ylab     = "Lag (months)",
           zlab     = "Effect on log-odds of p_bt",
