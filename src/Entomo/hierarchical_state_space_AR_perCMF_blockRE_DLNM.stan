@@ -44,9 +44,10 @@ transformed parameters {
   vector[N] pi;
   vector[N] x_effect = X_cb * w_cb + X_unlagged * w_unlagged;
 
-  // 1. Per-CMF AR(1): stationary initialisation at t = 1
+  // 1. Per-CMF AR(1): non-stationary initialisation at t = 1 avoids
+  // the 1/sqrt(1-rho^2) blow-up near |rho|=1 that causes low E-BFMI.
   for (b in 1:B) {
-    v[b, 1] = sigma_v * v_raw[b, 1] / sqrt(fmax(1e-6, 1 - rho^2));
+    v[b, 1] = sigma_v * v_raw[b, 1];
     for (t in 2:T)
       v[b, t] = rho * v[b, t-1] + sigma_v * v_raw[b, t];
   }

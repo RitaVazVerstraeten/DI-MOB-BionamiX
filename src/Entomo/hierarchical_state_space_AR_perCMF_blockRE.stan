@@ -45,7 +45,7 @@ transformed parameters {
 
   // 1. Per-CMF AR(1): each CMF follows its own trajectory, sharing rho and sigma_v
   for (b in 1:B) {
-    v[b, 1] = sigma_v * v_raw[b, 1] / sqrt(fmax(1e-6, 1 - rho^2));
+    v[b, 1] = sigma_v * v_raw[b, 1];  // non-stationary init avoids 1/sqrt(1-rho^2) blow-up
     for (t in 2:T)
       v[b, t] = rho * v[b, t-1] + sigma_v * v_raw[b, t];
   }
