@@ -103,9 +103,8 @@ cfg <- list(
   chains = 4,
   iter_warmup = 1000,
   iter_sampling = 1000,
-  # thin = 2,
-  adapt_delta = 0.95,
-  max_treedepth = 12,
+  adapt_delta = 0.97, # target average acceptance probability for the NUTS sampler in stan
+  max_treedepth = 10, # caps how many steps the NUTS sampler can take in a single iteration.
   parallel_chains = if (hostname == "frietjes") 4 else 1,
 
   # phi: set fix_phi = TRUE to pass phi as data (fixed); FALSE to estimate it
