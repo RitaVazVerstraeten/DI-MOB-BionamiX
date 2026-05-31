@@ -94,8 +94,8 @@ cfg <- list(
   # DLNM settings (only used when use_dlnm = TRUE)
   dlnm_vars   = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),  # vars for crossbasis
   dlnm_argvar = list(                   # per-variable predictor basis; defaults to ns (natural spline (df=3) if omitted
-    total_rainy_days    = list(fun = "ns", df = 3),
-    avg_VPD             = list(fun = "ns", df = 3),
+    total_rainy_days    = list(fun = "lin"),
+    avg_VPD             = list(fun = "lin"),
     precip_max_day_resid_on_trd = list(fun = "ns", df = 3)
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
@@ -158,7 +158,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "_VPD_ns_TRD_ns_RESID_ns")
+run_suffix <- paste0(date_suffix, "_VPD_lin_TRD_lin_RESID_ns")
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
 run_output_dir    <- file.path(model_output_dir, run_suffix)
