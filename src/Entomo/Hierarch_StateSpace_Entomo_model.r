@@ -65,8 +65,8 @@ cfg <- list(
 
   # model variant
   use_time_RE          = FALSE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
-  use_temporal_AR      = FALSE,  # (ignored if use_time_RE = TRUE) TRUE = single global AR1 trend
-  use_temporal_AR_perCMF = FALSE, # (ignored if use_time_RE = TRUE) TRUE = independent AR1 per CMF
+  use_temporal_AR      = TRUE,  # (ignored if use_time_RE = TRUE) TRUE = single global AR1 trend
+  use_temporal_AR_perCMF = TRUE, # (ignored if use_time_RE = TRUE) TRUE = independent AR1 per CMF
   use_spatial_AC  = FALSE,    # (ignored if use_time_RE = TRUE) TRUE = spatial AC
   use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE and use_icar/bym2 = FALSE) TRUE = HSGP
   use_icar        = FALSE,   # (only if use_spatial_AC = TRUE) TRUE = plain ICAR
