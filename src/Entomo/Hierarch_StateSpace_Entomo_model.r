@@ -86,17 +86,21 @@ cfg <- list(
 
   # data prep
   n_blocks = NULL, # set NULL for all blocks/CMFs
-  lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),
+  # lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),
+  lag_vars = c("total_rainy_days", "avg_VPD"),
   max_lag = 5,
   kappa = 2,
   unlagged_vars = c("mean_ndvi", "is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers"),
-  numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd", "mean_ndvi", "water_containers"),
+
+  # numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd", "mean_ndvi", "water_containers"),
+
+  numeric_vars = c("total_rainy_days", "avg_VPD", "mean_ndvi", "water_containers"),
   # DLNM settings (only used when use_dlnm = TRUE)
   dlnm_vars   = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),  # vars for crossbasis
   dlnm_argvar = list(                   # per-variable predictor basis; defaults to ns (natural spline (df=3) if omitted
     total_rainy_days    = list(fun = "ns", df = 3),
-    avg_VPD             = list(fun = "ns", df = 3),
-    precip_max_day_resid_on_trd = list(fun = "ns", df = 3)
+    avg_VPD             = list(fun = "ns", df = 3)
+    # precip_max_day_resid_on_trd = list(fun = "ns", df = 3)
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
   # MCMC
@@ -159,7 +163,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "_VPD_ns_TRD_ns_RESID_ns")
+run_suffix <- paste0(date_suffix, "_VPD_ns_TRD_ns_NoRESID")
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
 run_output_dir    <- file.path(model_output_dir, run_suffix)
