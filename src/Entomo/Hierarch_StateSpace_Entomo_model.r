@@ -118,6 +118,7 @@ cfg <- list(
   plot_random_effects = TRUE,
   plot_ppc = TRUE,
   plot_timeseries = TRUE,
+  plot_morans_I = TRUE,   # FALSE to skip (memory-heavy: loads full y_pred matrix)
   n_blocks_facet = 9
 )
 
@@ -822,8 +823,8 @@ cat("\nAll outputs saved to:", run_output_dir, "\n")
 # 50m-annuli correlogram as GLMM.r section 15g, stratified by year.
 # Key question: does 2016 spatial autocorrelation disappear after Stan's
 # reactive mixture correction?
-
-if (requireNamespace("spdep", quietly = TRUE)) {
+# Set cfg$plot_morans_I = FALSE to skip (loads full y_pred matrix).
+if (isTRUE(cfg$plot_morans_I) && requireNamespace("spdep", quietly = TRUE)) {
 
   post_y_pred  <- fit$draws("y_pred", format = "matrix")
   mean_y_pred  <- colMeans(post_y_pred)
@@ -899,45 +900,46 @@ if (requireNamespace("spdep", quietly = TRUE)) {
     cat("Skipping Stan Moran's I plot: not enough blocks per year (need >= 10).\n")
   } else {
 
-  moran_stan_df <- moran_stan_df %>%
-    filter(!is.na(morans_I)) %>%
-    mutate(year = factor(year))
+    moran_stan_df <- moran_stan_df %>%
+      filter(!is.na(morans_I)) %>%
+      mutate(year = factor(year))
 
-  p_moran_stan <- ggplot(
-    moran_stan_df,
-    aes(x = d_mid, y = morans_I, colour = year, group = year)
-  ) +
-    geom_hline(yintercept = 0, linetype = "dashed", colour = "gray50") +
-    geom_line(linewidth = 0.8) +
-    geom_point(aes(shape = significant), size = 2) +
-    scale_shape_manual(values  = c("TRUE" = 16, "FALSE" = 1),
-                       labels  = c("TRUE" = "p < 0.05", "FALSE" = "p >= 0.05"),
-                       na.value = 1) +
-    scale_x_continuous(breaks = seq(0, 2000, by = 200)) +
-    labs(
-      title    = "Moran's I on Stan posterior Pearson residuals - by year",
-      subtitle = "Remaining autocorrelation after reactive-mixture correction",
-      x = "Distance band midpoint (m)", y = "Moran's I",
-      colour = "Year", shape = NULL
+    p_moran_stan <- ggplot(
+      moran_stan_df,
+      aes(x = d_mid, y = morans_I, colour = year, group = year)
     ) +
-    theme_minimal()
+      geom_hline(yintercept = 0, linetype = "dashed", colour = "gray50") +
+      geom_line(linewidth = 0.8) +
+      geom_point(aes(shape = significant), size = 2) +
+      scale_shape_manual(values  = c("TRUE" = 16, "FALSE" = 1),
+                         labels  = c("TRUE" = "p < 0.05", "FALSE" = "p >= 0.05"),
+                         na.value = 1) +
+      scale_x_continuous(breaks = seq(0, 2000, by = 200)) +
+      labs(
+        title    = "Moran's I on Stan posterior Pearson residuals - by year",
+        subtitle = "Remaining autocorrelation after reactive-mixture correction",
+        x = "Distance band midpoint (m)", y = "Moran's I",
+        colour = "Year", shape = NULL
+      ) +
+      theme_minimal()
 
-  ggsave(
-    file.path(plots_output_dir,
-              paste0("moransI_stan_by_year_", model_spec, ".png")),
-    p_moran_stan, width = 11, height = 5, dpi = 150
-  )
+    ggsave(
+      file.path(plots_output_dir,
+                paste0("moransI_stan_by_year_", model_spec, ".png")),
+      p_moran_stan, width = 11, height = 5, dpi = 150
+    )
 
-  write.csv(
-    moran_stan_df,
-    file.path(plots_output_dir,
-              paste0("moransI_stan_by_year_", model_spec, ".csv")),
-    row.names = FALSE
-  )
-  cat("Stan Moran's I correlogram saved to:", plots_output_dir, "\n")
+    write.csv(
+      moran_stan_df,
+      file.path(plots_output_dir,
+                paste0("moransI_stan_by_year_", model_spec, ".csv")),
+      row.names = FALSE
+    )
+    cat("Stan Moran's I correlogram saved to:", plots_output_dir, "\n")
+  }
 
-  } # end if moran_stan_df non-empty
-
+} else if (!isTRUE(cfg$plot_morans_I)) {
+  cat("Skipping Stan Moran's I (plot_morans_I = FALSE).\n")
 } else {
   cat("Skipping Stan Moran's I: package 'spdep' not installed.\n")
 }
