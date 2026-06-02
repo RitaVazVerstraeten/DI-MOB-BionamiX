@@ -253,9 +253,19 @@ build_icar_edges <- function(sf_blocks, block_ids, sf_block_col, snap_m = 100) {
 #' Uses the full (unfiltered) data to construct lag matrices, then filters
 #' rows where time <= max_lag exactly as build_lag_design does.
 #'
+#' Extended-lag mode (cfg$response_start set, e.g. "2015_01"):
+#'   The dataset includes pre-response rows (e.g. 2015) that have NA for the
+#'   entomological response variables. These rows are used when building the
+#'   cross-basis lag matrix so that early response observations (e.g. Jan 2016)
+#'   have a full lag history. Only rows where Inspected_houses is not NA (i.e.
+#'   the response period) are passed to Stan as observations; the full time span
+#'   (including 2015) is retained for the AR(1) state index T so the AR(1)
+#'   warms up naturally through the pre-response period.
+#'
 #' @param cfg Config list. Must include dlnm_vars (character vector of predictor
 #'   names), max_lag, and optionally dlnm_argvar (named list of per-variable
 #'   argvar specs) and dlnm_arglag (single arglag spec shared across vars).
+#'   Set cfg$response_start (e.g. "2016_01") to activate extended-lag mode.
 #'   Defaults: argvar = list(fun="ns", df=3), arglag = list(fun="ns", df=3).
 #' @return Same shape as build_stan_data(): list(stan_data, df, dlnm_vars, cb_mats, unlagged_vars)
 build_dlnm_stan_data <- function(cfg) {
@@ -315,8 +325,20 @@ build_dlnm_stan_data <- function(cfg) {
     cat(sprintf("  %-32s  %d columns\n", var, ncol(cb_mats[[var]])))
   }
 
-  # Filter rows (same rule as build_lag_design)
-  keep    <- df_all$time > L
+  # Determine which rows are response observations.
+  # Extended-lag mode: dataset contains pre-response rows (e.g. 2015) with NA
+  # ento data; those rows provided lag history above but are not Stan observations.
+  # Standard mode: drop the first max_lag rows per block (no full history yet).
+  if (!is.null(cfg$response_start)) {
+    response_date <- as.Date(paste0(cfg$response_start, "_01"), "%Y_%m_%d")
+    keep <- !is.na(df_all$y_bt) & df_all$year_month_date >= response_date
+    cat(sprintf(
+      "Extended-lag mode: response from %s — %d response rows, %d pre-response rows used for lag history\n",
+      cfg$response_start, sum(keep), sum(!keep)
+    ))
+  } else {
+    keep <- df_all$time > L
+  }
   df_filt <- df_all[keep, ]
 
   X_cb <- do.call(cbind, lapply(cb_mats, function(cb) {

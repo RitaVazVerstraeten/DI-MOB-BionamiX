@@ -57,10 +57,13 @@ spatial_level <- "CMF"
 # ========== Output structure and config =============
 cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/",
+  # Standard dataset (2016–2019 env + ento):
   data_file_name = if (spatial_level == "CMF")
     "env_epi_entomo_data_per_CMF_2016_01_to_2019_12_noColinnearity.csv"
   else
     "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv",
+  # Extended-lag dataset (2015–2019 env, 2016–2019 ento — set response_start below):
+  # data_file_name = "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDVI_noColinnearity.csv",
   output_dir = if (hostname == "frietjes") "/home/rita/data/Entomo/fitting/stan" else "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
@@ -85,10 +88,13 @@ cfg <- list(
   block_col    = if (spatial_level == "CMF") "cmf"      else "manzana",
 
   # data prep
+  # response_start: NULL = standard mode (drop first max_lag rows as burn-in).
+  # Set to "2016_01" when using the 2015–2019 extended-lag dataset so that 2015 rows are used only for lag history and not passed to Stan as observations.
+  response_start = "2016_01",  # e.g. "2016_01" for extended-lag dataset
   n_blocks = NULL, # set NULL for all blocks/CMFs
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),
   # lag_vars = c("total_rainy_days", "avg_VPD"),
-  max_lag = 2,
+  max_lag = 5,
   kappa = 2,
   unlagged_vars = c("mean_ndvi", "is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers"),
 
@@ -97,6 +103,7 @@ cfg <- list(
   # numeric_vars = c("total_rainy_days", "avg_VPD", "mean_ndvi", "water_containers"),
   # DLNM settings (only used when use_dlnm = TRUE)
   dlnm_vars   = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),  # vars for crossbasis
+  # dlnm_vars   = c("total_rainy_days", "avg_VPD"),  # vars for crossbasis
   dlnm_argvar = list(                   # per-variable predictor basis; defaults to ns (natural spline (df=3) if omitted
     total_rainy_days    = list(fun = "lin"),
     avg_VPD             = list(fun = "lin"),

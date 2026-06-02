@@ -827,6 +827,7 @@ ndvi <- read_csv(file.path(env_data_path, "NDVI", "NDVI_per_manzana_nobuf_2015_2
 ndwi <- read_csv(file.path(env_data_path, "NDWI", "NDWI_per_manzana_nobuf_2015_2025_all_months.csv"), show_col_types = FALSE)
 ndmi <- read_csv(file.path(env_data_path, "NDMI", "NDMI_per_manzana_nobuf_2015_2025_all_months.csv"), show_col_types = FALSE)
 windspeed <- read_csv(file.path(env_data_path, "WindSpeed", "wind_speed_2015_2019_monthly.csv"), show_col_types = FALSE)
+hurricane <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/Hurricanes/hurricane_monthly_within_120km.csv", show_col_types = FALSE)
 landcover <- read_csv(file.path(env_data_path, "LandCover", "LandCover_per_manzana_2021.csv"), show_col_types = FALSE)
 wi <- read_csv(file.path(env_data_path, "WI", "WI_per_manzana_100mBuffer_classification.csv"), show_col_types = FALSE)
 wui <- read_csv(file.path(env_data_path, "WUI", "WUI_per_manzana_NoBuffer_classification.csv"), show_col_types = FALSE)
@@ -1080,7 +1081,7 @@ meteo_monthly <- meteo_daily %>%
     total_rainy_days = sum(precip_ponderada > 1, na.rm = TRUE),
     .groups = "drop"
   ) %>%
-  filter(year_month >= "2016_01" & year_month <= "2019_12")
+  filter(year_month >= "2015_01" & year_month <= "2019_12")
 ```
 
 
@@ -1479,14 +1480,37 @@ dev.off()
   - NDWI -> mazana/cmf-month (2016-01 -> 2019-12)
 
 ## Build temporal variables (monthly)
+
+```{r process hurricane indicator}
+# The CSV only contains months when a storm was within 120 km.
+# Create a complete monthly grid for 2015–2019 and fill missing months with 0.
+hurricane_monthly <- hurricane %>%
+  mutate(year_month = paste0(year, "_", sprintf("%02d", month))) %>%
+  group_by(year_month) %>%
+  summarise(hurricane_within_120km = as.integer(max(hurricane_within_120km, na.rm = TRUE)),
+            .groups = "drop")
+
+all_months_hurricane <- data.frame(
+  year_month = format(seq(as.Date("2015-01-01"), as.Date("2019-12-01"), by = "month"), "%Y_%m"),
+  stringsAsFactors = FALSE
+)
+
+hurricane_monthly <- all_months_hurricane %>%
+  left_join(hurricane_monthly, by = "year_month") %>%
+  mutate(hurricane_within_120km = coalesce(hurricane_within_120km, 0L))
+
+cat("Hurricane months with storm (=1):", sum(hurricane_monthly$hurricane_within_120km), "\n")
+print(hurricane_monthly %>% filter(hurricane_within_120km == 1))
+```
+
 ```{r aggregate the temporal variables based on year_month}
 environmental_temp <- meteo_monthly %>%
   left_join(windspeed, by = "year_month") %>%
-  rename(WS2M = WS2M_mean)
+  rename(WS2M = WS2M_mean) %>%
+  left_join(hurricane_monthly, by = "year_month")
 
-# select only the temporal var's as of 2016-04, since the spatio-temporal variables are only available from 2016-04 onwards
 environmental_temp <- environmental_temp %>%
-  filter(year_month >= "2016_01" & year_month <= "2019_12")
+  filter(year_month >= "2015_01" & year_month <= "2019_12")
 ```
 
 
@@ -1633,6 +1657,65 @@ write_csv(env_all, file.path(final_env_data_path_1, "all_environmental_data_per_
 write_csv(env_all_cmf, file.path(final_env_data_path, "all_environmental_data_per_cmf_2016_01_to_2019_12.csv"))
 write_csv(env_all_cmf, file.path(final_env_data_path_1, "all_environmental_data_per_cmf_2016_01_to_2019_12.csv"))
 
+```
+
+## Build 2015–2019 dataset (no NDVI/NDMI/NDWI)
+
+NDVI, NDMI and NDWI are not available for 2015. This dataset extends back to January 2015
+to provide a full lag history for the DLNM model (e.g. max_lag weeks before the first
+entomological observation in 2016).
+
+```{r build env grid manzana 2015-2019 no ndvi}
+all_expected_months_2015 <- seq(as.Date("2015-01-01"), as.Date("2019-12-01"), by = "month")
+all_months_2015 <- format(all_expected_months_2015, "%Y_%m")
+
+complete_grid_2015 <- expand.grid(
+  manzana_id = unique(dimob_manzanas_filtered$CODIGO_),
+  year_month  = all_months_2015,
+  stringsAsFactors = FALSE
+)
+
+env_all_2015 <- complete_grid_2015 %>%
+  left_join(environmental_temp, by = "year_month") %>%          # meteo (2015–2019)
+  left_join(environmental_spatial, by = "manzana_id") %>%       # spatial (no NDVI/NDMI/NDWI)
+  rename(manzana = manzana_id, landcover = dominant_landcover) %>%
+  arrange(year_month, manzana)
+
+cat("2015–2019 manzana dataset:", nrow(env_all_2015), "rows x", ncol(env_all_2015), "cols\n")
+cat("Missing values per column:\n")
+print(colSums(is.na(env_all_2015)))
+```
+
+```{r build env grid cmf 2015-2019 no ndvi}
+complete_grid_cmf_2015 <- expand.grid(
+  cmf_id     = unique(dimob_cmfs$AS_CMF),
+  year_month = all_months_2015,
+  stringsAsFactors = FALSE
+)
+
+env_all_cmf_2015 <- complete_grid_cmf_2015 %>%
+  left_join(environmental_temp, by = "year_month") %>%          # meteo (2015–2019)
+  left_join(environmental_spatial_cmf, by = "cmf_id") %>%       # spatial (no NDVI/NDMI/NDWI)
+  rename(cmf = cmf_id, landcover = dominant_landcover) %>%
+  arrange(year_month, cmf)
+
+cat("2015–2019 CMF dataset:", nrow(env_all_cmf_2015), "rows x", ncol(env_all_cmf_2015), "cols\n")
+cat("Missing values per column:\n")
+print(colSums(is.na(env_all_cmf_2015)))
+```
+
+```{r save 2015-2019 datasets}
+write_csv(env_all_2015,
+          file.path(final_env_data_path,   "all_environmental_data_per_manzana_2015_01_to_2019_12_noNDXI.csv"))
+write_csv(env_all_2015,
+          file.path(final_env_data_path_1, "all_environmental_data_per_manzana_2015_01_to_2019_12_noNDXI.csv"))
+
+write_csv(env_all_cmf_2015,
+          file.path(final_env_data_path,   "all_environmental_data_per_cmf_2015_01_to_2019_12_noNDXI.csv"))
+write_csv(env_all_cmf_2015,
+          file.path(final_env_data_path_1, "all_environmental_data_per_cmf_2015_01_to_2019_12_noNDXI.csv"))
+
+cat("2015–2019 datasets saved.\n")
 ```
 
 # Environmental data missingness checks
@@ -2636,6 +2719,51 @@ write_csv(final_dataset, file.path(final_epi_entomo_env_data_path_2, "env_epi_en
 write_csv(final_dataset_cmf, file.path(final_epi_entomo_env_data_path, "env_epi_entomo_data_per_CMF_2016_01_to_2019_12.csv"))
 write_csv(final_dataset_cmf, file.path(final_epi_entomo_env_data_path_1, "env_epi_entomo_data_per_CMF_2016_01_to_2019_12.csv"))
 write_csv(final_dataset_cmf, file.path(final_epi_entomo_env_data_path_2, "env_epi_entomo_data_per_CMF_2016_01_to_2019_12.csv"))
+```
+
+## Build extended-lag CMF dataset (env 2015–2019, ento-epi 2016–2019)
+
+`env_all_cmf_2015` (2015–2019, no NDVI/NDMI/NDWI) is used as the base.
+The 2016–2019 ento-epi data is left-joined onto it. Rows for 2015 have `NA`
+for `Inspected_houses`, `Houses_pos_IS`, and `cases` — they provide lag history
+for the DLNM model without contributing to the likelihood.
+
+```{r build extended-lag cmf dataset}
+final_dataset_cmf_2015 <- env_all_cmf_2015 %>%
+  left_join(ento_epi_join_cmf, by = c("cmf", "year_month"))
+
+cat("Extended-lag CMF dataset:", nrow(final_dataset_cmf_2015),
+    "rows x", ncol(final_dataset_cmf_2015), "cols\n")
+cat("2015 rows (lag history only):",
+    sum(final_dataset_cmf_2015$year_month < "2016_01"), "\n")
+cat("2016–2019 rows (response period):",
+    sum(final_dataset_cmf_2015$year_month >= "2016_01"), "\n")
+cat("Response rows with ento data:",
+    sum(!is.na(final_dataset_cmf_2015$Inspected_houses)), "\n")
+```
+
+```{r collinearity correction for extended-lag dataset}
+# Fit on ALL rows (2015–2019) so 2015 residuals are on the same scale as 2016+.
+resid_fit_2015 <- lm(precip_max_day ~ total_rainy_days,
+                     data = final_dataset_cmf_2015, na.action = na.exclude)
+cat(sprintf("precip_max_day = %.3f + %.3f * total_rainy_days\n",
+            coef(resid_fit_2015)[1], coef(resid_fit_2015)[2]))
+
+final_dataset_cmf_2015 <- final_dataset_cmf_2015 %>%
+  mutate(precip_max_day_resid_on_trd = resid(resid_fit_2015))
+```
+
+```{r save extended-lag cmf dataset}
+write_csv(final_dataset_cmf_2015,
+  file.path(final_epi_entomo_env_data_path,
+    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDVI_noColinnearity.csv"))
+write_csv(final_dataset_cmf_2015,
+  file.path(final_epi_entomo_env_data_path_1,
+    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDVI_noColinnearity.csv"))
+write_csv(final_dataset_cmf_2015,
+  file.path(final_epi_entomo_env_data_path_2,
+    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDVI_noColinnearity.csv"))
+cat("Extended-lag dataset saved.\n")
 ```
 
 # Correcting for colinnearity (check Descriptive Statistics for measures of colinnearity)
