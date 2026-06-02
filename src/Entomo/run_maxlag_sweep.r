@@ -15,8 +15,8 @@
 # ---------------------------------------------------------------------------
 # SWEEP SETTINGS — adjust as needed
 # ---------------------------------------------------------------------------
-max_lag_values    <- c(5, 6, 12)       # lag values to test
-lag_sweep_subdir  <- "lag_tests"         # subdirectory appended to cfg$output_dir
+max_lag_values    <- c(1, 2, 5, 6, 12)       # lag values to test
+lag_sweep_subdir  <- "lag_tests_"         # subdirectory appended to cfg$output_dir
 
 stan_output_dir <- if (Sys.info()["nodename"] == "frietjes") {
   "/home/rita/data/Entomo/fitting/stan"
