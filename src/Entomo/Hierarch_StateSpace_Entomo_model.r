@@ -56,14 +56,10 @@ spatial_level <- "CMF"
 
 # ========== Output structure and config =============
 cfg <- list(
-  data_dir = if (hostname == "frietjes") "~/data/Entomo" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/",
-  # Standard dataset (2016–2019 env + ento):
-  data_file_name = if (spatial_level == "CMF")
-    "env_epi_entomo_data_per_CMF_2016_01_to_2019_12_noColinnearity.csv"
-  else
-    "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv",
-  # Extended-lag dataset (2015–2019 env, 2016–2019 ento — set response_start below):
-  # data_file_name = "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDVI_noColinnearity.csv",
+  data_dir = if (hostname == "frietjes") "~/data/Entomo" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data",
+  # Extended-lag dataset: env 2015-2019 (NDVI only for 2016-2019), ento-epi 2016-2019.
+  # 2015 rows serve as lag lead-in; response_start below marks the observation period.
+  data_file_name = "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv",
   output_dir = if (hostname == "frietjes") "/home/rita/data/Entomo/fitting/stan" else "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
@@ -88,9 +84,9 @@ cfg <- list(
   block_col    = if (spatial_level == "CMF") "cmf"      else "manzana",
 
   # data prep
-  # response_start: NULL = standard mode (drop first max_lag rows as burn-in).
-  # Set to "2016_01" when using the 2015–2019 extended-lag dataset so that 2015 rows are used only for lag history and not passed to Stan as observations.
-  response_start = "2016_01",  # e.g. "2016_01" for extended-lag dataset
+  # response_start: marks the start of the ento response period. 2015 rows are
+  # used purely as lag lead-in and are never passed to Stan as observations.
+  response_start = "2016_01",
   n_blocks = NULL, # set NULL for all blocks/CMFs
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),
   # lag_vars = c("total_rainy_days", "avg_VPD"),

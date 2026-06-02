@@ -2729,17 +2729,26 @@ for `Inspected_houses`, `Houses_pos_IS`, and `cases` — they provide lag histor
 for the DLNM model without contributing to the likelihood.
 
 ```{r build extended-lag cmf dataset}
+# Join ento-epi (2016-2019 only) onto the 2015-2019 env base.
+# Then add NDVI/NDMI/NDWI for 2016-2019 rows from the imputed env_all_cmf:
+# the 2015 rows have no satellite data and will remain NA for those columns.
 final_dataset_cmf_2015 <- env_all_cmf_2015 %>%
-  left_join(ento_epi_join_cmf, by = c("cmf", "year_month"))
+  left_join(ento_epi_join_cmf, by = c("cmf", "year_month")) %>%
+  left_join(
+    env_all_cmf %>% select(cmf, year_month, mean_ndvi, mean_ndmi, mean_ndwi),
+    by = c("cmf", "year_month")
+  )
 
 cat("Extended-lag CMF dataset:", nrow(final_dataset_cmf_2015),
     "rows x", ncol(final_dataset_cmf_2015), "cols\n")
-cat("2015 rows (lag history only):",
+cat("2015 rows (lag history, no NDVI):",
     sum(final_dataset_cmf_2015$year_month < "2016_01"), "\n")
-cat("2016–2019 rows (response period):",
+cat("2016-2019 rows (response + NDVI available):",
     sum(final_dataset_cmf_2015$year_month >= "2016_01"), "\n")
 cat("Response rows with ento data:",
     sum(!is.na(final_dataset_cmf_2015$Inspected_houses)), "\n")
+cat("NDVI NAs (expected only in 2015 rows):",
+    sum(is.na(final_dataset_cmf_2015$mean_ndvi)), "\n")
 ```
 
 ```{r collinearity correction for extended-lag dataset}
@@ -2756,13 +2765,13 @@ final_dataset_cmf_2015 <- final_dataset_cmf_2015 %>%
 ```{r save extended-lag cmf dataset}
 write_csv(final_dataset_cmf_2015,
   file.path(final_epi_entomo_env_data_path,
-    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDVI_noColinnearity.csv"))
+    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"))
 write_csv(final_dataset_cmf_2015,
   file.path(final_epi_entomo_env_data_path_1,
-    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDVI_noColinnearity.csv"))
+    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"))
 write_csv(final_dataset_cmf_2015,
   file.path(final_epi_entomo_env_data_path_2,
-    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDVI_noColinnearity.csv"))
+    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"))
 cat("Extended-lag dataset saved.\n")
 ```
 

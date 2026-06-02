@@ -331,11 +331,18 @@ build_dlnm_stan_data <- function(cfg) {
   # Standard mode: drop the first max_lag rows per block (no full history yet).
   if (!is.null(cfg$response_start)) {
     response_date <- as.Date(paste0(cfg$response_start, "_01"), "%Y_%m_%d")
-    keep <- !is.na(df_all$y_bt) & df_all$year_month_date >= response_date
+    # Also require time > L so rows without a full lag window (no pre-response
+    # data in this block) are always excluded, even if response_start is set
+    # for a dataset that contains no pre-response rows.
+    keep <- !is.na(df_all$y_bt) & df_all$year_month_date >= response_date & df_all$time > L
+    n_pre <- sum(df_all$year_month_date < response_date)
     cat(sprintf(
       "Extended-lag mode: response from %s — %d response rows, %d pre-response rows used for lag history\n",
-      cfg$response_start, sum(keep), sum(!keep)
+      cfg$response_start, sum(keep), n_pre
     ))
+    if (n_pre == 0)
+      warning("response_start is set but dataset contains no pre-response rows. ",
+              "Use the 2015-2019 extended-lag dataset or set response_start = NULL.")
   } else {
     keep <- df_all$time > L
   }
