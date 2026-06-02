@@ -92,9 +92,9 @@ cfg <- list(
   # lag_vars = c("total_rainy_days", "avg_VPD"),
   max_lag = 5,
   kappa = 2,
-  unlagged_vars = c("mean_ndvi", "is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers"),
+  unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers"),
 
-  numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd", "mean_ndvi", "water_containers"),
+  numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd", "water_containers"),
 
   # numeric_vars = c("total_rainy_days", "avg_VPD", "mean_ndvi", "water_containers"),
   # DLNM settings (only used when use_dlnm = TRUE)
