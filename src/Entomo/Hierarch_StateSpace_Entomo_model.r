@@ -88,22 +88,26 @@ cfg <- list(
   # used purely as lag lead-in and are never passed to Stan as observations.
   response_start = "2016_01",
   n_blocks = NULL, # set NULL for all blocks/CMFs
-  lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),
-  # lag_vars = c("total_rainy_days", "avg_VPD"),
+
+  # lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),
+  lag_vars = c("total_rainy_days", "avg_VPD"),
+
   max_lag = 5,
   kappa = 2,
+
   unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers"),
 
-  numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd", "water_containers"),
+  # numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd", "water_containers"),
+  numeric_vars = c("total_rainy_days", "avg_VPD", "mean_ndvi", "water_containers"),
 
-  # numeric_vars = c("total_rainy_days", "avg_VPD", "mean_ndvi", "water_containers"),
   # DLNM settings (only used when use_dlnm = TRUE)
-  dlnm_vars   = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),  # vars for crossbasis
-  # dlnm_vars   = c("total_rainy_days", "avg_VPD"),  # vars for crossbasis
+  # dlnm_vars   = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),  # vars for crossbasis
+  dlnm_vars   = c("total_rainy_days", "avg_VPD"),  # vars for crossbasis
+
   dlnm_argvar = list(                   # per-variable predictor basis; defaults to ns (natural spline (df=3) if omitted
     total_rainy_days    = list(fun = "lin"),
-    avg_VPD             = list(fun = "lin"),
-    precip_max_day_resid_on_trd = list(fun = "ns", df = 3)
+    avg_VPD             = list(fun = "lin")
+    # precip_max_day_resid_on_trd = list(fun = "ns", df = 3)
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
   # MCMC
@@ -166,7 +170,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "_VPD_lin_TRD_lin_RESID_ns")
+run_suffix <- paste0(date_suffix, "_VPD_lin_TRD_lin_NoResidRain")
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
 run_output_dir    <- file.path(model_output_dir, run_suffix)
