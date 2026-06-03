@@ -295,7 +295,8 @@ coords_sf  <- sf_blocks %>%
   distinct(block_chr, .keep_all = TRUE)
 
 # ======================== spatial data prep ====================================
-if (isTRUE(cfg$use_spatial_AC)) {
+# use_icar can also be set without use_spatial_AC when combined with use_dlnm
+if (isTRUE(cfg$use_spatial_AC) || isTRUE(cfg$use_icar)) {
   if (isTRUE(cfg$use_bym2) || isTRUE(cfg$use_icar)) {
     icar_edges <- build_icar_edges(sf_blocks, block_ids, cfg$sf_block_col, snap_m = 100)
     stan_data$N_edges <- icar_edges$N_edges
@@ -327,7 +328,7 @@ if (isTRUE(cfg$use_spatial_AC)) {
     ))
   }
 } else {
-  cat("No spatial AC: skipping coordinate/distance/neighbour setup.\n")
+  cat("No spatial AC or ICAR: skipping coordinate/distance/neighbour setup.\n")
 }
 
 # #================= check adjacency matrix (optional)==============
