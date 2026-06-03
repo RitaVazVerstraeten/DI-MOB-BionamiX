@@ -37,14 +37,16 @@ save_glmm_prob_timeseries_plot <- function(df_summary, df_observed, output_dir, 
       values_to = "probability"
     ) %>%
     dplyr::mutate(
+      # p_R_fitted holds p_fitted_weighted (the omega-weighted mixture); it has no
+      # direct SE so we reuse the baseline CI as the best available approximation.
       lower = dplyr::case_when(
-        series == "p_bt_fitted" ~ df_plot_ts$p_bt_fitted_lower[match(year_month_date, df_plot_ts$year_month_date)],
-        series == "p_R_fitted" ~ df_plot_ts$p_R_fitted_lower[match(year_month_date, df_plot_ts$year_month_date)],
+        series %in% c("p_bt_fitted", "p_R_fitted") ~
+          df_plot_ts$p_bt_fitted_lower[match(year_month_date, df_plot_ts$year_month_date)],
         TRUE ~ NA_real_
       ),
       upper = dplyr::case_when(
-        series == "p_bt_fitted" ~ df_plot_ts$p_bt_fitted_upper[match(year_month_date, df_plot_ts$year_month_date)],
-        series == "p_R_fitted" ~ df_plot_ts$p_R_fitted_upper[match(year_month_date, df_plot_ts$year_month_date)],
+        series %in% c("p_bt_fitted", "p_R_fitted") ~
+          df_plot_ts$p_bt_fitted_upper[match(year_month_date, df_plot_ts$year_month_date)],
         TRUE ~ NA_real_
       )
     )
@@ -68,9 +70,7 @@ save_glmm_prob_timeseries_plot <- function(df_summary, df_observed, output_dir, 
   max_cases <- max(df_plot_ts$cases, na.rm = TRUE)
   scale_factor <- ifelse(is.finite(max_cases) && max_cases > 0, max_prob / max_cases, 1)
 
-  # Only plot ribbon if aesthetics are present and not all NA
-  # Only plot ribbon for p_bt_fitted if aesthetics are present and not all NA
-  ribbon_data <- subset(df_plot_long, series == "p_bt_fitted")
+  ribbon_data <- subset(df_plot_long, series %in% c("p_bt_fitted", "p_R_fitted"))
   ribbon_ok <- nrow(ribbon_data) > 0 &&
     !all(is.na(ribbon_data$lower)) &&
     !all(is.na(ribbon_data$upper)) &&
@@ -106,14 +106,19 @@ save_glmm_prob_timeseries_plot <- function(df_summary, df_observed, output_dir, 
     scale_color_manual(
       values = c(
         p_bt_fitted = "#1f77b4",
-        p_R_fitted = "#ff7f0e",
-        p_observed = "#d62728"
+        p_R_fitted  = "#ff7f0e",
+        p_observed  = "#d62728"
+      ),
+      labels = c(
+        p_bt_fitted = "Fitted p_bt (baseline)",
+        p_R_fitted  = "Fitted y_bt/n_bt",
+        p_observed  = "Observed y_bt/n_bt"
       )
     ) +
     scale_fill_manual(
       values = c(
         p_bt_fitted = "#1f77b4",
-        p_R_fitted = "#ff7f0e"
+        p_R_fitted  = "#ff7f0e"
       ),
       guide = "none"
     ) +
@@ -124,7 +129,7 @@ save_glmm_prob_timeseries_plot <- function(df_summary, df_observed, output_dir, 
     labs(
       x = "Time",
       color = NULL,
-      title = "Observed vs Fitted Probabilities with Cases",
+      title = "Observed vs Fitted Detection Rate",
       subtitle = plot_subtitle,
       caption = plot_caption
     ) +
