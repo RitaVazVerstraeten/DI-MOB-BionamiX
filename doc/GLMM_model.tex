@@ -1,0 +1,276 @@
+\documentclass[12pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{subcaption}
+\usepackage{xcolor}
+\usepackage{array}
+
+% Page layout
+\geometry{margin=1in}
+
+% Document information
+\title{GLMM for Mosquito Surveillance in Cienfuegos:\\
+       Previous and Current Model Specification}
+\author{Rita Verstraeten}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Purpose}
+
+This document describes two successive versions of the frequentist Generalised Linear Mixed Model (GLMM) used for mosquito immature stage surveillance in Cienfuegos. Both model versions are implemented in \texttt{GLMM.r} (via \texttt{glmmTMB}) and serve the same dual purpose: (1) screening covariates for association with mosquito presence, and (2) providing data-driven prior elicitation for the Bayesian hierarchical model. The document records what changed between the two versions, why, and what the current model specification is.
+
+\part*{Part~I: Previous GLMM}
+\addcontentsline{toc}{part}{Part~I: Previous GLMM}
+
+\section{Overview}
+
+The previous model was a standard binomial GLMM estimated at the \textbf{manzana} (city block) level, using conventional block and time random intercepts. It served as a first-pass screening tool to identify which environmental covariates were associated with mosquito immature stage presence. Reactive surveillance \emph{was} already modelled via the same baseline/reactive data expansion described in Part~II, with a \texttt{reactive\_shift} fixed effect in the linear predictor.
+
+\section{Data Structure}
+
+Each observation was a (block, month) pair. The response was:
+\begin{itemize}
+  \item $y_{bt}$: number of mosquito-positive houses (\texttt{Houses\_pos\_IS}),
+  \item $n_{bt} = N_b^{HH} + \kappa C_{bt}$: total inspection events, with a \texttt{reactive\_shift} $= \log(1 + C_{bt})$ term included as a fixed effect.
+\end{itemize}
+The same baseline/reactive row expansion described in Part~II (Section~\ref{sec:expansion_current}) was already applied. The value of $\kappa$ used in the previous configuration is not recorded in the archived results but the \texttt{reactive\_shift} coefficient ($\hat{\beta} = -0.813$, OR $= 0.44$) confirms the expansion was active.
+
+The covariate set included meteorological variables (temperature, humidity, precipitation, vegetation index), windspeed, and structural block-level predictors (land-use type, water storage infrastructure). Continuous variables were z-score standardised. Time-varying covariates were included at lags 0 and 1; structural predictors were unlagged.
+
+\section{Linear Predictor}
+
+\begin{equation}
+\eta_i = \alpha
+  + \sum_{k \in \mathcal{L}} \sum_{\ell=0}^{1} \beta_{k\ell}\, x_{k,b(i),t(i)-\ell}
+  + \sum_{k \in \mathcal{U}} \beta_k\, x_{k,b(i)}
+  + \delta \cdot \texttt{reactive\_shift}_i
+  + u_{b(i)} + v_{t(i)},
+\end{equation}
+where:
+\begin{itemize}
+  \item $\mathcal{L}$: lagged environmental covariates (lags $\ell \in \{0,1\}$),
+  \item $\mathcal{U}$: unlagged structural covariates,
+  \item $\delta$: coefficient on \texttt{reactive\_shift} $= \log(1 + C_{bt})$,
+  \item $u_b \sim \mathcal{N}(0, \sigma_u)$: i.i.d.\ random intercept for block $b$, capturing stable between-block differences in baseline positivity,
+  \item $v_t \sim \mathcal{N}(0, \sigma_v)$: i.i.d.\ random intercept for month $t$, capturing shared temporal shocks not explained by fixed covariates.
+\end{itemize}
+
+There was no AR(1) temporal structure within blocks.
+
+\section{Observation Model}
+
+\begin{equation}
+y_{bt} \sim \text{Binomial}(n_{bt},\; \pi_{bt}), \quad \pi_{bt} = \text{logit}^{-1}(\eta_{bt}).
+\end{equation}
+
+A standard binomial likelihood was used. Overdispersion was not explicitly modelled.
+
+\section{Random Effects Structure}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Component} & \textbf{Active} & \textbf{glmmTMB term} \\
+\midrule
+Block random intercept & \textbf{ON}  & \texttt{(1 | block)} \\
+Month random intercept & \textbf{ON}  & \texttt{(1 | year\_month)} \\
+Temporal AR(1)         & \textbf{OFF} & --- \\
+Spatial AR             & \textbf{OFF} & --- \\
+\bottomrule
+\end{tabular}
+\caption{Random effects in the previous GLMM.}
+\end{table}
+
+In \texttt{glmmTMB} notation, the formula had the general structure:
+\begin{verbatim}
+cbind(y_bt, n_trials - y_bt) ~
+  [lagged_var_lag0] + [lagged_var_lag1] + ... +
+  [unlagged_vars] + reactive_shift +
+  (1 | block) + (1 | year_month)
+\end{verbatim}
+
+\section{Estimation and Outputs}
+
+The model was fit via maximum likelihood using the TMB backend in \texttt{glmmTMB}, with the \texttt{nlminb} optimiser. Outputs included:
+\begin{itemize}
+  \item Fixed-effect coefficient table with odds ratios,
+  \item Fitted positivity probabilities $\hat{\pi}_{bt}$ at the (block, month) level,
+  \item Estimated random effect variances $\hat{\sigma}_u^2$ and $\hat{\sigma}_v^2$.
+\end{itemize}
+
+\section{Limitations of the Previous Model}
+
+\begin{enumerate}
+  \item \textbf{Standard binomial likelihood.} Count data from block-level aggregation typically exhibit overdispersion beyond what a binomial model can capture. The previous model had no mechanism to absorb this variance.
+  \item \textbf{Covariate multicollinearity.} The meteorological predictors in the previous set were strongly correlated at monthly resolution, without explicit steps to address collinearity.
+  \item \textbf{No temporal autocorrelation.} The i.i.d.\ month random intercept $v_t$ captured a shared city-wide mean shift but did not model the persistence of mosquito burden within individual blocks across consecutive months.
+  \item \textbf{Spatial resolution.} Analysis was performed at the \emph{manzana} level rather than the coarser CMF level used in the Bayesian model, creating a scale mismatch for prior elicitation.
+\end{enumerate}
+
+\part*{Part~II: Current GLMM}
+\addcontentsline{toc}{part}{Part~II: Current GLMM}
+
+\section{Overview}
+
+The current model addresses the limitations above through several targeted changes: a beta-binomial likelihood to absorb overdispersion, a reactive surveillance expansion with $\kappa = 2$, a curated covariate set based on meteorological reasoning and collinearity checks, a longer lag window (up to $L = 2$), and an AR(1) temporal autocorrelation structure at the block level to model mosquito persistence. Analysis is performed at the \textbf{CMF} spatial level, matching the Bayesian model.
+
+\section{Data Structure and Spatial Resolution}
+
+Each observation is a (CMF block, month) pair. The dataset spans 2016--2019 (with 2015 rows retained only as lag lead-in). The response is:
+\begin{itemize}
+  \item $y_{bt}$: positive houses (\texttt{Houses\_pos\_IS}),
+  \item $n_{bt} = N_b^{HH} + \kappa C_{bt}$: total inspection events, where $N_b^{HH}$ is the number of inspected houses (\texttt{Inspected\_houses}), $C_{bt}$ is dengue case count, and $\kappa = 2$.
+\end{itemize}
+
+\section{Covariates}
+
+The covariate set is configured via \texttt{cfg\$lag\_vars}, \texttt{cfg\$unlagged\_vars}, and \texttt{cfg\$numeric\_vars} in \texttt{GLMM.r} and is subject to ongoing selection. Only continuous numeric variables are z-score standardised prior to lag creation; categorical and binary variables are left on their natural scale. Time-varying covariates are included at lags $\ell = 0, 1, \ldots, L$ where \texttt{cfg\$max\_lag} $= L = 2$ in the current configuration.
+
+\section{Data Expansion: Baseline and Reactive Rows}
+\label{sec:expansion_current}
+
+Each original (block, month) observation is split into a baseline and a reactive component based on the reactive fraction:
+\begin{equation}
+\omega_{bt} = \min\!\left(\frac{\kappa\, C_{bt}}{N_b^{HH} + \kappa\, C_{bt}},\; 1\right).
+\end{equation}
+
+\paragraph{Baseline row (systematic surveillance):}
+\begin{equation}
+n_{bt}^{(\text{base})} = \lfloor (1 - \omega_{bt})\, n_{bt} \rfloor, \quad
+y_{bt}^{(\text{base})} = \lfloor y_{bt}(1-\omega_{bt}) \rfloor, \quad
+\texttt{reactive\_shift} = 0.
+\end{equation}
+
+\paragraph{Reactive row (created only when $C_{bt} > 0$):}
+\begin{equation}
+n_{bt}^{(\text{react})} = \lfloor \omega_{bt}\, n_{bt} \rfloor, \quad
+y_{bt}^{(\text{react})} = \lfloor y_{bt}\, \omega_{bt} \rfloor, \quad
+\texttt{reactive\_shift} = \log(1 + C_{bt}).
+\end{equation}
+
+Rows with zero trials after flooring are dropped. The \texttt{reactive\_shift} covariate is only non-zero for reactive rows; its coefficient $\delta$ estimates the log-odds difference between reactive and systematic surveillance.
+
+\noindent\textbf{Why $\log(1 + C_{bt})$ and not $\log(C_{bt})$?} Although reactive rows are only created when $C_{bt} > 0$, using $\log(C_{bt})$ would assign $\texttt{reactive\_shift} = \log(1) = 0$ to all blocks with exactly one dengue case. Those rows would then be indistinguishable from baseline rows via the reactive\_shift term, and $\delta$ would be estimated almost entirely from $C_{bt} \geq 2$ observations. The $+1$ shift ensures that even the minimum reactive case ($C_{bt} = 1$) yields $\log(2) \approx 0.693 > 0$, keeping all reactive rows strictly separated from baseline rows.
+
+\paragraph{Assumption.} Positives are allocated proportionally to the reactive fraction, i.e.\ $y_{bt}^{(\text{base})}/n_{bt}^{(\text{base})} = y_{bt}^{(\text{react})}/n_{bt}^{(\text{react})}$. This is a simplifying assumption: if reactive inspections disproportionately target higher-risk households, the true reactive positivity rate would exceed this allocation.
+
+\section{Linear Predictor}
+
+For each expanded row $i$ (baseline or reactive), the linear predictor is:
+\begin{align}
+\eta_i &= \alpha
+  + \sum_{k \in \mathcal{L}} \sum_{\ell=0}^{2} \beta_{k\ell}\, x_{k,b(i),t(i)-\ell}
+  + \sum_{k \in \mathcal{U}} \beta_k\, x_{k,b(i)}
+  + \delta \cdot \texttt{reactive\_shift}_i
+  + \phi_{b(i),t(i)},
+\end{align}
+where:
+\begin{itemize}
+  \item $\mathcal{L}$: lagged environmental covariates with lags $\ell \in \{0,1,2\}$,
+  \item $\mathcal{U}$: unlagged structural covariates,
+  \item $\delta$: coefficient on \texttt{reactive\_shift} $= \log(1 + C_{bt})$, estimating the log-odds uplift from reactive surveillance,
+  \item $\phi_{b,t}$: within-block AR(1) temporal random effect (see Section~\ref{sec:ar1}).
+\end{itemize}
+
+There is no block random intercept and no i.i.d.\ month random intercept in the current default configuration.
+
+\subsection{Temporal AR(1) Random Effect}
+\label{sec:ar1}
+
+The current model replaces the i.i.d.\ month intercept with a per-block AR(1) process:
+\begin{equation}
+\phi_{b,t} = \rho\, \phi_{b,t-1} + \varepsilon_{b,t}, \quad \varepsilon_{b,t} \sim \mathcal{N}(0,\, \sigma_\phi),
+\end{equation}
+where $\rho \in (-1, 1)$ is a single autoregressive parameter estimated jointly across all blocks. The model is strictly first-order: at each step it conditions only on the immediately preceding value. The implied correlation at lag $k$ is $\rho^k$, which is a mathematical consequence of applying the single-step recursion repeatedly — not a direct dependence on $k$ previous time points. For $|\rho| < 1$ this correlation decays geometrically towards zero.
+
+In \texttt{glmmTMB}, this is specified as:
+\begin{verbatim}
+ar1(year_month_ar1 + 0 | ar1_group)
+\end{verbatim}
+where \texttt{year\_month\_ar1} is an ordered factor of time points and \texttt{ar1\_group} is a factor identifying each block (or \texttt{"all"} for a global AR(1)). The \texttt{+ 0} suppresses a redundant random intercept within the AR(1) term.
+
+With \texttt{ar1\_group = "block"}, each block receives its own independent AR(1) time series of latent values, sharing the same $\rho$ and $\sigma_\phi$. This models the persistence of mosquito burden within a block: a high month tends to be followed by another high month at the same location, independently of what happens in other blocks.
+
+\section{Observation Model}
+
+The current model uses a \textbf{beta-binomial} likelihood rather than the plain binomial:
+\begin{equation}
+y_i \sim \text{BetaBinomial}(n_i,\; \mu_i \phi,\; (1 - \mu_i) \phi),
+\end{equation}
+where $\mu_i = \text{logit}^{-1}(\eta_i)$ is the mean probability and $\phi > 0$ is a concentration (precision) parameter estimated from the data alongside all other model parameters. When $\phi \to \infty$ the BetaBinomial converges to the Binomial; for finite $\phi$ the variance exceeds the binomial variance by a factor $(n_i + \phi)/(1 + \phi)$. This accommodates the overdispersion typical of aggregated surveillance counts.
+
+In \texttt{glmmTMB}, the likelihood is specified as:
+\begin{verbatim}
+family = glmmTMB::betabinomial(link = "logit")
+\end{verbatim}
+
+\section{Random Effects Structure}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Component} & \textbf{Active (default)} & \textbf{glmmTMB term} \\
+\midrule
+Block random intercept & \textbf{OFF} & \texttt{(1 | block)} \\
+Month random intercept & \textbf{OFF} & \texttt{(1 | year\_month)} \\
+Temporal AR(1) per block & \textbf{ON} & \texttt{ar1(year\_month\_ar1 + 0 | ar1\_group)} \\
+Spatial exponential AR  & \textbf{OFF} & \texttt{exp(xy + 0 | spatial)} \\
+\bottomrule
+\end{tabular}
+\caption{Random effects in the current GLMM (default configuration).}
+\end{table}
+
+\noindent All four components can be toggled independently via the \texttt{cfg} list in \texttt{GLMM.r}. The spatial AR option requires projected block centroid coordinates from a shapefile and uses an exponential decay covariance $\text{Corr}(s_b, s_{b'}) = \exp(-d_{bb'}/r)$.
+
+\section{Full Model Formula}
+
+The general formula structure in \texttt{glmmTMB} notation is:
+\begin{verbatim}
+cbind(y_bt, n_trials - y_bt) ~
+  [lagged_var_lag0] + [lagged_var_lag1] + [lagged_var_lag2] + ... +
+  [unlagged_vars] + reactive_shift +
+  ar1(year_month_ar1 + 0 | ar1_group)
+\end{verbatim}
+The specific variables substituted for \texttt{[lagged\_var]} and \texttt{[unlagged\_vars]} are set in \texttt{cfg\$lag\_vars} and \texttt{cfg\$unlagged\_vars} respectively.
+
+\section{Estimation}
+
+\begin{itemize}
+  \item \textbf{Backend:} TMB (Template Model Builder) via \texttt{glmmTMB}, using the Laplace approximation.
+  \item \textbf{Optimiser:} \texttt{nlminb}, with \texttt{iter.max = 1000}, \texttt{eval.max = 1500}.
+  \item \textbf{Inference:} Frequentist maximum likelihood; no regularisation or shrinkage on fixed effects.
+\end{itemize}
+
+\section{Outputs}
+
+The script produces:
+\begin{itemize}
+  \item Fitted ecological (baseline) probabilities $\hat{p}_{bt}$ from baseline rows,
+  \item Fitted reactive probabilities $\hat{p}_{bt}^R$ from reactive rows (when $\kappa > 0$),
+  \item A weighted-average fitted probability $\hat{\pi}_{bt} = (1-\omega_{bt})\hat{p}_{bt} + \omega_{bt}\hat{p}_{bt}^R$,
+  \item Fixed-effect coefficient table with standard errors, $z$-values, $p$-values, and odds ratios,
+  \item Diagnostic plots: time-series of fitted vs.\ observed, random effect estimates, QQ plots,
+  \item Residual diagnostics: large-residual flags, AR(1) temporal diagnostics, and a Moran's~I spatial autocorrelation correlogram.
+\end{itemize}
+
+Output files are organised under:
+\texttt{results/Entomo/fitting/GLMM/<predictor\_spec>/<model\_spec>/<date>/}.
+
+\end{document}
