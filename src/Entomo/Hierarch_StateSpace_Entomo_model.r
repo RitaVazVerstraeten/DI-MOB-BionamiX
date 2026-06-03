@@ -64,15 +64,15 @@ cfg <- list(
 
   # model variant
   use_time_RE          = FALSE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
-  use_temporal_AR      = FALSE,  # (ignored if use_time_RE = TRUE) TRUE = single global AR1 trend
-  use_temporal_AR_perCMF = FALSE, # (ignored if use_time_RE = TRUE) TRUE = independent AR1 per CMF
+  use_temporal_AR      = TRUE,  # (ignored if use_time_RE = TRUE) TRUE = single global AR1 trend
+  use_temporal_AR_perCMF = TRUE, # (ignored if use_time_RE = TRUE) TRUE = independent AR1 per CMF
   use_spatial_AC  = FALSE,    # (ignored if use_time_RE = TRUE) TRUE = spatial AC
   use_hsgp        = FALSE,   # (only if use_spatial_AC = TRUE and use_icar/bym2 = FALSE) TRUE = HSGP
-  use_icar        = FALSE,   # (only if use_spatial_AC = TRUE) TRUE = plain ICAR
+  use_icar        = TRUE,   # (only if use_spatial_AC = TRUE) TRUE = plain ICAR
   use_bym2        = FALSE,    # (only if use_spatial_AC = TRUE) TRUE = BYM2 (structured+unstructured); overrides use_icar
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
-  use_block_dev   = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
+  use_block_dev   = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
   use_dlnm        = TRUE,  # TRUE = replace lag flat matrix with DLNM cross-basis (blockRE only for now)
 
   # spatial
@@ -141,9 +141,14 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
   ar1_suffix     <- if (isTRUE(cfg$use_temporal_AR_perCMF)) "AR1perCMF"
                     else if (isTRUE(cfg$use_temporal_AR))   "AR1global"
                     else                                     "noAR1"
-  re_suffix      <- if (isTRUE(cfg$use_block_dev)) "blockRE" else "noBlockRE"
+  sp_suffix      <- if (isTRUE(cfg$use_icar)) "ICAR"
+                    else if (isTRUE(cfg$use_bym2)) "BYM2"
+                    else "noGP"
+  re_suffix      <- if (isTRUE(cfg$use_icar)) "ICAR"
+                    else if (isTRUE(cfg$use_block_dev)) "blockRE"
+                    else "noBlockRE"
   n_block_suffix <- paste0(ifelse(is.null(cfg$n_blocks), "All", cfg$n_blocks), "Blocks")
-  paste0("DLNM_", ar1_suffix, "_noGP_", re_suffix,
+  paste0("DLNM_", ar1_suffix, "_", sp_suffix, "_", re_suffix,
          "_lag", cfg$max_lag, "_k", cfg$kappa, "_", n_block_suffix)
 } else {
   ar1_suffix <- if (isTRUE(cfg$use_temporal_AR_perCMF)) "AR1perCMF"
@@ -186,8 +191,10 @@ cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   # iid time RE + iid block RE (no AR1, no GP)
   file.path(stan_dir, "hierarchical_state_space_timeRE_blockRE.stan")
 } else if (isTRUE(cfg$use_dlnm)) {
-  # DLNM cross-basis: with or without per-CMF AR(1)
-  if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_block_dev)) {
+  # DLNM cross-basis: per-CMF AR(1) variants
+  if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_icar)) {
+    file.path(stan_dir, "hierarchical_state_space_AR_perCMF_ICAR_DLNM.stan")
+  } else if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_block_dev)) {
     file.path(stan_dir, "hierarchical_state_space_AR_perCMF_blockRE_DLNM.stan")
   } else {
     file.path(stan_dir, "hierarchical_state_space_blockRE_DLNM.stan")
@@ -514,11 +521,14 @@ if (isTRUE(cfg$use_time_RE)) {
   }
   if (isTRUE(cfg$use_temporal_AR) || isTRUE(cfg$use_temporal_AR_perCMF))
     summary_vars <- c(summary_vars, "tau", "sigma_v", "rho")
-  if (!isTRUE(cfg$use_bym2) && isTRUE(cfg$use_block_dev)) {
+  # DLNM+ICAR: sigma_icar not captured by use_spatial_AC branch above
+  if (isTRUE(cfg$use_dlnm) && isTRUE(cfg$use_icar))
+    summary_vars <- c(summary_vars, "sigma_icar")
+  if (!isTRUE(cfg$use_bym2) && !isTRUE(cfg$use_icar) && isTRUE(cfg$use_block_dev)) {
     if (isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_temporal_AR_perCMF))
-      summary_vars <- c(summary_vars, "sigma_block_dev")        # global AR1 + block deviation
+      summary_vars <- c(summary_vars, "sigma_block_dev")
     else
-      summary_vars <- c(summary_vars, "sigma_block")  # blockRE-only or perCMF+blockRE model
+      summary_vars <- c(summary_vars, "sigma_block")
   }
 }
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")

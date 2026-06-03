@@ -482,9 +482,13 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
       }
       if (isTRUE(use_temporal_AR_perCMF)) {
         init_vals$v_raw <- matrix(rnorm(stan_data$B * stan_data$T, 0, 0.3), stan_data$B, stan_data$T)
-        init_vals$tau   <- runif(1, 0.3, 0.8)   # marginal stationary SD (replaces sigma_v)
+        init_vals$tau   <- runif(1, 0.3, 0.8)
         init_vals$rho   <- rnorm(1, 0.3, 0.15)
-        if (isTRUE(use_block_dev) && !isTRUE(use_icar)) {
+        if (isTRUE(use_icar)) {
+          # DLNM+ICAR or perCMF+ICAR: ICAR spatial field replaces block RE
+          init_vals$u_icar_raw <- rnorm(stan_data$B, 0, 0.1)
+          init_vals$sigma_icar <- runif(1, 0.1, 0.4)
+        } else if (isTRUE(use_block_dev)) {
           init_vals$u_block_raw <- rnorm(stan_data$B, 0, 0.3)
           init_vals$sigma_block <- runif(1, 0.05, 0.3)
         }
