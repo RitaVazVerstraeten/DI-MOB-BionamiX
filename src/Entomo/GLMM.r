@@ -78,7 +78,7 @@ cfg <- list(
   response_start = "2016_01",   # rows before this date are lag lead-in only
 
   # Lag settings
-  max_lag = 2,
+  max_lag = 5,
   kappa = 2,  # multiplier for cases in n_bt calculation
 
   # Output
@@ -516,7 +516,11 @@ write_csv(coef_table, coef_table_file)
 
 # Save model summary and formula
 summary_file <- file.path(run_output_dir, paste0("glmm_summary_", run_suffix, ".txt"))
-summary_output <- capture.output(summary(model))
+summary_output <- local({
+  op <- options(max.print = 99999)
+  on.exit(options(op))
+  capture.output(summary(model))
+})
 writeLines(c(
   paste0("Run suffix: ", run_suffix),
   paste0("Model spec folder: ", model_spec),
@@ -845,27 +849,6 @@ p_resid_time <- ggplot(monthly_resid, aes(x = year_month_date)) +
 ggsave(
   file.path(resid_output_dir, paste0("ar1_resid_over_time_", run_suffix, ".png")),
   p_resid_time, width = 10, height = 5, dpi = 150
-)
-
-# Plot 2: Observed vs fitted positivity rate over time (city-wide mean)
-# A persistent gap between lines is residual temporal variance the model
-# failed to explain — even after the AR(1).
-p_obs_vs_fit <- ggplot(monthly_resid, aes(x = year_month_date)) +
-  geom_line(aes(y = mean_observed, colour = "Observed")) +
-  geom_line(aes(y = mean_fitted,   colour = "Fitted")) +
-  geom_point(aes(y = mean_observed, colour = "Observed"), size = 1.5) +
-  geom_point(aes(y = mean_fitted,   colour = "Fitted"),   size = 1.5) +
-  scale_colour_manual(values = c("Observed" = "black", "Fitted" = "steelblue")) +
-  labs(
-    title    = "Observed vs fitted positivity rate over time",
-    subtitle = "Persistent gap = temporal variance not captured by the model",
-    x = "Month", y = "Mean positivity rate", colour = NULL
-  ) +
-  theme_minimal()
-
-ggsave(
-  file.path(resid_output_dir, paste0("ar1_obs_vs_fitted_time_", run_suffix, ".png")),
-  p_obs_vs_fit, width = 10, height = 5, dpi = 150
 )
 
 # Plot 3: Fitted trajectories for 50 random blocks vs city-wide mean
