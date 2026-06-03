@@ -6,7 +6,7 @@ library(sf)
 
 # Source plot functions for GLMM diagnostics
 source("plot_functions.r")
-
+source("helper_functions.r")
 # Resolve namespace conflicts - prefer tidyverse/dplyr versions
 if (!require("conflicted", quietly = TRUE)) {
   install.packages("conflicted")
@@ -19,24 +19,28 @@ conflicted::conflict_prefer("lag", "dplyr")
 # SETTINGS
 # =========================
 cfg <- list(
-  # Random effects to include
-  include_block_re = FALSE,      # Random intercept for block (spatial)
-  include_time_re = TRUE,      # Random intercept for time (temporal)
-  include_ar1_temporal = FALSE, # AR(1) temporal autocorrelation (within group)
-  ar1_group = "global",         # "block" (within-block AR1) or "global"f
-  include_spatial_ar = TRUE,  # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
-  # include_spatial_ar = TRUE,  # Matérn spatial autocorrelation: mat(xy + 0 | spatial)
+  # Spatial resolution: "CMF" or "manzana"
+  spatial_level = "CMF",
 
-  # Link function for binomial GLMM
-  link_function = "logit",     # Options: "logit", "probit", "cloglog", "cauchit"
+  # Random effects to include
+  include_block_re     = FALSE,  # Random intercept for block (spatial)
+  include_time_re      = FALSE,   # Random intercept for time (temporal)
+  include_ar1_temporal = TRUE,  # AR(1) temporal autocorrelation (within group)
+  ar1_group            = "block", # "block" (within-block AR1) or "global"
+  include_spatial_ar   = FALSE,   # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
+  # include_spatial_ar = TRUE,   # Matérn spatial autocorrelation: mat(xy + 0 | spatial)
+
+  # Link function for beta-binomial GLMM
+  link_function = "logit",       # Options: "logit", "probit", "cloglog"
+
   # Predictors
   # lag_vars     : variables for which distributed lags are created
   # unlagged_vars: variables entered directly without lag
   # numeric_vars : continuous variables to z-score standardize
   #                (exclude factors, binary 0/1, and already-factored variables)
-  lag_vars      = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"),
-  unlagged_vars = c("is_urban", "is_WUI"),
-  numeric_vars  = c("total_rainy_days", "precip_max_day", "avg_VPD", "mean_ndvi"),
+  lag_vars      = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),
+  unlagged_vars = c("is_urban", "is_WUI", "is_WI","has_aljibes", "water_containers"),
+  numeric_vars  = c("total_rainy_days", "precip_max_day_resid_on_trd", "avg_VPD"),
 
   # Interaction terms (NULL = none)
   # Each element is a character vector of exactly 2 variable names (column names
@@ -47,26 +51,31 @@ cfg <- list(
   # Predictors to drop after lag expansion (NULL = keep all)
   # Use the fully expanded column name, e.g. "avg_VPD_lag1", "is_urban"
   # exclude_predictors = c("total_rainy_days_lag1", "total_rainy_days_lag0"),
-  exclude_predictors = c("mean_ndvi_lag0", "mean_ndvi_lag1", "total_rainy_dayslag1", "total_rainy_days_lag0"),
+  # exclude_predictors = c("mean_ndvi_lag0", "mean_ndvi_lag1", "total_rainy_dayslag1", "total_rainy_days_lag0"),
+
   # Add sin/cos annual Fourier terms as fixed effects (2-parameter seasonal cycle).
   # Tests whether residual seasonality is independent of the climate covariates.
   include_fourier = FALSE,
 
-  # Spatial coordinates from shapefile (used when include_spatial_ar = TRUE)
+  # Spatial coordinates from shapefile (used when include_spatial_ar = TRUE).
+  # Point to the folder containing both the manzana and CMF shapefiles;
+  # the correct file is selected automatically based on spatial_level.
   shapefile_path = if (Sys.info()["nodename"] == "frietjes") {
-    "/home/rita/data/Entomo/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp"
+    "/home/rita/data/Entomo"
   } else {
-    "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders/Manzanas_cleaned_05032026/Mz_CMF_Correcto_2022026.shp"
-    },
-  sf_block_col = "CODIGO_",
-  spatial_crs = NA,             # Optional projected CRS (e.g., 32719). NA = keep CRS unless lon/lat (then use EPSG:3857)
-
-  # Data
-  data_file = if (Sys.info()["nodename"] == "frietjes") {
-    "/home/rita/data/Entomo/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv"
-  } else {
-    "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv"
+    "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders"
   },
+  spatial_crs = NA,             # Optional projected CRS. NA = keep CRS unless lon/lat (then use EPSG:3857)
+
+  # Data: extended-lag dataset (env 2015–2019, ento-epi 2016–2019).
+  # response_start marks the start of the ento response period; 2015 rows
+  # provide lag lead-in history and are dropped after distributed lags are built.
+  data_file = if (Sys.info()["nodename"] == "frietjes") {
+    "/home/rita/data/Entomo/env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
+  } else {
+    "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
+  },
+  response_start = "2016_01",   # rows before this date are lag lead-in only
 
   # Lag settings
   max_lag = 2,
@@ -79,9 +88,18 @@ cfg <- list(
     "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM"
     },
   # GLMM control
-  iter_max = 1e4,
-  eval_max = 1e4
+  iter_max = 1000,
+  eval_max = 1500
 )
+
+# Derived from spatial_level — keep consistent with Hierarch_StateSpace model
+cfg$block_col    <- if (cfg$spatial_level == "CMF") "cmf"      else "manzana"
+cfg$sf_block_col <- if (cfg$spatial_level == "CMF") "Area_CMF" else "CODIGO_"
+cfg$shapefile_file <- if (cfg$spatial_level == "CMF") {
+  file.path(cfg$shapefile_path, "CMF", "Poligonos CMF Cienfuegos_28032025.shp")
+} else {
+  file.path(cfg$shapefile_path, "Manzanas_cleaned_05032026", "Mz_CMF_Correcto_2022026.shp")
+}
 
 date_suffix <- format(Sys.Date(), "%Y%m%d")
 
@@ -111,7 +129,7 @@ model_spec <- paste0(
   "_space-", space_ar_spec,
   "_lag", cfg$max_lag,
   "_k", cfg$kappa,
-  "_link-", cfg$link_function
+  "_betabinom-", cfg$link_function
 )
 
 # Encode predictor sets in folder name so each combination gets its own directory
@@ -138,34 +156,31 @@ dir.create(resid_output_dir, recursive = TRUE, showWarnings = FALSE)
 # =========================
 # 1. LOAD DATA
 # =========================
-df <- read_csv(cfg$data_file)
-
-df <- df %>%
+df <- load_base_data(cfg$data_file) %>%
   mutate(
-    year_month_date = as.Date(paste0(year_month, "_01"), "%Y_%m_%d"),
-    year_month = factor(year_month),  # For time RE
-    block = factor(manzana), # for space RE
-    n_bt = Inspected_houses + cfg$kappa * cases, # fixed number observations = universe + extra observations for cases
-    y_bt = Houses_pos_IS,
-    sin_annual = sin(2 * pi * as.integer(format(year_month_date, "%m")) / 12),
-    cos_annual = cos(2 * pi * as.integer(format(year_month_date, "%m")) / 12)
+    year_month    = factor(year_month),
+    block         = factor(.data[[cfg$block_col]]),
+    n_bt          = Inspected_houses + cfg$kappa * cases,
+    y_bt          = Houses_pos_IS,
+    sin_annual    = sin(2 * pi * as.integer(format(year_month_date, "%m")) / 12),
+    cos_annual    = cos(2 * pi * as.integer(format(year_month_date, "%m")) / 12),
+    landcover     = factor(landcover),
+    temp_cat      = factor(temp_cat),
+    precip_cat    = factor(precip_cat)
   ) %>%
-  select(-c(CMF, CP, AREA))
-
-# create landcover as factor variable 
-df <- df %>%
-  mutate(landcover = factor(landcover), temp_cat = factor(temp_cat), precip_cat = factor(precip_cat))
+  select(-any_of(cfg$block_col))
 
 # Optional: add spatial coordinates by matching block names to shapefile IDs
 
-sf_blocks <- st_read(cfg$shapefile_path, quiet = TRUE)
-
 if (cfg$include_spatial_ar) {
-  if (is.null(cfg$shapefile_path) || !file.exists(cfg$shapefile_path)) {
-    stop("Spatial autocorrelation requested but shapefile not found: ", cfg$shapefile_path)
+  if (!file.exists(cfg$shapefile_file)) {
+    stop("Spatial autocorrelation requested but shapefile not found: ", cfg$shapefile_file)
   }
 
-  sf_blocks <- st_read(cfg$shapefile_path, quiet = TRUE)
+  sf_blocks <- st_read(cfg$shapefile_file, quiet = TRUE)
+  if (cfg$spatial_level == "CMF") {
+    sf_blocks <- sf_blocks %>% mutate(Area_CMF = paste(AS, CMF, sep = "_"))
+  }
   if (!cfg$sf_block_col %in% names(sf_blocks)) {
     stop("Spatial autocorrelation requested but sf block id column not found: ", cfg$sf_block_col)
   }
@@ -208,7 +223,7 @@ if (cfg$include_spatial_ar) {
   df <- df %>% mutate(spatial = factor("all"))
 
   cat("Spatial coordinates added from shapefile:\n")
-  cat("  ", cfg$shapefile_path, "\n", sep = "")
+  cat("  ", cfg$shapefile_file, "\n", sep = "")
   cat("Rows with missing x/y after join:", sum(is.na(df$x) | is.na(df$y)), "\n\n")
 }
 
@@ -248,11 +263,8 @@ lag_vars      <- cfg$lag_vars
 unlagged_vars <- cfg$unlagged_vars
 numeric_vars  <- cfg$numeric_vars
 
-for (var in numeric_vars) {
-  if (var %in% names(df)) {
-    df[[var]] <- (df[[var]] - mean(df[[var]], na.rm = TRUE)) / sd(df[[var]], na.rm = TRUE)
-  }
-}
+vars_to_std <- intersect(numeric_vars, names(df))
+df[, vars_to_std] <- standardize_matrix(as.matrix(df[, vars_to_std]))
 
 # =========================
 # 3. CREATE DISTRIBUTED LAGS
@@ -276,9 +288,14 @@ for (var in lag_vars) {
 }
 lagged_cols <- unlist(lapply(lag_vars, function(v) paste0(v, "_lag", 0:L)))
 
-# Check for NAs in lagged columns
+# Drop lead-in rows: 2015 rows existed only to provide lag history for early 2016 rows.
+# response_start is the first month that should appear as a model observation.
+response_date <- as.Date(paste0(cfg$response_start, "_01"), "%Y_%m_%d")
+df <- df %>% filter(year_month_date >= response_date)
+
+# Check for NAs in lagged columns — now on response-period rows only
 cat("\n=== CHECKING LAGGED COLUMNS FOR NAs ===\n")
-cat("Total rows after lag creation:", nrow(df), "\n")
+cat("Response rows (>= ", cfg$response_start, "):", nrow(df), "\n")
 for (col in lagged_cols) {
   na_count <- sum(is.na(df[[col]]))
   na_pct <- round(100 * na_count / nrow(df), 2)
@@ -458,7 +475,7 @@ cat("Observations: ", nrow(df_model), "\n\n")
 
 model <- glmmTMB(
   formula,
-  family = binomial(link = cfg$link_function),
+  family = glmmTMB::betabinomial(link = cfg$link_function),
   data = df_model,
   control = glmmTMBControl(optCtrl = list(iter.max = cfg$iter_max, eval.max = cfg$eval_max, trace = 10))
 )
@@ -595,7 +612,7 @@ cat("  Aggregated predictions CSV:", summary_pred_file, "\n", sep = "")
 cat("  Config RDS:                ", cfg_file, "\n", sep = "")
 
 # =========================
-# 10. PLOT p_bt_fitted, p_R_fitted, p_bt_observed
+# 10. PLOTS
 # =========================
 df_observed <- df %>%
   transmute(
@@ -604,16 +621,6 @@ df_observed <- df %>%
     p_observed = ifelse(n_bt > 0, y_bt / n_bt, NA_real_),
     cases
   )
-
-
-# Use modular plot function instead
-save_glmm_prob_timeseries_plot(
-  df_summary = df_summary,
-  df_observed = df_observed,
-  output_dir = plots_output_dir,
-  run_suffix = run_suffix,
-  cfg = cfg
-)
 
 df_summary_weighted <- df_summary %>%
   left_join(df_observed, by = c("block", "year_month_date")) %>%
@@ -625,23 +632,29 @@ df_summary_weighted <- df_summary %>%
     )
   )
 
-save_glmm_prob_timeseries_plot_weighted(
-  df_summary = df_summary_weighted,
-  output_dir = plots_output_dir,
-  run_suffix = run_suffix,
-  cfg = cfg
+# Replace p_R_fitted with p_fitted_weighted so the three series are:
+#   p_bt_fitted      = fitted baseline probability
+#   p_R_fitted       = fitted y_bt/n_bt  (omega-weighted mixture: the full prediction)
+#   p_observed       = observed y_bt/n_bt
+# Built from df_summary (no p_observed column) so the function's internal join
+# with df_observed produces a clean single p_observed column.
+df_summary_agg <- df_summary %>%
+  left_join(
+    df_summary_weighted %>% select(block, year_month_date, p_fitted_weighted),
+    by = c("block", "year_month_date")
+  ) %>%
+  mutate(p_R_fitted = p_fitted_weighted) %>%
+  select(-p_fitted_weighted)
+
+save_glmm_prob_timeseries_plot(
+  df_summary  = df_summary_agg,
+  df_observed = df_observed,
+  output_dir  = plots_output_dir,
+  run_suffix  = run_suffix,
+  cfg         = cfg
 )
 
-save_glmm_prob_timeseries_plot_random_blocks(
-    df_summary = df_summary,
-    df_observed = df_observed,
-    output_dir = plots_output_dir,
-    run_suffix = run_suffix,
-    cfg = cfg,
-    n_blocks = 10)
-
-
-# Calibration plot of observed vs expected (fitted) probabilities (aggregated over time)
+# Calibration plots
 save_glmm_calibplot_observed_vs_expected(
   df_summary = df_summary,
   df_observed = df_observed,
@@ -649,7 +662,6 @@ save_glmm_calibplot_observed_vs_expected(
   run_suffix = run_suffix
 )
 
-# Calibration plot of observed vs weighted average fitted probability
 save_glmm_calibplot_weighted_avg(
   df = df_summary_weighted,
   output_dir = plots_output_dir,
@@ -664,7 +676,25 @@ save_glmm_residuals_plot(model, resid_output_dir, run_suffix)
 # =========================
 # 12. PLOT RANDOM EFFECTS (using plot_functions)
 # =========================
-save_glmm_random_effects_plot(model, plots_output_dir, run_suffix)
+# Use the same save_random_effects() as Hierarch_StateSpace.
+# Extract u (spatial block RE) and v (temporal RE or AR1 city-wide mean) from ranef().
+re <- ranef(model)$cond
+
+u_post <- if (!is.null(re$block)) {
+  re$block[[1]]
+} else {
+  rep(NA_real_, 1)
+}
+
+v_post <- if (!is.null(re$year_month)) {
+  re$year_month[[1]]
+} else if (!is.null(re$ar1_group)) {
+  colMeans(as.matrix(re$ar1_group))  # city-wide mean of AR(1) effects per time point
+} else {
+  rep(NA_real_, 1)
+}
+
+save_random_effects(u_post, v_post, plots_output_dir, run_suffix)
 
 # =========================
 # 13. LARGE-RESIDUAL DIAGNOSTICS
@@ -923,6 +953,14 @@ cat("\nAR(1) temporal diagnostics saved to:", resid_output_dir, "\n")
 if (!requireNamespace("spdep", quietly = TRUE)) {
   cat("Skipping Moran's I: package 'spdep' not installed.\n")
 } else {
+
+  # Load shapefile for centroids if not already loaded (or if it lacks the block ID column)
+  if (!exists("sf_blocks") || !cfg$sf_block_col %in% names(sf_blocks)) {
+    sf_blocks <- sf::st_read(cfg$shapefile_file, quiet = TRUE)
+    if (cfg$spatial_level == "CMF") {
+      sf_blocks <- sf_blocks %>% mutate(Area_CMF = paste(AS, CMF, sep = "_"))
+    }
+  }
 
   # --- 15a. Block-level mean Pearson residual (averaged over time) ---
   block_mean_resid <- df_re_plot %>%
