@@ -100,21 +100,14 @@ for (i in seq_along(max_lag_values)) {
     perl        = TRUE
   )
 
-  # -- Patch 3: disable memory-heavy plotting in the sweep --------------------
-  # Plotting loads ALL posterior draws back into RAM simultaneously:
-  #   y_pred[N=7152, 6000 draws] ~343 MB  +  p_bt_out ~343 MB  +  v_cmf_out ~432 MB
-  # This malloc at the C level kills the session (not caught by tryCatch).
-  # LOO/WAIC are sufficient for model comparison; plots can be run separately
-  # on the winning model.
-  for (plot_flag in c("plot_ppc", "plot_timeseries", "plot_morans_I",
-                      "plot_random_effects", "plot_traceplots")) {
-    patched <- gsub(
-      pattern     = paste0(plot_flag, "\\s*=\\s*(TRUE|FALSE)"),
-      replacement = paste0(plot_flag, " = FALSE"),
-      x           = patched,
-      perl        = TRUE
-    )
-  }
+  # -- Patch 3: disable Moran's I plotting (memory-heavy) -----------------------
+  # Moran's I plots are particularly memory-intensive; keep other plots enabled
+  patched <- gsub(
+    pattern     = "plot_morans_I\\s*=\\s*(TRUE|FALSE)",
+    replacement = "plot_morans_I = FALSE",
+    x           = patched,
+    perl        = TRUE
+  )
 
   # -- Patch 4: don't recompile on every iteration ----------------------------
   # The Stan model structure is identical across all lag values; only the data
