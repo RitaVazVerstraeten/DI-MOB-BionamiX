@@ -90,6 +90,18 @@ for (i in seq_along(max_lag_values)) {
     perl        = TRUE
   )
 
+  # -- Patch 3: don't recompile on every iteration ----------------------------
+  # The Stan model structure is identical across all lag values; only the data
+  # changes. Recompiling each iteration overwrites the compiled binary while the
+  # previous iteration's mod object may still hold a reference, causing a crash.
+  # Force FALSE: CmdStanR reuses the cached binary after the first compile.
+  patched <- gsub(
+    pattern     = "force_recompile\\s*=\\s*hostname\\s*==\\s*\"frietjes\"",
+    replacement = paste0("force_recompile = ", (i == 1L)),
+    x           = patched,
+    perl        = TRUE
+  )
+
   # -- Write patched script to a temp file --------------------------------------
   tmp_file <- tempfile(pattern = sprintf("stan_lag%d_", lag_val), fileext = ".r")
   writeLines(patched, tmp_file)
