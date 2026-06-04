@@ -36,11 +36,13 @@ Observations table (one row per block-time combination):
 |nr_aljibes | Numeric | Number of underground water cisternas within 20m of the manzana |
 |water_shortage | Binary | TRUE/FALSE value for whether/not manzanas have reduced water provision (more days between water provision cycles) |
 |water_containers | Continuous | Average number of water containers per person available at the popular counsil level |
+|pop_density | Numeric | Population density (persons/km²) for that manzana/CMF, updated annually |
 |avg_temp | Numeric | average temperature (°C) for that manzana-month |
 |total_precip | Numeric | cummulative precipitation (mm) for that manzana-month | max_precip_daily
-|precip_max_day | Numeric | cummulative precipitation (mm/24h) for the day in that manzana-month with the highest precipitation | 
-|consec_rainy_days | Numeric | Maximum number of consecutive days with rain (> 1 mm) per month | 
+|precip_max_day | Numeric | cummulative precipitation (mm/24h) for the day in that manzana-month with the highest precipitation |
+|consec_rainy_days | Numeric | Maximum number of consecutive days with rain (> 1 mm) per month |
 |rel_hum | Numeric | average relative humidity (%) for that manzana-month |
+|hurricane_within_120km | Binary | 1 if a tropical storm or hurricane passed within 120 km of Cienfuegos in that month, 0 otherwise |
 
 <!-- |omega |	Numeric	| Reactive bias weight (calculated from C_bt) | -->
 
@@ -795,6 +797,53 @@ ggplot(dimob_cmfs, aes(x = as.numeric(area_m2))) +
   annotate("text", x = median_area_m2, y = Inf, 
            label = paste0("Median: ", round(median_area_m2, 0), " m²"), 
            hjust = -0.1, vjust = 4, color = "blue")
+```
+
+# Population density
+
+```{r load population density data}
+pop_file <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_ Demographic_Data/Calculated_Population by unit per year_Manzanas_CMFs_v04062026.xlsx"
+
+# ── CMF population density ──────────────────────────────────────────────────
+cmf_pop_raw <- read_excel(pop_file, sheet = "CMFs") %>%
+  mutate(
+    AS_CMF = paste0(trimws(Area), "_", trimws(CMF))
+  ) %>%
+  pivot_longer(
+    cols      = starts_with("Pop_"),
+    names_to  = "year",
+    values_to = "population"
+  ) %>%
+  mutate(year = as.integer(gsub("Pop_", "", year))) %>%
+  filter(year %in% 2016:2019)
+
+cmf_area_lookup <- st_drop_geometry(dimob_cmfs) %>%
+  select(AS_CMF, area_m2) %>%
+  mutate(area_km2 = as.numeric(area_m2) / 1e6)
+
+pop_density_cmf <- cmf_pop_raw %>%
+  left_join(cmf_area_lookup, by = "AS_CMF") %>%
+  mutate(pop_density = population / area_km2) %>%
+  select(AS_CMF, year, pop_density)
+
+# ── Manzana population density ───────────────────────────────────────────────
+mz_pop_raw <- read_excel(pop_file, sheet = "Manzanas") %>%
+  pivot_longer(
+    cols      = starts_with("Pop_"),
+    names_to  = "year",
+    values_to = "population"
+  ) %>%
+  mutate(year = as.integer(gsub("Pop_", "", year))) %>%
+  filter(year %in% 2016:2019)
+
+mz_area_lookup <- st_drop_geometry(dimob_manzanas) %>%
+  select(CODIGO_, area_m2) %>%
+  mutate(area_km2 = as.numeric(area_m2) / 1e6)
+
+pop_density_mz <- mz_pop_raw %>%
+  left_join(mz_area_lookup, by = c("CODIGO_DIMOB" = "CODIGO_")) %>%
+  mutate(pop_density = population / area_km2) %>%
+  select(CODIGO_DIMOB, year, pop_density)
 ```
 
 # Environmental data assembly
@@ -1598,6 +1647,11 @@ env_all <- env_all %>%
   rename(manzana = manzana_id, landcover = dominant_landcover) %>%
   arrange(year_month, manzana)
 
+env_all <- env_all %>%
+  mutate(year = as.integer(substr(year_month, 1, 4))) %>%
+  left_join(pop_density_mz, by = c("manzana" = "CODIGO_DIMOB", "year")) %>%
+  select(-year)
+
 cat("\nFinal environmental dataset dimensions:", nrow(env_all), "x", ncol(env_all), "\n")
 ```
 
@@ -1641,6 +1695,11 @@ env_all_cmf <- env_all_cmf %>%
 env_all_cmf <- env_all_cmf %>%
   rename(cmf = cmf_id, landcover = dominant_landcover) %>%
   arrange(year_month, cmf)
+
+env_all_cmf <- env_all_cmf %>%
+  mutate(year = as.integer(substr(year_month, 1, 4))) %>%
+  left_join(pop_density_cmf, by = c("cmf" = "AS_CMF", "year")) %>%
+  select(-year)
 
 cat("\nFinal environmental dataset dimensions:", nrow(env_all_cmf), "x", ncol(env_all_cmf), "\n")
 ```
@@ -1915,6 +1974,7 @@ ggsave(
   dpi = 300,
   bg = "white"
 )
+print(ndvi_plot)
 # visualize_missing_data(env_all, "mean_ndmi")
 # visualize_missing_data(env_all, "mean_ndwi")
 ```
@@ -2760,6 +2820,45 @@ cat(sprintf("precip_max_day = %.3f + %.3f * total_rainy_days\n",
 
 final_dataset_cmf_2015 <- final_dataset_cmf_2015 %>%
   mutate(precip_max_day_resid_on_trd = resid(resid_fit_2015))
+```
+
+```{r missing data heatmap 2015-2019 CMF}
+all_vars_2015 <- setdiff(colnames(final_dataset_cmf_2015),
+                         c("cmf", "year_month", "Inspected_houses",
+                           "Houses_pos_IS", "cases", "CP", "AREA"))
+
+n_cmfs_2015 <- length(unique(final_dataset_cmf_2015$cmf))
+
+missing_by_var_month_2015 <- final_dataset_cmf_2015 %>%
+  select(year_month, all_of(all_vars_2015)) %>%
+  group_by(year_month) %>%
+  summarise(across(everything(), ~sum(is.na(.))), .groups = "drop") %>%
+  pivot_longer(cols = -year_month, names_to = "variable", values_to = "missing_count") %>%
+  mutate(pct_missing = round(100 * missing_count / n_cmfs_2015, 1))
+
+ggplot(missing_by_var_month_2015,
+       aes(x = year_month, y = variable, fill = pct_missing)) +
+  geom_tile(color = "white", size = 0.5) +
+  scale_fill_gradient2(
+    low = "#4CAF50", mid = "#FFC107", high = "#F44336",
+    midpoint = 50, name = "% Missing", limits = c(0, 100)
+  ) +
+  labs(
+    title = "Missing Data Heatmap: Extended-lag CMF dataset (2015–2019)",
+    subtitle = paste0("Each cell shows % of ", n_cmfs_2015,
+                      " CMFs missing — 2015 rows have no NDVI/NDMI/NDWI or ento data"),
+    x = "Year-Month", y = "Variable"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 7),
+    axis.text.y = element_text(size = 9),
+    panel.grid = element_blank()
+  )
+ggsave(
+  filename = file.path(save_images_to, "missing_env_data_heatmap_CMF_2015_2019.png"),
+  width = 12, height = 6, dpi = 300
+)
 ```
 
 ```{r save extended-lag cmf dataset}

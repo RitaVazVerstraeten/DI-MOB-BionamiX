@@ -39,6 +39,7 @@ This document provides descriptive statistics for environmental variables used i
 |nr_aljibes | Numeric | Number of underground water cisternas within 20m of the manzana |
 |water_shortage | Binary | TRUE/FALSE value for whether/not manzanas have reduced water provision (more days between water provision cycles) |
 |water_containers | Count | Nnumber of water containers available per person (at CP level) |
+|pop_density | Numeric | Population density (persons/km²) for that manzana/CMF, updated annually |
 |avg_temp | Numeric | average temperature (°C) for that manzana-month |
 |total_precip | Numeric | cummulative precipitation (mm) for that manzana-month | max_precip_daily
 |precip_max_day | Numeric | cummulative precipitation (mm/24h) for the day in that manzana-month with the highest precipitation | 
@@ -190,7 +191,10 @@ ggsave(file.path(output_dir, "01_temporal_distributions.png"), p, width = 12, he
 
 ```{r temporal_by_month, fig.cap="Temporal variables by month - showing seasonal patterns", fig.width=14, fig.height=10}
 
-meteo_to_plot <- env_all %>%
+meteo_to_plot <- read_csv(
+    "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/all_environmental_data_per_manzana_2015_01_to_2019_12_noNDXI.csv",
+    show_col_types = FALSE
+  ) %>%
   mutate(year_month_date = as.Date(paste0(gsub("_", "-", as.character(year_month)), "-01")))
 
 # Plot 1: avg_temp with 95% CI
@@ -310,7 +314,7 @@ Variables that describe the spatial characteristics of locations. With 1,409 spa
 
 
 ```{r spatial_continuous_summary}
-continuous_spatial <- c("nr_aljibes", "water_containers")
+continuous_spatial <- c("nr_aljibes", "water_containers", "pop_density")
 
 # Get unique locations to understand spatial distribution
 spatial_unique <- env_all %>%
@@ -340,6 +344,120 @@ continuous_summary <- spatial_unique %>%
 knitr::kable(continuous_summary, digits = 2, caption = "Continuous Spatial Variables - Distribution Across 1,409 Manzanas")
 ```
 
+### Pop Density Outlier Analysis
+
+```{r pop_density_outliers}
+pd_data <- spatial_unique %>% select(manzana, pop_density) %>% drop_na()
+
+Q1          <- quantile(pd_data$pop_density, 0.25, na.rm = TRUE)
+Q3          <- quantile(pd_data$pop_density, 0.75, na.rm = TRUE)
+IQR_val     <- Q3 - Q1
+upper_fence <- Q3 + 1.5 * IQR_val
+lower_fence <- Q1 - 1.5 * IQR_val
+
+# Manzana area and identifier columns from shapefile
+mz_cols <- names(st_drop_geometry(manzanas))
+id_cols <- intersect(mz_cols, c("MZ", "AREA", "CMF", "NOMBRE", "NOM_CMF", "NOM_AREA"))
+
+mz_lookup <- manzanas %>%
+  mutate(manzana_area_km2 = as.numeric(st_area(geometry)) / 1e6) %>%
+  st_drop_geometry() %>%
+  select(CODIGO_, manzana_area_km2, all_of(id_cols)) %>%
+  distinct(CODIGO_, .keep_all = TRUE) %>%
+  rename(manzana = CODIGO_)
+
+outliers_mz <- pd_data %>%
+  filter(pop_density > upper_fence | pop_density < lower_fence) %>%
+  left_join(mz_lookup, by = "manzana") %>%
+  mutate(manzana_pop_count = round(pop_density * manzana_area_km2)) %>%
+  select(manzana, all_of(id_cols), pop_density, manzana_area_km2, manzana_pop_count) %>%
+  arrange(desc(pop_density))
+
+cat(sprintf("IQR method fences:  lower = %.1f,  upper = %.1f persons/km²\n",
+            lower_fence, upper_fence))
+cat(sprintf("Number of outlier manzanas: %d\n\n", nrow(outliers_mz)))
+
+knitr::kable(outliers_mz, digits = 2,
+             caption = "Population Density Outliers — manzana-level area and population estimates")
+```
+
+### CMF Level — Continuous Spatial Variables
+
+```{r load_env_cmf_data}
+env_all_cmf <- read_csv(
+  "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/all_environmental_data_per_cmf_2016_01_to_2019_12_imputed.csv",
+  show_col_types = FALSE
+)
+
+if ("year_month" %in% colnames(env_all_cmf)) {
+  env_all_cmf <- env_all_cmf %>% mutate(year_month = as.factor(year_month))
+}
+
+# Build CMF join key matching the cmf column in env_all_cmf (AS_CMF = paste(AS, CMF, "_"))
+cmfs_sf <- CMFs %>%
+  mutate(cmf = paste(AS, CMF, sep = "_"))
+```
+
+```{r cmf_spatial_continuous_summary}
+spatial_unique_cmf <- env_all_cmf %>%
+  select(cmf, all_of(continuous_spatial)) %>%
+  distinct(cmf, .keep_all = TRUE) %>%
+  drop_na()
+
+continuous_summary_cmf <- spatial_unique_cmf %>%
+  select(all_of(continuous_spatial)) %>%
+  summarise(
+    across(everything(),
+      list(
+        n_locations = ~n(),
+        Mean        = ~mean(., na.rm = TRUE),
+        SD          = ~sd(., na.rm = TRUE),
+        Min         = ~min(., na.rm = TRUE),
+        Median      = ~median(., na.rm = TRUE),
+        Max         = ~max(., na.rm = TRUE)
+      ),
+      .names = "{.col}_{.fn}"
+    )
+  ) %>%
+  pivot_longer(everything(), names_to = "Statistic", values_to = "Value") %>%
+  separate(Statistic, into = c("Variable", "Stat"), sep = "_(?=n_locations|Mean|SD|Min|Median|Max)") %>%
+  pivot_wider(names_from = "Stat", values_from = "Value")
+
+knitr::kable(continuous_summary_cmf, digits = 2,
+             caption = "Continuous Spatial Variables - Distribution Across CMFs")
+```
+
+### Pop Density Outlier Analysis (CMF level)
+
+```{r cmf_pop_density_outliers}
+pd_data_cmf   <- spatial_unique_cmf %>% select(cmf, pop_density) %>% drop_na()
+
+Q1_c          <- quantile(pd_data_cmf$pop_density, 0.25, na.rm = TRUE)
+Q3_c          <- quantile(pd_data_cmf$pop_density, 0.75, na.rm = TRUE)
+IQR_c         <- Q3_c - Q1_c
+upper_fence_c <- Q3_c + 1.5 * IQR_c
+lower_fence_c <- Q1_c - 1.5 * IQR_c
+
+cmf_area_lookup <- cmfs_sf %>%
+  mutate(cmf_area_km2 = as.numeric(st_area(geometry)) / 1e6) %>%
+  st_drop_geometry() %>%
+  select(cmf, cmf_area_km2) %>%
+  distinct(cmf, .keep_all = TRUE)
+
+outliers_cmf <- pd_data_cmf %>%
+  filter(pop_density > upper_fence_c | pop_density < lower_fence_c) %>%
+  left_join(cmf_area_lookup, by = "cmf") %>%
+  mutate(cmf_pop_count = round(pop_density * cmf_area_km2)) %>%
+  arrange(desc(pop_density))
+
+cat(sprintf("IQR method fences:  lower = %.1f,  upper = %.1f persons/km²\n",
+            lower_fence_c, upper_fence_c))
+cat(sprintf("Number of outlier CMFs: %d\n\n", nrow(outliers_cmf)))
+
+knitr::kable(outliers_cmf, digits = 2,
+             caption = "Population Density Outliers — CMF-level area and population estimates")
+```
+
 ## Binary Spatial Variables
 
 ```{r binary_spatial_summary}
@@ -366,6 +484,31 @@ binary_summary <- env_all %>%
 knitr::kable(binary_summary, digits = 1, caption = "Descriptive Statistics - Binary Spatial Variables")
 ```
 
+### CMF Level — Binary Spatial Variables
+
+```{r cmf_binary_spatial_summary}
+binary_summary_cmf <- env_all_cmf %>%
+  select(all_of(binary_spatial)) %>%
+  drop_na() %>%
+  summarise(
+    across(everything(),
+      list(
+        Total_n     = ~n(),
+        Count_TRUE  = ~sum(. == TRUE, na.rm = TRUE),
+        Count_FALSE = ~sum(. == FALSE, na.rm = TRUE),
+        Pct_TRUE    = ~sum(. == TRUE, na.rm = TRUE) / n() * 100
+      ),
+      .names = "{.col}_{.fn}"
+    )
+  ) %>%
+  pivot_longer(everything(), names_to = "Statistic", values_to = "Value") %>%
+  separate(Statistic, into = c("Variable", "Stat"), sep = "_(?=Total_n|Count_TRUE|Count_FALSE|Pct_TRUE)") %>%
+  pivot_wider(names_from = "Stat", values_from = "Value")
+
+knitr::kable(binary_summary_cmf, digits = 1,
+             caption = "Descriptive Statistics - Binary Spatial Variables (CMF level)")
+```
+
 ## Categorical Spatial Variables
 
 ```{r categorical_spatial_summary}
@@ -383,6 +526,24 @@ categorical_summary <- env_all %>%
   arrange(desc(Count))
 
 knitr::kable(categorical_summary, digits = 1, caption = "Descriptive Statistics - Landcover (Categorical)")
+```
+
+### CMF Level — Categorical Spatial Variables
+
+```{r cmf_categorical_spatial_summary}
+categorical_summary_cmf <- env_all_cmf %>%
+  select(all_of(categorical_spatial)) %>%
+  drop_na() %>%
+  group_by(landcover) %>%
+  summarise(
+    Count      = n(),
+    Percentage = n() / nrow(env_all_cmf %>% select(all_of(categorical_spatial)) %>% drop_na()) * 100,
+    .groups    = "drop"
+  ) %>%
+  arrange(desc(Count))
+
+knitr::kable(categorical_summary_cmf, digits = 1,
+             caption = "Descriptive Statistics - Landcover (Categorical) — CMF level")
 ```
 
 
@@ -516,6 +677,25 @@ p <- ggplot() +
 print(p)
 ggsave(file.path(output_dir, "10_spatial_map_nr_water_containers.png"), p, width = 10, height = 8, dpi = 300)
 ```
+
+```{r spatial_map_pop_density_manzana, fig.cap="Population density per manzana (2016, log scale)", fig.width=10, fig.height=8}
+p_pd_mz <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = manzanas_spatial %>% filter(!is.na(pop_density)),
+          aes(fill = log10(pop_density + 1)), color = "gray30", size = 0.1) +
+  scale_fill_viridis_c(option = "viridis", na.value = "white",
+                       labels = function(x) scales::comma(round(10^x))) +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = "Population Density per Manzana (2016, log scale)",
+       fill = "Persons/km²\n(log scale)")
+
+print(p_pd_mz)
+ggsave(file.path(output_dir, "10b_spatial_map_pop_density_manzana.png"), p_pd_mz, width = 10, height = 8, dpi = 300)
+```
+
 ```{r spatial_maps_categorical, fig.cap="Spatial distribution of landcover types across manzanas", fig.width=10, fig.height=8}
 # Map for categorical variable (landcover)
 p <- ggplot(manzanas_spatial) +
@@ -533,6 +713,141 @@ p <- ggplot(manzanas_spatial) +
 
 print(p)
 ggsave(file.path(output_dir, "11_spatial_map_landcover.png"), p, width = 10, height = 8, dpi = 300)
+```
+
+### CMF Level — Visualizations
+
+```{r cmf_spatial_maps_prep}
+spatial_map_data_cmf <- env_all_cmf %>%
+  select(cmf, all_of(c(binary_spatial, continuous_spatial, categorical_spatial))) %>%
+  distinct(cmf, .keep_all = TRUE)
+
+cmfs_spatial <- cmfs_sf %>%
+  left_join(spatial_map_data_cmf, by = "cmf")
+```
+
+```{r cmf_spatial_binary_barplot, fig.cap="Binary spatial variables frequency at CMF level"}
+binary_data_long_cmf <- env_all_cmf %>%
+  select(all_of(binary_spatial)) %>%
+  drop_na() %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Value") %>%
+  group_by(Variable, Value) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  mutate(Percentage = paste0(round(Count / sum(Count) * 100, 1), "%"), .by = Variable)
+
+p <- ggplot(binary_data_long_cmf, aes(x = Variable, y = Count, fill = Value)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = Percentage), position = position_dodge(width = 0.9), vjust = -0.5, size = 3.5) +
+  theme_minimal() +
+  labs(title = "Binary Spatial Variables Distribution among CMFs",
+       x = "Variable", y = "Count", fill = "Value") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(p)
+ggsave(file.path(output_dir, "03b_cmf_spatial_binary_barplot.png"), p, width = 10, height = 6, dpi = 300)
+```
+
+```{r cmf_spatial_categorical_barplot, fig.cap="Landcover distribution at CMF level"}
+landcover_data_cmf <- env_all_cmf %>%
+  select(landcover) %>%
+  drop_na() %>%
+  group_by(landcover) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  mutate(Percentage = paste0(round(Count / sum(Count) * 100, 1), "%"))
+
+p <- ggplot(landcover_data_cmf, aes(x = reorder(landcover, -Count), y = Count, fill = landcover)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Percentage), vjust = -0.5, size = 3.5) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Landcover Distribution among CMFs", x = "Landcover Type", y = "Count")
+print(p)
+ggsave(file.path(output_dir, "04b_cmf_spatial_categorical_barplot.png"), p, width = 12, height = 6, dpi = 300)
+```
+
+```{r cmf_spatial_maps_binary, fig.cap="Spatial distribution of binary variables across CMFs", fig.width=14, fig.height=12}
+binary_plots_cmf <- list()
+
+for (var in binary_spatial) {
+  p <- ggplot() +
+    geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+    geom_sf(data = cmfs_spatial, aes(fill = !!sym(var)), color = "gray30", size = 0.2) +
+    scale_fill_manual(values = c("TRUE" = "steelblue", "FALSE" = "gray90"),
+                      na.value = "white",
+                      labels = c("TRUE" = "Yes", "FALSE" = "No")) +
+    theme_minimal() +
+    theme(axis.text = element_blank(), axis.ticks = element_blank(),
+          panel.grid = element_blank(),
+          plot.title = element_text(face = "bold", size = 11)) +
+    labs(title = var, fill = "")
+  binary_plots_cmf[[var]] <- p
+}
+
+combined_binary_cmf <- cowplot::plot_grid(plotlist = binary_plots_cmf, nrow = 2, ncol = 3)
+print(combined_binary_cmf)
+ggsave(file.path(output_dir, "08b_cmf_spatial_maps_binary.png"), combined_binary_cmf, width = 20, height = 10, dpi = 300)
+```
+
+```{r cmf_spatial_map_nr_aljibes, fig.cap="Spatial distribution of nr_aljibes across CMFs", fig.width=10, fig.height=8}
+p <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = cmfs_spatial %>% filter(!is.na(nr_aljibes) & nr_aljibes == 0),
+          fill = "gray70", color = "gray30", size = 0.2) +
+  geom_sf(data = cmfs_spatial %>% filter(!is.na(nr_aljibes) & nr_aljibes > 0),
+          aes(fill = nr_aljibes), color = "gray30", size = 0.2) +
+  scale_fill_viridis_c(option = "viridis", na.value = "white") +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = "Number of Aljibes per CMF", fill = "Count")
+print(p)
+ggsave(file.path(output_dir, "09b_cmf_spatial_map_nr_aljibes.png"), p, width = 10, height = 8, dpi = 300)
+```
+
+```{r cmf_spatial_map_water_containers, fig.cap="Spatial distribution of water containers across CMFs", fig.width=10, fig.height=8}
+p <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = cmfs_spatial %>% filter(!is.na(water_containers)),
+          aes(fill = log1p(water_containers)), color = "gray30", size = 0.2) +
+  scale_fill_viridis_c(option = "viridis", na.value = "white") +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = "Number of water storage containers per CMF", fill = "Log of count")
+print(p)
+ggsave(file.path(output_dir, "10c_cmf_spatial_map_nr_water_containers.png"), p, width = 10, height = 8, dpi = 300)
+```
+
+```{r cmf_spatial_map_pop_density, fig.cap="Population density per CMF (log scale)", fig.width=10, fig.height=8}
+p_pd_cmf <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = cmfs_spatial %>% filter(!is.na(pop_density)),
+          aes(fill = log10(pop_density + 1)), color = "gray30", size = 0.2) +
+  scale_fill_viridis_c(option = "viridis", na.value = "white",
+                       labels = function(x) scales::comma(round(10^x))) +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = "Population Density per CMF (log scale)", fill = "Persons/km²\n(log scale)")
+print(p_pd_cmf)
+ggsave(file.path(output_dir, "10d_cmf_spatial_map_pop_density.png"), p_pd_cmf, width = 10, height = 8, dpi = 300)
+```
+
+```{r cmf_spatial_map_landcover, fig.cap="Spatial distribution of landcover types across CMFs", fig.width=10, fig.height=8}
+p <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = cmfs_spatial, aes(fill = landcover), color = "gray30", size = 0.2) +
+  scale_fill_brewer(palette = "Set3", na.value = "white") +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12),
+        legend.position = "bottom") +
+  labs(title = "Landcover Distribution across CMFs", fill = "Landcover Type")
+print(p)
+ggsave(file.path(output_dir, "11b_cmf_spatial_map_landcover.png"), p, width = 10, height = 8, dpi = 300)
 ```
 
 ---
@@ -692,7 +1007,7 @@ Quick overview of correlations between all environmental numeric variables.
 Using the Spearman correlation instead of the Pearson correlation we don't make any assumptions about linearity in the relation between variables. Booth et al. (1994) suggest that anything above ± 0.5 indicates high collinearity
 
 ### Correlations in numerical data - raw
-NDVI, NDMI, NDWI, Temp, Precip, RH, Windspeed, nr of aljibes, water_containers
+NDVI, NDMI, NDWI, Temp, Precip, RH, Windspeed, nr of aljibes, water_containers, pop_density
 
 ```{r numeric_vars_correlation}
 all_numeric <- c(temporal_vars, continuous_spatial, spatiotemporal_vars)
@@ -933,7 +1248,7 @@ Re-check the correlation plot with the new variable.
 all_numeric <- c(all_numeric, "precip_max_day_resid", "precip_max_day_resid_on_trd")
 
 # remove the original variables causing issues with collinearity 
-all_numeric_no_colin <- all_numeric[!all_numeric %in% c("precip_max_day", "mean_ndmi", "mean_ndwi", "WS2M", "rel_hum")]
+all_numeric_no_colin <- all_numeric[!all_numeric %in% c("precip_max_day", "mean_ndmi", "mean_ndwi", "rel_hum")]
 
 correlation_data <- env_all %>%
   select(all_of(all_numeric_no_colin)) %>%
@@ -1637,6 +1952,34 @@ if (exists("env_epi_ento_CMF") && exists("CMFs")) {
 }
 ```
 
+### Population Density Map (CMF level)
+
+```{r spatial_map_pop_density_cmf, fig.cap="Population density per CMF (avg 2016–2019, log scale)", fig.width=10, fig.height=8}
+cmf_pd_avg <- env_epi_ento_CMF %>%
+  group_by(cmf) %>%
+  summarise(pop_density = mean(pop_density, na.rm = TRUE), .groups = "drop")
+
+cmfs_pd_map <- CMFs %>%
+  mutate(Area_CMF = paste(AS, CMF, sep = "_")) %>%
+  left_join(cmf_pd_avg, by = c("Area_CMF" = "cmf"))
+
+p_pd_cmf_map <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", linewidth = 0.8) +
+  geom_sf(data = cmfs_pd_map,
+          aes(fill = log10(pop_density)), color = "gray40", linewidth = 0.2) +
+  scale_fill_viridis_c(option = "viridis", na.value = "grey90",
+                       labels = function(x) scales::comma(round(10^x))) +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = "Population Density per CMF (avg 2016–2019, log scale)",
+       fill = "Persons/km²\n(log scale)")
+
+print(p_pd_cmf_map)
+ggsave(file.path(output_dir, "17b_spatial_map_pop_density_cmf.png"),
+       p_pd_cmf_map, width = 11, height = 9, dpi = 300)
+```
 
 ## Temporal autocorrelation
 
@@ -3213,7 +3556,7 @@ manzana_outcome <- env_epi_ento %>%
   )
 
 # 2) One row per manzana for spatial predictors
-spatial_vars <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage","landcover", "nr_aljibes", "water_containers")
+spatial_vars <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage","landcover", "nr_aljibes", "water_containers", "pop_density")
 
 manzana_spatial <- env_all %>%
   select(manzana, all_of(spatial_vars)) %>%
@@ -3356,11 +3699,26 @@ ggsave(file.path(output_dir, "23_water_containers_vs_positivity.png"), p_wc, wid
 # Spearman correlation
 cor(wc_df$water_containers, wc_df$Positivity_Rate, method = "spearman")
 
-# Combine both plots in a 1x2 grid
+pd_df <- spatial_df %>%
+  filter(!is.na(pop_density), !is.na(Positivity_Rate))
+
+p_pd <- ggplot(pd_df, aes(x = pop_density, y = Positivity_Rate)) +
+  geom_point(alpha = 0.6, color = "darkred") +
+  theme_minimal() +
+  labs(title = "Positivity vs population density - manzanas",
+       x = "Population density (persons/km²)",
+       y = "Positivity rate (%)")
+
+print(p_pd)
+ggsave(file.path(output_dir, "25_pop_density_vs_positivity.png"), p_pd, width = 10, height = 6, dpi = 300)
+
+cor(pd_df$pop_density, pd_df$Positivity_Rate, method = "spearman")
+
+# Combine into a 1x3 grid
 library(cowplot)
-combined_numeric_spatial <- cowplot::plot_grid(p_alj, p_wc, nrow = 1, ncol = 2, labels = c("A", "B"))
+combined_numeric_spatial <- cowplot::plot_grid(p_alj, p_wc, p_pd, nrow = 1, ncol = 3, labels = c("A", "B", "C"))
 print(combined_numeric_spatial)
-ggsave(file.path(output_dir, "24_numeric_spatial_vs_positivity_combined.png"), combined_numeric_spatial, width = 18, height = 7, dpi = 300)
+ggsave(file.path(output_dir, "24_numeric_spatial_vs_positivity_combined.png"), combined_numeric_spatial, width = 27, height = 7, dpi = 300)
 ```
 Again, the Kruskal-wallis test shows that my ordinal 
 
@@ -3608,7 +3966,7 @@ cmf_outcome <- env_epi_ento_CMF %>%
   )
 
 # 2) One row per CMF for spatial predictors
-spatial_vars_cmf <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage", "landcover", "nr_aljibes", "water_containers")
+spatial_vars_cmf <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage", "landcover", "nr_aljibes", "water_containers", "pop_density")
 
 spatial_source_cmf <- if (exists("env_all_CMF")) env_all_CMF else env_epi_ento_CMF
 
@@ -3747,9 +4105,24 @@ ggsave(file.path(output_dir, "23_cmf_containers_vs_positivity.png"), p_wc_cmf, w
 
 cor(wc_df_cmf$water_containers, wc_df_cmf$Positivity_Rate, method = "spearman")
 
-combined_numeric_spatial_cmf <- cowplot::plot_grid(p_alj_cmf, p_wc_cmf, nrow = 1, ncol = 2, labels = c("A", "B"))
+pd_df_cmf <- spatial_df_cmf %>%
+  filter(!is.na(pop_density), !is.na(Positivity_Rate))
+
+p_pd_cmf <- ggplot(pd_df_cmf, aes(x = pop_density, y = Positivity_Rate)) +
+  geom_point(alpha = 0.6, color = "darkred") +
+  theme_minimal() +
+  labs(title = "Positivity vs population density - CMFs",
+       x = "Population density (persons/km²)",
+       y = "Positivity rate (%)")
+
+print(p_pd_cmf)
+ggsave(file.path(output_dir, "25_cmf_pop_density_vs_positivity.png"), p_pd_cmf, width = 10, height = 6, dpi = 300)
+
+cor(pd_df_cmf$pop_density, pd_df_cmf$Positivity_Rate, method = "spearman")
+
+combined_numeric_spatial_cmf <- cowplot::plot_grid(p_alj_cmf, p_wc_cmf, p_pd_cmf, nrow = 1, ncol = 3, labels = c("A", "B", "C"))
 print(combined_numeric_spatial_cmf)
-ggsave(file.path(output_dir, "24_cmf_numeric_spatial_vs_positivity_combined.png"), combined_numeric_spatial_cmf, width = 18, height = 7, dpi = 300)
+ggsave(file.path(output_dir, "24_cmf_numeric_spatial_vs_positivity_combined.png"), combined_numeric_spatial_cmf, width = 27, height = 7, dpi = 300)
 ```
 
 #### Spatio-temporal variables (NDXI's, CMF)
