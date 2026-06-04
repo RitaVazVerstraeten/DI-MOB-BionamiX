@@ -15,7 +15,7 @@
 # ---------------------------------------------------------------------------
 # SWEEP SETTINGS — adjust as needed
 # ---------------------------------------------------------------------------
-max_lag_values    <- c(1, 2, 5, 6, 12)       # lag values to test
+max_lag_values    <- c(1, 2, 6, 12)       # lag values to test
 lag_sweep_subdir  <- "lag_tests_"         # subdirectory appended to cfg$output_dir
 
 stan_output_dir <- if (Sys.info()["nodename"] == "frietjes") {
@@ -25,16 +25,26 @@ stan_output_dir <- if (Sys.info()["nodename"] == "frietjes") {
 }
 lag_tests_dir <- file.path(stan_output_dir, lag_sweep_subdir)
 
-# Path to the Stan model script (assumed to be in the same directory as this script)
+# Resolve the directory containing this sweep script, works for both
+# Rscript run_maxlag_sweep.r  and  source("run_maxlag_sweep.r")
 `%||%` <- function(a, b) if (!is.null(a)) a else b
-stan_script <- file.path(dirname(sys.frame(1)$ofile %||% "."), "Hierarch_StateSpace_Entomo_model.r")
-if (!file.exists(stan_script)) {
-  stan_script <- "Hierarch_StateSpace_Entomo_model.r"
-}
-if (!file.exists(stan_script)) {
-  stop("Hierarch_StateSpace_Entomo_model.r not found. Run this script from the same ",
-       "directory, or set the stan_script path explicitly above.")
-}
+sweep_dir <- tryCatch({
+  # Rscript --file= path (most reliable for Rscript invocation)
+  args     <- commandArgs(trailingOnly = FALSE)
+  file_arg <- grep("--file=", args, value = TRUE)
+  if (length(file_arg)) dirname(normalizePath(sub("--file=", "", file_arg[1])))
+  else stop("no --file= arg")
+}, error = function(e) tryCatch({
+  # source() inside an R session
+  ofile <- sys.frame(1)$ofile
+  if (!is.null(ofile) && nzchar(ofile)) dirname(normalizePath(ofile))
+  else stop("no ofile")
+}, error = function(e2) getwd()))
+
+stan_script <- file.path(sweep_dir, "Hierarch_StateSpace_Entomo_model.r")
+if (!file.exists(stan_script))
+  stop("Hierarch_StateSpace_Entomo_model.r not found in ", sweep_dir,
+       "\nRun:  cd ", sweep_dir, " && Rscript run_maxlag_sweep.r")
 
 # ---------------------------------------------------------------------------
 # Read the Stan model script once; patch per iteration
@@ -90,7 +100,23 @@ for (i in seq_along(max_lag_values)) {
     perl        = TRUE
   )
 
-  # -- Patch 3: don't recompile on every iteration ----------------------------
+  # -- Patch 3: disable memory-heavy plotting in the sweep --------------------
+  # Plotting loads ALL posterior draws back into RAM simultaneously:
+  #   y_pred[N=7152, 6000 draws] ~343 MB  +  p_bt_out ~343 MB  +  v_cmf_out ~432 MB
+  # This malloc at the C level kills the session (not caught by tryCatch).
+  # LOO/WAIC are sufficient for model comparison; plots can be run separately
+  # on the winning model.
+  for (plot_flag in c("plot_ppc", "plot_timeseries", "plot_morans_I",
+                      "plot_random_effects", "plot_traceplots")) {
+    patched <- gsub(
+      pattern     = paste0(plot_flag, "\\s*=\\s*(TRUE|FALSE)"),
+      replacement = paste0(plot_flag, " = FALSE"),
+      x           = patched,
+      perl        = TRUE
+    )
+  }
+
+  # -- Patch 4: don't recompile on every iteration ----------------------------
   # The Stan model structure is identical across all lag values; only the data
   # changes. Recompiling each iteration overwrites the compiled binary while the
   # previous iteration's mod object may still hold a reference, causing a crash.
@@ -106,6 +132,17 @@ for (i in seq_along(max_lag_values)) {
   tmp_file <- tempfile(pattern = sprintf("stan_lag%d_", lag_val), fileext = ".r")
   writeLines(patched, tmp_file)
   on.exit(unlink(tmp_file), add = TRUE)
+
+  # -- Free memory from the previous iteration before starting Stan -------------
+  # fit holds 4-chain draws for v_raw[B,T] alone (~54M numbers for 150 blocks ×
+  # 60 months × 6000 draws). Keeping it in memory while Stan allocates the next
+  # run causes OOM crashes. Explicitly remove and GC before each new iteration.
+  for (obj in c("fit", "stan_data", "prep", "mod")) {
+    if (exists(obj, envir = .GlobalEnv)) {
+      rm(list = obj, envir = .GlobalEnv)
+    }
+  }
+  invisible(gc(verbose = FALSE))
 
   # -- Run the patched script ---------------------------------------------------
   t_start <- proc.time()
