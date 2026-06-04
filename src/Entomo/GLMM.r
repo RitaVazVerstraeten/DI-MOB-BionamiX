@@ -23,11 +23,11 @@ cfg <- list(
   spatial_level = "CMF",
 
   # Random effects to include
-  include_block_re     = FALSE,  # Random intercept for block (spatial)
-  include_time_re      = TRUE,   # Random intercept for time (temporal)
-  include_ar1_temporal = FALSE,  # AR(1) temporal autocorrelation (within group)
+  include_block_re     = TRUE,  # Random intercept for block (spatial)
+  include_time_re      = FALSE,   # Random intercept for time (temporal)
+  include_ar1_temporal = TRUE,  # AR(1) temporal autocorrelation (within group)
   ar1_group            = "block", # "block" (within-block AR1) or "global"
-  include_spatial_ar   = TRUE,   # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
+  include_spatial_ar   = FALSE,   # Exponential spatial autocorrelation: exp(xy + 0 | spatial)
   # include_spatial_ar = TRUE,   # Matérn spatial autocorrelation: mat(xy + 0 | spatial)
 
   # Link function for beta-binomial GLMM
@@ -38,9 +38,11 @@ cfg <- list(
   # unlagged_vars: variables entered directly without lag
   # numeric_vars : continuous variables to z-score standardize
   #                (exclude factors, binary 0/1, and already-factored variables)
-  lag_vars      = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),
-  unlagged_vars = c("is_urban", "is_WUI", "is_WI","has_aljibes", "water_containers"),
-  numeric_vars  = c("total_rainy_days", "precip_max_day_resid_on_trd", "avg_VPD"),
+  lag_vars      = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd", "hurricane_within_120km"),
+
+  unlagged_vars = c("is_urban", "is_WUI", "is_WI","has_aljibes", "water_containers", "water_shortage", "pop_density"),
+  # unlagged_vars = c("is_urban", "is_WUI", "is_WI","has_aljibes", "water_containers"),
+  numeric_vars  = c("total_rainy_days", "precip_max_day_resid_on_trd", "avg_VPD", "water_containers", "pop_density"),
 
   # Interaction terms (NULL = none)
   # Each element is a character vector of exactly 2 variable names (column names
@@ -447,6 +449,15 @@ required_cols <- unique(c(
 missing_required <- setdiff(required_cols, names(df_expanded))
 if (length(missing_required) > 0) {
   stop("Missing required columns for model fit: ", paste(missing_required, collapse = ", "))
+}
+
+na_counts <- sort(sapply(required_cols, function(col) sum(is.na(df_expanded[[col]]))), decreasing = TRUE)
+na_counts <- na_counts[na_counts > 0]
+if (length(na_counts) > 0) {
+  cat("NA counts in required columns:\n")
+  print(na_counts)
+} else {
+  cat("No NAs found in required columns.\n")
 }
 
 keep_rows <- complete.cases(df_expanded[, required_cols, drop = FALSE])

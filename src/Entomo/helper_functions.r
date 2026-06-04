@@ -153,8 +153,8 @@ prepare_unlagged <- function(df, unlagged_vars, binary_unlagged_vars) {
 #' @param x Numeric matrix to standardize
 #' @return Standardized matrix with same dimensions as input
 standardize_matrix <- function(x) {
-  m <- colMeans(x)
-  s <- apply(x, 2, sd)
+  m <- colMeans(x, na.rm = TRUE)
+  s <- apply(x, 2, sd, na.rm = TRUE)
   s[s == 0 | is.na(s)] <- 1
   scale(x, center = m, scale = s)
 }

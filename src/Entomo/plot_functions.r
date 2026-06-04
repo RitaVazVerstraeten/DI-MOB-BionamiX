@@ -649,27 +649,32 @@ NULL
 #' @return NULL (saves plot to PNG file)
 save_random_effects <- function(u_post, v_post, output_dir, run_suffix) {
   png(file.path(output_dir, paste0("random_effects_", run_suffix, ".png")), width = 1000, height = 800)
+  on.exit(dev.off(), add = TRUE)
   par(mfrow = c(2, 2))
 
-  hist(u_post, breaks = 50, main = "Distribution of Spatial Random Effects (u_b)",
-       xlab = "Effect", col = "lightblue", border = "white")
-  abline(v = 0, lty = 2, col = "red", lwd = 2)
+  u_valid <- u_post[!is.na(u_post)]
+  if (length(u_valid) > 1) {
+    hist(u_valid, breaks = min(50, length(u_valid)), main = "Distribution of Spatial Random Effects (u_b)",
+         xlab = "Effect", col = "lightblue", border = "white")
+    abline(v = 0, lty = 2, col = "red", lwd = 2)
+    qqnorm(u_valid, main = "Q-Q Plot: Spatial Effects", pch = 19, cex = 0.5, col = "blue")
+    qqline(u_valid, col = "red", lwd = 2)
+  } else {
+    plot.new(); text(0.5, 0.5, "Spatial RE disabled\n(block RE not in model)", cex = 1.2)
+    plot.new(); text(0.5, 0.5, "Spatial Q-Q unavailable", cex = 1.2)
+  }
 
-  qqnorm(u_post, main = "Q-Q Plot: Spatial Effects", pch = 19, cex = 0.5, col = "blue")
-  qqline(u_post, col = "red", lwd = 2)
-
-  if (!all(is.na(v_post))) {
+  if (!all(is.na(v_post)) && length(v_post) > 1) {
     plot(v_post, type = "b", main = "Temporal Random Effects (v_t) with AR(1)",
          xlab = "Time", ylab = "Effect", col = "red", pch = 19)
     abline(h = 0, lty = 2, col = "gray")
     acf(v_post, main = "ACF of Temporal Effects", col = "darkred")
   } else {
-    plot.new(); text(0.5, 0.5, "Temporal RE disabled\n(no v_time_out in model)")
-    plot.new(); text(0.5, 0.5, "ACF unavailable\n(temporal RE disabled)")
+    plot.new(); text(0.5, 0.5, "Temporal RE disabled\n(no v_time_out in model)", cex = 1.2)
+    plot.new(); text(0.5, 0.5, "ACF unavailable\n(temporal RE disabled)", cex = 1.2)
   }
 
   par(mfrow = c(1, 1))
-  dev.off()
 }
 
 #' Save Posterior Predictive Check Plot
