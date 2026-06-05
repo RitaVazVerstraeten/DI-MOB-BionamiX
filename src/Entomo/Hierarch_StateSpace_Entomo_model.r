@@ -174,6 +174,9 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
          "_lag", cfg$max_lag, "_k", cfg$kappa, "_", n_block_suffix)
 }
 model_spec <- paste0(spatial_level, "_", model_spec)
+if (isTRUE(cfg$fix_delta1)) {
+  model_spec <- paste0(model_spec, "_delta1fix", cfg$delta1_fixed)
+}
 predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("dlnm-", paste(cfg$dlnm_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
