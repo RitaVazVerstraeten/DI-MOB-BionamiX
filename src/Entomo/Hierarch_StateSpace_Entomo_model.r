@@ -92,7 +92,7 @@ cfg <- list(
   lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),
   # lag_vars = c("total_rainy_days", "avg_VPD"),
 
-  max_lag = 12,
+  max_lag = 6,
   kappa = 2,
 
   unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers"),
