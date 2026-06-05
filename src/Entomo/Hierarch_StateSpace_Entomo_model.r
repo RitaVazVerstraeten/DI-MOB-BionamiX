@@ -93,7 +93,7 @@ cfg <- list(
   # lag_vars = c("total_rainy_days", "avg_VPD"),
 
   max_lag = 6,
-  kappa = 0,
+  kappa = 2,
 
   unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers"),
 
@@ -117,6 +117,12 @@ cfg <- list(
   adapt_delta = 0.97, # target average acceptance probability for the NUTS sampler in stan
   max_treedepth = 10, # caps how many steps the NUTS sampler can take in a single iteration.
   parallel_chains = if (hostname == "frietjes") 4 else 1,
+
+  # delta1: set fix_delta1 = TRUE to fix the reactive detection boost at delta1_fixed value.
+  # Use delta1_fixed = 0 to disable reactive detection enhancement entirely.
+  # Only applies to the DLNM + perCMF + blockRE variant (selects the _delta1fixed Stan file).
+  fix_delta1  = TRUE,
+  delta1_fixed = 0,
 
   # phi: set fix_phi = TRUE to pass phi as data (fixed); FALSE to estimate it
   fix_phi = FALSE,
@@ -195,7 +201,10 @@ cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_icar)) {
     file.path(stan_dir, "hierarchical_state_space_AR_perCMF_ICAR_DLNM.stan")
   } else if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_block_dev)) {
-    file.path(stan_dir, "hierarchical_state_space_AR_perCMF_blockRE_DLNM.stan")
+    if (isTRUE(cfg$fix_delta1))
+      file.path(stan_dir, "hierarchical_state_space_AR_perCMF_blockRE_DLNM_delta1fixed.stan")
+    else
+      file.path(stan_dir, "hierarchical_state_space_AR_perCMF_blockRE_DLNM.stan")
   } else {
     file.path(stan_dir, "hierarchical_state_space_blockRE_DLNM.stan")
   }
@@ -412,6 +421,12 @@ if (isTRUE(cfg$fix_phi)) {
 }
 
        
+# Pass delta1 as data when fix_delta1 = TRUE (uses the _delta1fixed Stan file)
+if (isTRUE(cfg$fix_delta1)) {
+  stan_data$delta1 <- cfg$delta1_fixed
+  cat(sprintf("delta1 fixed at %.4f (reactive detection boost disabled)\n", cfg$delta1_fixed))
+}
+
 # Always pass fix_phi flag; pass phi_data (used only when fix_phi = TRUE)
 stan_data$fix_phi <- as.integer(isTRUE(cfg$fix_phi))
 if (isTRUE(cfg$fix_phi)) {
