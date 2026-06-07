@@ -93,7 +93,7 @@ cfg <- list(
   # lag_vars = c("total_rainy_days", "avg_VPD"),
 
   max_lag = 6,
-  kappa = 2,
+  kappa = 4,
 
   unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers"),
 
@@ -121,7 +121,7 @@ cfg <- list(
   # delta1: set fix_delta1 = TRUE to fix the reactive detection boost at delta1_fixed value.
   # Use delta1_fixed = 0 to disable reactive detection enhancement entirely.
   # Only applies to the DLNM + perCMF + blockRE variant (selects the _delta1fixed Stan file).
-  fix_delta1  = TRUE,
+  fix_delta1  = FALSE,
   delta1_fixed = 0,
 
   # phi: set fix_phi = TRUE to pass phi as data (fixed); FALSE to estimate it
@@ -529,7 +529,7 @@ fit <- mod$sample(
 invisible(file.remove(list.files(run_output_dir, pattern = "_(config|metric)\\.json$", full.names = TRUE)))
 
 # ======================= make model summary ============================
-summary_vars <- c("alpha", "delta1", if (isTRUE(cfg$use_dlnm)) "w_cb" else "w", "w_unlagged")
+summary_vars <- c("alpha", if (!isTRUE(cfg$fix_delta1)) "delta1", if (isTRUE(cfg$use_dlnm)) "w_cb" else "w", "w_unlagged")
 if (isTRUE(cfg$use_time_RE)) {
   summary_vars <- c(summary_vars, "sigma_time", "sigma_block")
 } else {
