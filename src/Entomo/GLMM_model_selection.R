@@ -2,6 +2,7 @@
 library(glmmTMB)
 library(tidyverse)
 library(sf)
+library(parallel)
 
 source("helper_functions.r")
 
@@ -57,7 +58,11 @@ cfg <- list(
   output_dir = "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM/model_selection",
 
   iter_max = 1000,
-  eval_max = 1500
+  eval_max = 1500,
+
+  # Parallel leave-one-out: number of cores for mclapply (Linux/SSH only).
+  # Set to 1 to disable parallelism. detectCores() - 1 is a safe default.
+  n_cores = parallel::detectCores() - 1
 )
 
 # Derived spatial fields
@@ -252,22 +257,27 @@ writeLines(c(paste0("Formula: ", formula_str), "", summary_output_full),
            file.path(sel_model_dir, "model_summary_full.txt"))
 
 # =============================================================================
-# 7. LEAVE-ONE-OUT SELECTION LOOP
+# 7. LEAVE-ONE-OUT SELECTION (PARALLEL)
 # =============================================================================
 candidates <- setdiff(fixed_effects, "reactive_shift")
 re_suffix  <- if (length(random_effects) > 0)
   paste("+", paste(random_effects, collapse = " + ")) else ""
 
-results <- tibble(predictor = character(), AIC = numeric(),
-                  delta_AIC = numeric(), converged = logical())
+n_cores <- max(1L, min(as.integer(cfg$n_cores), length(candidates)))
+cat(sprintf("Leave-one-out selection: %d candidates, %d core(s)\n\n",
+            length(candidates), n_cores))
 
-for (pred in candidates) {
+# Worker function — captures fixed_effects, re_suffix, cfg, df_model, full_aic
+# via fork (mclapply on Linux). Each call fits one model with pred dropped.
+fit_minus_one <- function(pred) {
+  # One thread per worker to avoid contention across forked processes
+  Sys.setenv(OMP_NUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1",
+             MKL_NUM_THREADS = "1")
+
   preds_minus       <- setdiff(fixed_effects, pred)
   formula_minus_str <- paste(
     "cbind(y_bt, n_trials - y_bt) ~",
     paste(preds_minus, collapse = " + "), re_suffix)
-
-  cat(sprintf("Removing %-45s ... ", pred))
 
   model_minus <- tryCatch(
     glmmTMB(as.formula(formula_minus_str),
@@ -275,34 +285,45 @@ for (pred in candidates) {
             data    = df_model,
             control = glmmTMBControl(optCtrl = list(
               iter.max = cfg$iter_max, eval.max = cfg$eval_max, trace = 0))),
-    error = function(e) { cat("FAILED:", conditionMessage(e), "\n"); NULL }
+    error = function(e) NULL
   )
 
-  if (is.null(model_minus)) {
-    results <- add_row(results, predictor = pred, AIC = NA_real_,
-                       delta_AIC = NA_real_, converged = FALSE)
-    next
-  }
+  if (is.null(model_minus))
+    return(list(predictor = pred, AIC = NA_real_, delta_AIC = NA_real_,
+                converged = FALSE, formula = formula_minus_str, summary = NULL))
 
   aic_val   <- AIC(model_minus)
-  delta     <- aic_val - full_aic
-  converged <- model_minus$fit$convergence == 0
-  cat(sprintf("AIC = %9.2f  ΔAIC = %+8.2f  %s\n", aic_val, delta,
-              if (!converged) "(convergence warning)" else ""))
-
-  results <- add_row(results, predictor = pred, AIC = aic_val,
-                     delta_AIC = delta, converged = converged)
-
-  write_csv(results %>% arrange(delta_AIC),
-            file.path(sel_model_dir, "model_selection_AIC.csv"))
-
-  summ_out <- local({
+  summ_out  <- local({
     op <- options(max.print = 99999); on.exit(options(op))
     capture.output(summary(model_minus))
   })
-  writeLines(c(paste0("Formula: ", formula_minus_str), "", summ_out),
-             file.path(sel_model_dir, paste0("summary_removed_", pred, ".txt")))
+  list(predictor = pred,
+       AIC       = aic_val,
+       delta_AIC = aic_val - full_aic,
+       converged = model_minus$fit$convergence == 0,
+       formula   = formula_minus_str,
+       summary   = summ_out)
 }
+
+res_list <- parallel::mclapply(candidates, fit_minus_one,
+                               mc.cores = n_cores, mc.set.seed = FALSE)
+
+# Collect and report
+results <- tibble(predictor = character(), AIC = numeric(),
+                  delta_AIC = numeric(), converged = logical())
+for (res in res_list) {
+  cat(sprintf("Removed %-45s  AIC = %9.2f  ΔAIC = %+8.2f  %s\n",
+              res$predictor,
+              res$AIC, res$delta_AIC,
+              if (!isTRUE(res$converged)) "(convergence warning)" else ""))
+  results <- add_row(results, predictor = res$predictor, AIC = res$AIC,
+                     delta_AIC = res$delta_AIC, converged = res$converged)
+  if (!is.null(res$summary))
+    writeLines(c(paste0("Formula: ", res$formula), "", res$summary),
+               file.path(sel_model_dir, paste0("summary_removed_", res$predictor, ".txt")))
+}
+write_csv(results %>% arrange(delta_AIC),
+          file.path(sel_model_dir, "model_selection_AIC.csv"))
 
 # =============================================================================
 # 8. SUMMARY
