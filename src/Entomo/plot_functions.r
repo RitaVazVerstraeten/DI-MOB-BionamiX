@@ -1328,3 +1328,143 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
   }
 }
 
+#' Save GLMM Coefficient Forest Plot
+#'
+#' Grouped forest plot of fixed-effect log-odds coefficients with 95% Wald CIs.
+#' Terms are clustered into variable families (rainfall, VPD, land use, etc.)
+#' shown as labelled facet strips. Significant terms (p < 0.05) are highlighted.
+#'
+#' @param coef_table  Tibble from GLMM_postfit with columns term, estimate, std_error, p_value
+#' @param cfg         Model configuration list (used for lag_vars)
+#' @param output_dir  Directory to write the PNG
+#' @param run_suffix  String appended to the filename
+#' @return Invisibly, the ggplot object
+save_glmm_coef_forest_plot <- function(coef_table, cfg = NULL, output_dir, run_suffix) {
+
+  # --- family definitions (first match wins) ---
+  families <- list(
+    list(pattern = "^total_rainy_days",
+         group   = "Total rainy days",
+         label   = function(t) paste("lag", sub(".*_lag", "", t))),
+    list(pattern = "^avg_VPD",
+         group   = "Vapour pressure deficit",
+         label   = function(t) paste("lag", sub(".*_lag", "", t))),
+    list(pattern = "^precip_max_day_resid_on_trd",
+         group   = "Precipitation extremes",
+         label   = function(t) paste("lag", sub(".*_lag", "", t))),
+    list(pattern = "^hurricane_within_120km",
+         group   = "Hurricane",
+         label   = function(t) paste("lag", sub(".*_lag", "", t))),
+    list(pattern = "^(is_urban|is_WUI|is_WI|landcover)",
+         group   = "Land use",
+         label   = function(t) dplyr::recode(t,
+           is_urban  = "Urban",
+           is_WUI    = "Wildland-urban interface",
+           is_WI     = "Water interface",
+           .default  = sub("^landcover", "Landcover: ", t))),
+    list(pattern = "^(has_aljibes|water_containers|water_shortage)",
+         group   = "Water access",
+         label   = function(t) dplyr::recode(t,
+           has_aljibes      = "Cisternae present",
+           water_containers = "Water containers (per capita)",
+           water_shortage   = "Water shortage zone")),
+    list(pattern = "^pop_density",
+         group   = "Demographics",
+         label   = function(t) "Population density"),
+    list(pattern = "^reactive_shift",
+         group   = "Reactive surveillance",
+         label   = function(t) "log(1 + dengue cases)")
+  )
+
+  group_order <- c("Total rainy days", "Vapour pressure deficit",
+                   "Precipitation extremes", "Hurricane",
+                   "Land use", "Water access", "Demographics",
+                   "Reactive surveillance", "Other")
+
+  # Clean display labels for unlagged vars (fallback for any unmatched names)
+  unlagged_labels <- c(
+    is_urban         = "Urban",
+    is_WUI           = "Wildland-urban interface",
+    is_WI            = "Water interface",
+    has_aljibes      = "Cisternae present",
+    water_containers = "Water containers (per capita)",
+    water_shortage   = "Water shortage zone",
+    pop_density      = "Population density",
+    reactive_shift   = "log(1 + dengue cases)"
+  )
+
+  df_plot <- coef_table %>%
+    dplyr::filter(term != "(Intercept)") %>%
+    dplyr::mutate(
+      ci_low  = estimate - 1.96 * std_error,
+      ci_high = estimate + 1.96 * std_error,
+      group   = NA_character_,
+      label   = term
+    )
+
+  for (fam in families) {
+    idx <- grepl(fam$pattern, df_plot$term) & is.na(df_plot$group)
+    if (!any(idx)) next
+    df_plot$group[idx] <- fam$group
+    df_plot$label[idx] <- vapply(df_plot$term[idx], fam$label, character(1))
+  }
+  df_plot$group[is.na(df_plot$group)] <- "Other"
+  df_plot$label[df_plot$label == df_plot$term] <-
+    dplyr::recode(df_plot$label[df_plot$label == df_plot$term],
+                  !!!as.list(unlagged_labels), .default = df_plot$label[df_plot$label == df_plot$term])
+
+  # Within-group ordering: lags ascending (lag0 at top), unlagged alphabetical
+  df_plot <- df_plot %>%
+    dplyr::mutate(
+      group    = factor(group, levels = group_order),
+      lag_num  = suppressWarnings(as.integer(sub(".*_lag", "", term))),
+      sort_key = ifelse(!is.na(lag_num), lag_num, 99L)
+    ) %>%
+    dplyr::arrange(group, sort_key, term) %>%
+    dplyr::mutate(
+      label = factor(label, levels = rev(unique(label))),  # rev → lag0 at top in ggplot
+      significant = p_value < 0.05
+    )
+
+  p <- ggplot2::ggplot(df_plot,
+         ggplot2::aes(x = estimate, y = label, colour = significant)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed",
+                        colour = "gray40", linewidth = 0.5) +
+    ggplot2::geom_errorbarh(
+      ggplot2::aes(xmin = ci_low, xmax = ci_high),
+      height = 0.35, linewidth = 0.55) +
+    ggplot2::geom_point(size = 2.2) +
+    ggplot2::scale_colour_manual(
+      values = c("TRUE" = "#c0392b", "FALSE" = "gray55"),
+      labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05"),
+      name   = NULL) +
+    ggplot2::facet_grid(group ~ ., scales = "free_y", space = "free_y", switch = "y") +
+    ggplot2::labs(
+      title    = "Fixed-effect coefficients — beta-binomial GLMM",
+      subtitle = "Log-odds scale · bars = 95% Wald CI · red = p < 0.05",
+      x        = "Log-odds coefficient",
+      y        = NULL
+    ) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(
+      strip.placement   = "outside",
+      strip.text.y.left = ggplot2::element_text(angle = 0, hjust = 1,
+                                                face = "bold", size = 9),
+      strip.background  = ggplot2::element_rect(fill = "gray93", colour = NA),
+      panel.spacing     = ggplot2::unit(0.5, "lines"),
+      panel.grid.major.y = ggplot2::element_blank(),
+      legend.position   = "bottom",
+      axis.text.y       = ggplot2::element_text(size = 9),
+      plot.title        = ggplot2::element_text(face = "bold", size = 12),
+      plot.subtitle     = ggplot2::element_text(size = 10, colour = "gray40")
+    )
+
+  n_terms <- nrow(df_plot)
+  fig_h   <- max(5, 0.3 * n_terms + 2.5)
+
+  out_file <- file.path(output_dir, paste0("glmm_coef_forest_", run_suffix, ".png"))
+  ggplot2::ggsave(out_file, p, width = 9, height = fig_h, dpi = 150)
+  cat("Forest plot saved to:", out_file, "\n")
+  invisible(p)
+}
+
