@@ -40,7 +40,8 @@ print(coef_table, n = nrow(coef_table))
 coef_table_file <- file.path(run_output_dir, paste0("glmm_fixed_effects_OR_", run_suffix, ".csv"))
 write_csv(coef_table, coef_table_file)
 
-save_glmm_coef_forest_plot(coef_table, cfg, plots_output_dir, run_suffix)
+save_glmm_coef_forest_plot(coef_table, cfg, plots_output_dir, run_suffix,
+                           scale = c("logodds", "OR"))
 
 summary_file <- file.path(run_output_dir, paste0("glmm_summary_", run_suffix, ".txt"))
 sink(summary_file)
@@ -189,10 +190,7 @@ df_summary_weighted <- df_summary %>%
   left_join(df_observed, by = c("block", "year_month_date")) %>%
   mutate(p_fitted_weighted = p_bt_fitted)
 
-df_summary_agg <- df_summary %>%
-  mutate(p_R_fitted = p_bt_fitted)
-
-save_glmm_prob_timeseries_plot(df_summary  = df_summary_agg,
+save_glmm_prob_timeseries_plot(df_summary  = df_summary,
                                df_observed = df_observed,
                                output_dir  = plots_output_dir,
                                run_suffix  = run_suffix,
@@ -239,7 +237,7 @@ df_resid_diag <- df_model %>%
          p_observed    = ifelse(n_trials > 0, y_bt / n_trials, NA_real_),
          abs_resid     = abs(pearson_resid)) %>%
   filter(abs_resid > 2) %>%
-  select(block, year_month_date, type, y_bt, n_trials, n_bt, omega,
+  select(block, year_month_date, y_bt, n_trials, n_bt,
          p_observed, fitted_prob, pearson_resid, abs_resid) %>%
   arrange(desc(abs_resid))
 

@@ -19,125 +19,85 @@ save_glmm_prob_timeseries_plot <- function(df_summary, df_observed, output_dir, 
   df_plot_ts <- df_plot %>%
     dplyr::group_by(year_month_date) %>%
     dplyr::summarise(
-      p_bt_fitted = mean(p_bt_fitted, na.rm = TRUE),
+      p_bt_fitted       = mean(p_bt_fitted,       na.rm = TRUE),
       p_bt_fitted_lower = mean(p_bt_fitted_lower, na.rm = TRUE),
       p_bt_fitted_upper = mean(p_bt_fitted_upper, na.rm = TRUE),
-      p_R_fitted = mean(p_R_fitted, na.rm = TRUE),
-      p_R_fitted_lower = mean(p_R_fitted_lower, na.rm = TRUE),
-      p_R_fitted_upper = mean(p_R_fitted_upper, na.rm = TRUE),
-      p_observed = mean(p_observed, na.rm = TRUE),
-      cases = sum(cases, na.rm = TRUE),
+      p_observed        = mean(p_observed,         na.rm = TRUE),
+      cases             = sum(cases,               na.rm = TRUE),
       .groups = "drop"
     )
 
   df_plot_long <- df_plot_ts %>%
     tidyr::pivot_longer(
-      cols = c(p_bt_fitted, p_R_fitted, p_observed),
-      names_to = "series",
+      cols      = c(p_bt_fitted, p_observed),
+      names_to  = "series",
       values_to = "probability"
     ) %>%
     dplyr::mutate(
-      # p_R_fitted holds p_fitted_weighted (the omega-weighted mixture); it has no
-      # direct SE so we reuse the baseline CI as the best available approximation.
-      lower = dplyr::case_when(
-        series %in% c("p_bt_fitted", "p_R_fitted") ~
-          df_plot_ts$p_bt_fitted_lower[match(year_month_date, df_plot_ts$year_month_date)],
-        TRUE ~ NA_real_
+      lower = dplyr::if_else(
+        series == "p_bt_fitted",
+        df_plot_ts$p_bt_fitted_lower[match(year_month_date, df_plot_ts$year_month_date)],
+        NA_real_
       ),
-      upper = dplyr::case_when(
-        series %in% c("p_bt_fitted", "p_R_fitted") ~
-          df_plot_ts$p_bt_fitted_upper[match(year_month_date, df_plot_ts$year_month_date)],
-        TRUE ~ NA_real_
+      upper = dplyr::if_else(
+        series == "p_bt_fitted",
+        df_plot_ts$p_bt_fitted_upper[match(year_month_date, df_plot_ts$year_month_date)],
+        NA_real_
       )
     )
 
   subtitle_parts <- c(
-    if (cfg$include_block_re) "Space RE: YES" else "Space RE: NO",
-    if (cfg$include_time_re) "Time RE: YES" else "Time RE: NO",
-    if (cfg$include_spatial_ar) "Space AR: YES" else "Space AR: NO",
+    if (cfg$include_block_re)     "Space RE: YES"  else "Space RE: NO",
+    if (cfg$include_time_re)      "Time RE: YES"   else "Time RE: NO",
+    if (cfg$include_spatial_ar)   "Space AR: YES"  else "Space AR: NO",
     if (cfg$include_ar1_temporal) paste0("Time AR1: YES (", cfg$ar1_group, ")") else "Time AR1: NO",
     "Lines: mean probabilities across blocks | Bars: total cases"
   )
   plot_subtitle <- paste(subtitle_parts, collapse = " | ")
+  plot_caption  <- "Shaded ribbon: 95% CI for fitted p_bt."
 
-  # Add explanation for ribbon and NA values to the legend/caption
-  plot_caption <- paste(
-    "Shaded ribbon: 95% confidence interval for fitted probabilities (if available).",
-    sep = "\n"
-  )
-
-  max_prob <- max(df_plot_long$probability, na.rm = TRUE)
-  max_cases <- max(df_plot_ts$cases, na.rm = TRUE)
+  max_prob     <- max(df_plot_long$probability, na.rm = TRUE)
+  max_cases    <- max(df_plot_ts$cases, na.rm = TRUE)
   scale_factor <- ifelse(is.finite(max_cases) && max_cases > 0, max_prob / max_cases, 1)
 
-  ribbon_data <- subset(df_plot_long, series %in% c("p_bt_fitted", "p_R_fitted"))
-  ribbon_ok <- nrow(ribbon_data) > 0 &&
+  ribbon_data <- subset(df_plot_long, series == "p_bt_fitted")
+  ribbon_ok   <- nrow(ribbon_data) > 0 &&
     !all(is.na(ribbon_data$lower)) &&
-    !all(is.na(ribbon_data$upper)) &&
-    !all(is.na(ribbon_data$probability)) &&
-    !all(is.na(ribbon_data$year_month_date))
+    !all(is.na(ribbon_data$upper))
 
-  p_probs <- ggplot(df_plot_long, aes(x = year_month_date, y = probability, color = series, group = series)) +
-    geom_col(
-      data = df_plot_ts,
-      aes(x = year_month_date, y = cases * scale_factor),
-      inherit.aes = FALSE,
-      fill = "grey75",
-      alpha = 0.5,
-      width = 25
-    )
+  p_probs <- ggplot(df_plot_long,
+                    aes(x = year_month_date, y = probability, color = series, group = series)) +
+    geom_col(data = df_plot_ts,
+             aes(x = year_month_date, y = cases * scale_factor),
+             inherit.aes = FALSE, fill = "grey75", alpha = 0.5, width = 25)
 
   if (ribbon_ok) {
     p_probs <- p_probs +
-      geom_ribbon(
-        data = ribbon_data,
-        aes(x = year_month_date, ymin = lower, ymax = upper, fill = series),
-        alpha = 0.2,
-        color = NA,
-        inherit.aes = FALSE
-      )
+      geom_ribbon(data = ribbon_data,
+                  aes(x = year_month_date, ymin = lower, ymax = upper),
+                  fill = "#1f77b4", alpha = 0.2, color = NA, inherit.aes = FALSE)
   } else {
-    warning("Skipping uncertainty ribbon: missing or invalid aesthetics.")
+    warning("Skipping uncertainty ribbon: missing or invalid CI values.")
   }
 
   p_probs <- p_probs +
     geom_line(linewidth = 1) +
     geom_point(size = 1.3) +
     scale_color_manual(
-      values = c(
-        p_bt_fitted = "#1f77b4",
-        p_R_fitted  = "#ff7f0e",
-        p_observed  = "#d62728"
-      ),
-      labels = c(
-        p_bt_fitted = "Fitted p_bt (baseline)",
-        p_R_fitted  = "Fitted y_bt/n_bt",
-        p_observed  = "Observed y_bt/n_bt"
-      )
-    ) +
-    scale_fill_manual(
-      values = c(
-        p_bt_fitted = "#1f77b4",
-        p_R_fitted  = "#ff7f0e"
-      ),
-      guide = "none"
+      values = c(p_bt_fitted = "#1f77b4", p_observed = "#d62728"),
+      labels = c(p_bt_fitted = "Fitted p_bt", p_observed = "Observed y_bt/n_bt")
     ) +
     scale_y_continuous(
-      name = "Probability",
+      name     = "Probability",
       sec.axis = sec_axis(~ . / scale_factor, name = "Cases")
     ) +
-    labs(
-      x = "Time",
-      color = NULL,
-      title = "Observed vs Fitted Detection Rate",
-      subtitle = plot_subtitle,
-      caption = plot_caption
-    ) +
+    labs(x = "Time", color = NULL,
+         title    = "Observed vs Fitted Detection Rate",
+         subtitle = plot_subtitle,
+         caption  = plot_caption) +
     theme_minimal() +
-    theme(
-      legend.position = "bottom",
-      plot.caption = element_text(size = 10, hjust = 0)
-    )
+    theme(legend.position = "bottom",
+          plot.caption = element_text(size = 10, hjust = 0))
 
   print(p_probs)
   plot_file <- file.path(output_dir, paste0("probabilities_timeseries_", run_suffix, ".png"))
@@ -1339,7 +1299,13 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
 #' @param output_dir  Directory to write the PNG
 #' @param run_suffix  String appended to the filename
 #' @return Invisibly, the ggplot object
-save_glmm_coef_forest_plot <- function(coef_table, cfg = NULL, output_dir, run_suffix) {
+save_glmm_coef_forest_plot <- function(coef_table, cfg = NULL, output_dir, run_suffix,
+                                       scale = c("logodds", "OR")) {
+  scale <- match.arg(scale, several.ok = TRUE)
+  if (length(scale) > 1) {
+    for (s in scale) save_glmm_coef_forest_plot(coef_table, cfg, output_dir, run_suffix, scale = s)
+    return(invisible(NULL))
+  }
 
   # --- family definitions (first match wins) ---
   families <- list(
@@ -1426,14 +1392,40 @@ save_glmm_coef_forest_plot <- function(coef_table, cfg = NULL, output_dir, run_s
       significant = p_value < 0.05
     )
 
+  if (scale == "OR") {
+    df_plot <- df_plot %>%
+      dplyr::mutate(x_val  = exp(estimate),
+                    x_low  = exp(ci_low),
+                    x_high = exp(ci_high))
+    x_ref    <- 1
+    x_label  <- "Odds Ratio"
+    subtitle <- "OR scale · bars = 95% Wald CI · red = p < 0.05 · reference line = OR 1"
+    x_scale  <- ggplot2::scale_x_log10(
+      breaks = c(0.1, 0.25, 0.5, 1, 2, 4, 10),
+      labels = c("0.1", "0.25", "0.5", "1", "2", "4", "10"))
+    file_tag <- "OR"
+  } else {
+    df_plot <- df_plot %>%
+      dplyr::mutate(x_val  = estimate,
+                    x_low  = ci_low,
+                    x_high = ci_high)
+    x_ref    <- 0
+    x_label  <- "Log-odds coefficient"
+    subtitle <- "Log-odds scale · bars = 95% Wald CI · red = p < 0.05"
+    x_scale  <- ggplot2::scale_x_continuous()
+    file_tag <- "logodds"
+  }
+
   p <- ggplot2::ggplot(df_plot,
-         ggplot2::aes(x = estimate, y = label, colour = significant)) +
-    ggplot2::geom_vline(xintercept = 0, linetype = "dashed",
+         ggplot2::aes(x = x_val, y = label, colour = significant)) +
+    ggplot2::geom_vline(xintercept = x_ref, linetype = "dashed",
                         colour = "gray40", linewidth = 0.5) +
-    ggplot2::geom_errorbarh(
-      ggplot2::aes(xmin = ci_low, xmax = ci_high),
-      height = 0.35, linewidth = 0.55) +
+    ggplot2::geom_errorbar(
+      ggplot2::aes(xmin = x_low, xmax = x_high),
+      width = 0.35, linewidth = 0.55,
+      orientation = "y") +
     ggplot2::geom_point(size = 2.2) +
+    x_scale +
     ggplot2::scale_colour_manual(
       values = c("TRUE" = "#c0392b", "FALSE" = "gray55"),
       labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05"),
@@ -1441,28 +1433,29 @@ save_glmm_coef_forest_plot <- function(coef_table, cfg = NULL, output_dir, run_s
     ggplot2::facet_grid(group ~ ., scales = "free_y", space = "free_y", switch = "y") +
     ggplot2::labs(
       title    = "Fixed-effect coefficients — beta-binomial GLMM",
-      subtitle = "Log-odds scale · bars = 95% Wald CI · red = p < 0.05",
-      x        = "Log-odds coefficient",
+      subtitle = subtitle,
+      x        = x_label,
       y        = NULL
     ) +
     ggplot2::theme_minimal(base_size = 11) +
     ggplot2::theme(
-      strip.placement   = "outside",
-      strip.text.y.left = ggplot2::element_text(angle = 0, hjust = 1,
-                                                face = "bold", size = 9),
-      strip.background  = ggplot2::element_rect(fill = "gray93", colour = NA),
-      panel.spacing     = ggplot2::unit(0.5, "lines"),
+      strip.placement    = "outside",
+      strip.text.y.left  = ggplot2::element_text(angle = 0, hjust = 1,
+                                                  face = "bold", size = 9),
+      strip.background   = ggplot2::element_rect(fill = "gray93", colour = NA),
+      panel.spacing      = ggplot2::unit(0.5, "lines"),
       panel.grid.major.y = ggplot2::element_blank(),
-      legend.position   = "bottom",
-      axis.text.y       = ggplot2::element_text(size = 9),
-      plot.title        = ggplot2::element_text(face = "bold", size = 12),
-      plot.subtitle     = ggplot2::element_text(size = 10, colour = "gray40")
+      legend.position    = "bottom",
+      axis.text.y        = ggplot2::element_text(size = 9),
+      plot.title         = ggplot2::element_text(face = "bold", size = 12),
+      plot.subtitle      = ggplot2::element_text(size = 10, colour = "gray40")
     )
 
   n_terms <- nrow(df_plot)
   fig_h   <- max(5, 0.3 * n_terms + 2.5)
 
-  out_file <- file.path(output_dir, paste0("glmm_coef_forest_", run_suffix, ".png"))
+  out_file <- file.path(output_dir,
+                        paste0("glmm_coef_forest_", file_tag, "_", run_suffix, ".png"))
   ggplot2::ggsave(out_file, p, width = 9, height = fig_h, dpi = 150)
   cat("Forest plot saved to:", out_file, "\n")
   invisible(p)

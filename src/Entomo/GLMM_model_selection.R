@@ -1,4 +1,14 @@
 
+# On the SSH server (frietjes): limit internal BLAS/OpenMP threading so that
+# mclapply workers each get exactly 1 core and don't fight each other.
+# On local: leave threading as-is (BLAS multi-threading helps single-core fits).
+if (Sys.info()["nodename"] == "frietjes") {
+  Sys.setenv(OMP_NUM_THREADS      = "1",
+             OPENBLAS_NUM_THREADS  = "1",
+             MKL_NUM_THREADS       = "1",
+             BLAS_NUM_THREADS      = "1")
+}
+
 library(glmmTMB)
 library(tidyverse)
 library(sf)
@@ -30,7 +40,7 @@ cfg <- list(
   # Predictors
   lag_vars      = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd", "hurricane_within_120km"),
 
-  unlagged_vars = c("is_urban", "is_WUI", "is_WI","has_aljibes", "water_containers", "water_shortage", "pop_density", "landcover"),
+  unlagged_vars = c("is_urban", "is_WUI", "is_WI","has_aljibes", "water_containers", "water_shortage", "pop_density"),
   # unlagged_vars = c("is_urban", "is_WUI", "is_WI","has_aljibes", "water_containers"),
   numeric_vars  = c("total_rainy_days", "precip_max_day_resid_on_trd", "avg_VPD", "water_containers", "pop_density"),
 
@@ -60,9 +70,8 @@ cfg <- list(
   iter_max = 1000,
   eval_max = 1500,
 
-  # Parallel leave-one-out: number of cores for mclapply (Linux/SSH only).
-  # Set to 1 to disable parallelism. detectCores() - 1 is a safe default.
-  n_cores = parallel::detectCores() - 1
+  # Parallel leave-one-out: full parallelism on frietjes, sequential locally.
+  n_cores = if (Sys.info()["nodename"] == "frietjes") parallel::detectCores(logical = FALSE) else 1L
 )
 
 # Derived spatial fields
@@ -116,7 +125,7 @@ df <- load_base_data(cfg$data_file) %>%
     y_bt       = Houses_pos_IS,
     sin_annual = sin(2 * pi * as.integer(format(year_month_date, "%m")) / 12),
     cos_annual = cos(2 * pi * as.integer(format(year_month_date, "%m")) / 12),
-    landcover  = factor(landcover),
+    # landcover  = factor(landcover),
     temp_cat   = factor(temp_cat),
     precip_cat = factor(precip_cat)
   ) %>%
