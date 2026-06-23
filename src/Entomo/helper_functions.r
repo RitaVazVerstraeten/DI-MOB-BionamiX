@@ -355,6 +355,50 @@ build_dlnm_stan_data <- function(cfg) {
   P_cb <- ncol(X_cb)
   cat("DLNM total cross-basis columns P_cb =", P_cb, "\n")
 
+  # Per-variable column counts in X_cb (needed for interaction construction)
+  cb_ncols      <- sapply(cfg$dlnm_vars, function(v) ncol(cb_mats[[v]]))
+  col_starts_cb <- cumsum(c(1L, cb_ncols[-length(cb_ncols)]))
+
+  # Build interaction cross-basis X_ix: for each (binary_var, dlnm_var) pair,
+  # multiply the 0/1 indicator into the corresponding DLNM sub-block of X_cb.
+  # active_level: value of binary_var for which the modifier is active (e.g. 0 for
+  # non-urban when is_urban is coded 1 = urban; 1 for water_shortage TRUE).
+  if (!is.null(cfg$dlnm_ix_vars) && length(cfg$dlnm_ix_vars) > 0) {
+    ix_mats <- lapply(cfg$dlnm_ix_vars, function(ix) {
+      binary_var   <- ix$binary_var
+      active_level <- ix$active_level
+      dlnm_var     <- ix$dlnm_var
+
+      if (!binary_var %in% names(df_filt))
+        stop(sprintf("dlnm_ix_vars: binary variable '%s' not found in data", binary_var))
+      if (!dlnm_var %in% cfg$dlnm_vars)
+        stop(sprintf("dlnm_ix_vars: DLNM variable '%s' not in cfg$dlnm_vars", dlnm_var))
+
+      raw_num   <- suppressWarnings(as.numeric(df_filt[[binary_var]]))
+      indicator <- as.numeric(raw_num == active_level)
+      if (any(is.na(indicator)))
+        stop(sprintf("dlnm_ix_vars: NA in indicator for '%s' at active_level = %s",
+                     binary_var, active_level))
+
+      var_idx   <- which(cfg$dlnm_vars == dlnm_var)
+      col_start <- col_starts_cb[var_idx]
+      col_end   <- col_start + cb_ncols[var_idx] - 1L
+      X_cb[, col_start:col_end, drop = FALSE] * indicator
+    })
+    X_ix <- do.call(cbind, ix_mats)
+    P_ix <- ncol(X_ix)
+    cat(sprintf("Interaction cross-basis: %d pair(s), P_ix = %d columns\n",
+                length(cfg$dlnm_ix_vars), P_ix))
+    for (ix in cfg$dlnm_ix_vars)
+      cat(sprintf("  %s (level=%s) x %s  [%d cols]\n",
+                  ix$binary_var, ix$active_level, ix$dlnm_var,
+                  cb_ncols[which(cfg$dlnm_vars == ix$dlnm_var)]))
+  } else {
+    X_ix <- matrix(0.0, nrow = nrow(X_cb), ncol = 0L)
+    P_ix <- 0L
+    cat("No DLNM interaction cross-basis (cfg$dlnm_ix_vars not set)\n")
+  }
+
   binary_unlagged_vars <- setdiff(cfg$unlagged_vars, cfg$numeric_vars)
   unl <- prepare_unlagged(df_filt, cfg$unlagged_vars, binary_unlagged_vars)
 
@@ -364,6 +408,8 @@ build_dlnm_stan_data <- function(cfg) {
       y          = unl$df$y_bt,
       P_cb       = P_cb,
       X_cb       = X_cb,
+      P_ix       = P_ix,
+      X_ix       = X_ix,
       Ku         = unl$Ku,
       X_unlagged = unl$X_unlagged_std,
       B          = idx$B,
@@ -378,7 +424,8 @@ build_dlnm_stan_data <- function(cfg) {
     dlnm_vars      = cfg$dlnm_vars,
     cb_mats        = cb_mats,
     dlnm_var_stats = dlnm_var_stats,
-    unlagged_vars  = cfg$unlagged_vars
+    unlagged_vars  = cfg$unlagged_vars,
+    dlnm_ix_vars   = if (!is.null(cfg$dlnm_ix_vars)) cfg$dlnm_ix_vars else list()
   )
 }
 
@@ -451,6 +498,8 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
     )
     if (isTRUE(use_dlnm)) {
       init_vals$w_cb <- rnorm(stan_data$P_cb, 0, 0.08)
+      if (!is.null(stan_data$P_ix) && stan_data$P_ix > 0)
+        init_vals$w_ix <- rnorm(stan_data$P_ix, 0, 0.05)
     } else {
       init_vals$w <- matrix(rnorm(stan_data$K * stan_data$Lp1, 0, 0.08), stan_data$K, stan_data$Lp1)
     }

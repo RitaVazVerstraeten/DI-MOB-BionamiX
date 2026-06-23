@@ -1288,6 +1288,161 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
   }
 }
 
+#' Save DLNM Interaction Response Plots
+#'
+#' For each interaction specified in prep$dlnm_ix_vars, plots:
+#'   - Cumulative effect comparison: reference group (w_cb only) vs active group (w_cb + w_ix)
+#'   - Per-lag slice comparison for each lag
+#'   - 3-D surface for both groups side-by-side
+#'
+#' @param fit     CmdStanR fit object (must have w_cb and w_ix parameters)
+#' @param prep    Return value of build_dlnm_stan_data() with dlnm_ix_vars field populated
+#' @param output_dir  Directory to write PNGs into
+#' @param run_suffix  String appended to each filename
+save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suffix) {
+  if (!requireNamespace("dlnm", quietly = TRUE)) {
+    cat("dlnm not installed; skipping DLNM interaction plots.\n")
+    return(invisible(NULL))
+  }
+  if (is.null(prep$dlnm_ix_vars) || length(prep$dlnm_ix_vars) == 0) return(invisible(NULL))
+
+  cb_mats      <- prep$cb_mats
+  dlnm_vars    <- prep$dlnm_vars
+  dlnm_ix_vars <- prep$dlnm_ix_vars
+  df           <- prep$df
+  dlnm_var_stats <- prep$dlnm_var_stats
+
+  cb_ncols      <- sapply(dlnm_vars, function(v) ncol(cb_mats[[v]]))
+  col_starts_cb <- cumsum(c(1L, cb_ncols[-length(cb_ncols)]))
+
+  w_cb_draws <- fit$draws("w_cb", format = "matrix")
+  w_ix_draws <- fit$draws("w_ix", format = "matrix")
+
+  # Column offsets within w_ix: each interaction occupies cb_ncols[dlnm_var] columns
+  ix_ncols      <- sapply(dlnm_ix_vars, function(ix) cb_ncols[which(dlnm_vars == ix$dlnm_var)])
+  ix_col_starts <- cumsum(c(1L, ix_ncols[-length(ix_ncols)]))
+
+  for (k in seq_along(dlnm_ix_vars)) {
+    ix       <- dlnm_ix_vars[[k]]
+    dlnm_var <- ix$dlnm_var
+    label    <- ix$label
+
+    var_idx  <- which(dlnm_vars == dlnm_var)
+    n_cols   <- cb_ncols[var_idx]
+    cb_cols  <- col_starts_cb[var_idx] + seq_len(n_cols) - 1L
+    ix_cols  <- ix_col_starts[k]       + seq_len(n_cols) - 1L
+
+    cb_names <- colnames(cb_mats[[dlnm_var]])
+
+    # Reference group: baseline DLNM effect (w_cb for this variable)
+    draws_base   <- w_cb_draws[, cb_cols, drop = FALSE]
+    coef_ref     <- setNames(colMeans(draws_base), cb_names)
+    vcov_ref     <- cov(draws_base)
+    dimnames(vcov_ref) <- list(cb_names, cb_names)
+
+    # Active group: baseline + interaction modifier (w_cb + w_ix), using joint draws
+    draws_active  <- draws_base + w_ix_draws[, ix_cols, drop = FALSE]
+    coef_active   <- setNames(colMeans(draws_active), cb_names)
+    vcov_active   <- cov(draws_active)
+    dimnames(vcov_active) <- list(cb_names, cb_names)
+
+    # x-axis back-transformation
+    stats_i  <- if (!is.null(dlnm_var_stats) && dlnm_var %in% names(dlnm_var_stats))
+      dlnm_var_stats[[dlnm_var]] else list(mean = 0, sd = 1)
+    v_mean   <- stats_i$mean
+    v_sd     <- stats_i$sd
+
+    x_orig_range <- range(df[[dlnm_var]], na.rm = TRUE) * v_sd + v_mean
+    at_orig_nice <- pretty(x_orig_range, n = 40)
+    at_std_nice  <- (at_orig_nice - v_mean) / v_sd
+    obs_range    <- range(df[[dlnm_var]][is.finite(df[[dlnm_var]])], na.rm = TRUE)
+    keep_pts     <- at_std_nice >= obs_range[1] & at_std_nice <= obs_range[2]
+    at_std  <- at_std_nice[keep_pts]
+    at_orig <- at_orig_nice[keep_pts]
+
+    pred_ref <- tryCatch(
+      dlnm::crosspred(cb_mats[[dlnm_var]], coef = coef_ref, vcov = vcov_ref,
+                      at = at_std, cen = 0, cumul = TRUE),
+      error = function(e) { cat(sprintf("  crosspred (ref) failed for %s: %s\n", label, conditionMessage(e))); NULL }
+    )
+    pred_active <- tryCatch(
+      dlnm::crosspred(cb_mats[[dlnm_var]], coef = coef_active, vcov = vcov_active,
+                      at = at_std, cen = 0, cumul = TRUE),
+      error = function(e) { cat(sprintf("  crosspred (active) failed for %s: %s\n", label, conditionMessage(e))); NULL }
+    )
+    if (is.null(pred_ref) || is.null(pred_active)) next
+
+    L_val   <- as.integer(attr(cb_mats[[dlnm_var]], "lag")[2])
+    lag_seq <- 0:L_val
+
+    ref_col    <- "steelblue"
+    active_col <- "firebrick"
+
+    # ── Cumulative effect comparison ──────────────────────────────────────────
+    y_lim <- range(pred_ref$alllow, pred_ref$allhigh,
+                   pred_active$alllow, pred_active$allhigh, na.rm = TRUE)
+    png(file.path(output_dir, paste0("dlnm_ix_cumul_", label, "_", run_suffix, ".png")),
+        width = 900, height = 500)
+    plot(pred_ref, "overall", xaxt = "n", ylim = y_lim,
+         main   = paste("Cumulative effect of", dlnm_var, "—", label),
+         xlab   = dlnm_var, ylab = "Effect on log-odds of p_bt",
+         col    = ref_col,
+         ci.arg = list(col = adjustcolor(ref_col, 0.20), border = NA))
+    lines(at_std, pred_active$allfit, col = active_col, lwd = 2)
+    lines(at_std, pred_active$alllow,  col = active_col, lwd = 1, lty = 2)
+    lines(at_std, pred_active$allhigh, col = active_col, lwd = 1, lty = 2)
+    axis(1, at = at_std, labels = round(at_orig, 2))
+    abline(h = 0, lty = 2, col = "grey50")
+    legend("topright",
+           legend = c(sprintf("Reference  (active_level ≠ %s)", ix$active_level),
+                      sprintf("Active group  (%s == %s)", ix$binary_var, ix$active_level)),
+           col = c(ref_col, active_col), lwd = 2, bty = "n")
+    dev.off()
+
+    # ── Per-lag slice comparison ──────────────────────────────────────────────
+    for (l in lag_seq) {
+      y_lim_lag <- range(pred_ref$matlow[, l + 1], pred_ref$mathigh[, l + 1],
+                         pred_active$matlow[, l + 1], pred_active$mathigh[, l + 1], na.rm = TRUE)
+      png(file.path(output_dir, paste0("dlnm_ix_lag", l, "_", label, "_", run_suffix, ".png")),
+          width = 900, height = 500)
+      plot(pred_ref, "slices", lag = l, xaxt = "n", ylim = y_lim_lag,
+           main   = paste0("Effect at lag ", l, " — ", label),
+           xlab   = dlnm_var, ylab = "Effect on log-odds of p_bt",
+           col    = ref_col,
+           ci.arg = list(col = adjustcolor(ref_col, 0.20), border = NA))
+      lines(at_std, pred_active$matfit[, l + 1], col = active_col, lwd = 2)
+      lines(at_std, pred_active$matlow[,  l + 1], col = active_col, lwd = 1, lty = 2)
+      lines(at_std, pred_active$mathigh[, l + 1], col = active_col, lwd = 1, lty = 2)
+      axis(1, at = at_std, labels = round(at_orig, 2))
+      abline(h = 0, lty = 2, col = "grey50")
+      dev.off()
+    }
+
+    # ── 3-D surfaces (reference and active, shared z-scale) ──────────────────
+    z_global_ix <- range(pred_ref$matfit, pred_active$matfit, na.rm = TRUE)
+    z_breaks_ix <- seq(z_global_ix[1], z_global_ix[2], length.out = 51)
+    pal         <- colorRampPalette(c("firebrick", "white", "steelblue"))(50)
+
+    for (grp in list(list(pred = pred_ref, name = "ref"), list(pred = pred_active, name = "active"))) {
+      z_mat   <- grp$pred$matfit
+      z_mid   <- (z_mat[-1, -1] + z_mat[-1, -ncol(z_mat)] +
+                  z_mat[-nrow(z_mat), -1] + z_mat[-nrow(z_mat), -ncol(z_mat)]) / 4
+      fcol    <- pal[cut(z_mid, breaks = z_breaks_ix, include.lowest = TRUE)]
+      png(file.path(output_dir, paste0("dlnm_ix_3d_", label, "_", grp$name, "_", run_suffix, ".png")),
+          width = 800, height = 700)
+      persp(x = at_orig, y = lag_seq, z = z_mat,
+            zlim     = z_global_ix,
+            xlab     = dlnm_var, ylab = "Lag (months)", zlab = "Effect on log-odds of p_bt",
+            main     = paste0("DLNM surface — ", label, " (", grp$name, ")"),
+            theta    = 40, phi = 25, ltheta = 45,
+            col      = fcol, border = NA, ticktype = "detailed")
+      dev.off()
+    }
+
+    cat(sprintf("  DLNM interaction plots saved: %s\n", label))
+  }
+}
+
 #' Save GLMM Coefficient Forest Plot
 #'
 #' Grouped forest plot of fixed-effect log-odds coefficients with 95% Wald CIs.

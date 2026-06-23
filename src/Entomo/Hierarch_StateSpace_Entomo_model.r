@@ -52,7 +52,7 @@ hostname <- Sys.info()["nodename"]
 
 # ========== Spatial resolution =============
 # Set to "CMF" or "manzana" — all level-specific paths and column names derive from this.
-spatial_level <- "CMF"
+spatial_level <- "CMF" 
 
 # ========== Output structure and config =============
 cfg <- list(
@@ -110,6 +110,17 @@ cfg <- list(
     precip_max_day_resid_on_trd = list(fun = "ns", df = 3)
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
+
+  # Interaction cross-bases: each entry is a (binary_var, active_level, dlnm_var, label) tuple.
+  # active_level: the value of binary_var for which the modifier is active.
+  #   is_urban coded 1=urban (reference), 0=non-urban -> active_level=0 for non-urban modifier
+  #   water_shortage logical (TRUE=1)             -> active_level=1 for water-shortage modifier
+  # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
+  dlnm_ix_vars = list(
+    list(binary_var = "is_urban",       active_level = 0, dlnm_var = "total_rainy_days", label = "nonurban_x_trd"),
+    list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_rainy_days", label = "ws_x_trd")
+  ),
+
   # MCMC
   chains = 4,
   iter_warmup = 1000,
@@ -178,8 +189,14 @@ if (isTRUE(cfg$fix_delta1)) {
   model_spec <- paste0(model_spec, "_delta1fix", cfg$delta1_fixed)
 }
 predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
-  paste0("dlnm-", paste(cfg$dlnm_vars, collapse = "-"),
-         "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
+  base_spec <- paste0("dlnm-", paste(cfg$dlnm_vars, collapse = "-"),
+                      "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
+  if (!is.null(cfg$dlnm_ix_vars) && length(cfg$dlnm_ix_vars) > 0) {
+    ix_labels <- sapply(cfg$dlnm_ix_vars, function(ix) ix$label)
+    paste0(base_spec, "_ix-", paste(ix_labels, collapse = "-"))
+  } else {
+    base_spec
+  }
 } else {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
@@ -206,6 +223,8 @@ cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   } else if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_block_dev)) {
     if (isTRUE(cfg$fix_delta1))
       file.path(stan_dir, "hierarchical_state_space_AR_perCMF_blockRE_DLNM_delta1fixed.stan")
+    else if (!is.null(cfg$dlnm_ix_vars) && length(cfg$dlnm_ix_vars) > 0)
+      file.path(stan_dir, "hierarchical_state_space_AR_perCMF_blockRE_DLNM_ix.stan")
     else
       file.path(stan_dir, "hierarchical_state_space_AR_perCMF_blockRE_DLNM.stan")
   } else {
@@ -529,7 +548,8 @@ fit <- mod$sample(
 invisible(file.remove(list.files(run_output_dir, pattern = "_(config|metric)\\.json$", full.names = TRUE)))
 
 # ======================= make model summary ============================
-summary_vars <- c("alpha", if (!isTRUE(cfg$fix_delta1)) "delta1", if (isTRUE(cfg$use_dlnm)) "w_cb" else "w", "w_unlagged")
+summary_vars <- c("alpha", if (!isTRUE(cfg$fix_delta1)) "delta1", if (isTRUE(cfg$use_dlnm)) "w_cb" else "w", "w_unlagged",
+                  if (isTRUE(cfg$use_dlnm) && !is.null(cfg$dlnm_ix_vars) && length(cfg$dlnm_ix_vars) > 0) "w_ix")
 if (isTRUE(cfg$use_time_RE)) {
   summary_vars <- c(summary_vars, "sigma_time", "sigma_block")
 } else {
@@ -837,6 +857,10 @@ if ("u_block_out" %in% model_vars) {
 if (isTRUE(cfg$use_dlnm)) {
   cat("Generating DLNM exposure-response and lag-response plots...\n")
   save_dlnm_response_plots(fit, prep, plots_output_dir, model_spec)
+  if (length(prep$dlnm_ix_vars) > 0) {
+    cat("Generating DLNM interaction surface plots...\n")
+    save_dlnm_interaction_response_plots(fit, prep, plots_output_dir, model_spec)
+  }
 }
 
 if (cfg$plot_ppc) {
@@ -1047,6 +1071,14 @@ if (cfg$plot_traceplots) {
       draws_wu  <- fit$draws(variables = "w_unlagged", format = "array")
       wu_params <- dimnames(draws_wu)[[3]]
       save_trace_chunks(wu_params, draws_wu, "traceplot_weights_unlagged", chunk_size = 12, w = 12, h = 8)
+    }
+
+    # Interaction cross-basis weights
+    if ("w_ix" %in% model_vars) {
+      draws_wix  <- fit$draws(variables = "w_ix", format = "array")
+      wix_params <- dimnames(draws_wix)[[3]]
+      cat("Plotting interaction weight traceplots:", paste(head(wix_params, 6), collapse = ", "), "...\n")
+      save_trace_chunks(wix_params, draws_wix, "traceplot_weights_ix", chunk_size = 12, w = 12, h = 8)
     }
   }
 }
