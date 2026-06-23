@@ -314,10 +314,31 @@ p4 <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
 combined_plot <- plot_grid(p1, p2, p3, p4, nrow = 2, ncol = 2)
 print(combined_plot)
 
-ggsave(file.path(output_dir, "all_env_temporal_all_vars_by_month_boxplot.png"), combined_plot, width = 14, height = 8, dpi = 300)
-ggsave(file.path(output_dir, "all_env_temporal_temperature_boxplot.png"), p1, width = 14, height = 8, dpi = 300)
-ggsave(file.path(output_dir, "all_env_temporal_precipitation_boxplot.png"), p4, width = 14, height = 8, dpi = 300)
-ggsave(file.path(output_dir, "all_env_temporal_rel_hum_boxplot.png"), p2, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "all_env_temporal_all_vars_by_month_lineplot.png"), combined_plot, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "all_env_temporal_temperature_lineplot.png"), p1, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "all_env_temporal_precipitation_lineplot.png"), p4, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "all_env_temporal_rel_hum_lineplot.png"), p2, width = 14, height = 8, dpi = 300)
+
+# Version with hurricane timing marked on all subplots
+hurricane_dates <- meteo_to_plot %>%
+  filter(hurricane_within_120km == 1) %>%
+  distinct(year_month_date)
+
+hurr_vline <- geom_vline(
+  data        = hurricane_dates,
+  aes(xintercept = year_month_date),
+  color       = "firebrick", linetype = "dashed", linewidth = 0.7
+)
+
+combined_plot_hurr <- plot_grid(
+  p1 + hurr_vline,
+  p2 + hurr_vline,
+  p3 + hurr_vline,
+  p4 + hurr_vline,
+  nrow = 2, ncol = 2
+)
+ggsave(file.path(output_dir, "all_env_temporal_all_vars_by_month_hurricanes_lineplot.png"),
+       combined_plot_hurr, width = 14, height = 8, dpi = 300)
 ```
 
 ---
