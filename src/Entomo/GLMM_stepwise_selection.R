@@ -57,6 +57,18 @@ make_formula <- function(preds) paste(
 # =============================================================================
 # 4. STEPWISE LOOP
 # =============================================================================
+
+# When a main effect is dropped, any interaction term that contains it must
+# also be dropped (a model with var1:var2 but not var1 is ill-specified).
+# Dropping a standalone interaction term leaves main effects intact.
+cascade_drop <- function(pred, fixed) {
+  interactions_with_pred <- grep(
+    paste0("(^|:)", gsub("([.|()\\^{}+$*?])", "\\\\\\1", pred), "($|:)"),
+    fixed[grepl(":", fixed)], value = TRUE
+  )
+  unique(c(pred, interactions_with_pred))
+}
+
 current_fixed <- fixed_effects
 step          <- 0L
 step_log      <- list()
@@ -77,7 +89,7 @@ repeat {
 
   # Save step summary
   summ_out <- local({
-    op <- options(max.print = 99999); on.exit(options(op))
+    op <- options(max.print = 99999, width = 200); on.exit(options(op))
     capture.output(summary(current_model))
   })
   writeLines(
@@ -90,8 +102,12 @@ repeat {
                          delta_AIC = numeric(), converged = logical())
 
   for (pred in candidates) {
-    cat(sprintf("  Removing %-40s ... ", pred))
-    m <- fit_model(make_formula(setdiff(current_fixed, pred)))
+    drop_set <- cascade_drop(pred, current_fixed)
+    label <- if (length(drop_set) > 1)
+      paste0(pred, " (+ ", length(drop_set) - 1, " interaction(s))")
+    else pred
+    cat(sprintf("  Removing %-55s ... ", label))
+    m <- fit_model(make_formula(setdiff(current_fixed, drop_set)))
 
     if (is.null(m)) {
       step_results <- add_row(step_results, predictor = pred,
@@ -125,8 +141,12 @@ repeat {
     break
   }
 
+  drop_set <- cascade_drop(best$predictor, current_fixed)
   cat(sprintf("\nDropping '%s'  (ΔAIC = %.2f)\n", best$predictor, best$delta_AIC))
-  current_fixed <- setdiff(current_fixed, best$predictor)
+  if (length(drop_set) > 1)
+    cat(sprintf("  Cascading drop of interactions: %s\n",
+                paste(setdiff(drop_set, best$predictor), collapse = ", ")))
+  current_fixed <- setdiff(current_fixed, drop_set)
 }
 
 # =============================================================================
@@ -148,6 +168,60 @@ plots_output_dir <- file.path(stepwise_dir, "plots")
 resid_output_dir <- file.path(stepwise_dir, "residuals_check")
 dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(resid_output_dir, recursive = TRUE, showWarnings = FALSE)
+
+# =============================================================================
+# 6. STEPWISE SELECTION SUMMARY PLOT
+# =============================================================================
+# One row per step: the predictor that was actually dropped (min delta_AIC)
+dropped_per_step <- all_steps %>%
+  group_by(step) %>%
+  filter(converged, !is.na(delta_AIC)) %>%
+  slice_min(delta_AIC, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  filter(delta_AIC < 0) %>%
+  mutate(
+    aic_improvement = -delta_AIC,
+    step_label      = paste0(step, " : ", predictor),
+    var_type        = case_when(
+      grepl(":", predictor)          ~ "interaction",
+      grepl("_lag\\d+$", predictor)  ~ "meteorology",
+      TRUE                           ~ "anthropogenic"
+    )
+  )
+
+p_stepwise <- ggplot(
+  dropped_per_step,
+  aes(x = aic_improvement,
+      y = reorder(step_label, -step),
+      fill = var_type)
+) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", aic_improvement)),
+            hjust = -0.15, size = 3.5) +
+  scale_fill_manual(
+    values = c("meteorology" = "#2980B9", "anthropogenic" = "#C0392B", "interaction" = "#8E44AD"),
+    labels = c("meteorology" = "Meteorological", "anthropogenic" = "Anthropogenic", "interaction" = "Interaction"),
+    name   = NULL
+  ) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.18)), limits = c(0, NA)) +
+  labs(title = "Predictors dropped per step", x = "AIC improvement", y = "Step") +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position    = "bottom",
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor   = element_blank()
+  )
+
+print(p_stepwise)
+ggsave(
+  file.path(plots_output_dir, "stepwise_dropped_predictors.png"),
+  p_stepwise,
+  width  = 12,
+  height = max(3, 0.55 * nrow(dropped_per_step) + 2),
+  dpi    = 300,
+  bg     = "white"
+)
+cat("Stepwise summary plot saved to:", plots_output_dir, "\n")
 
 source("GLMM_postfit.R")
 

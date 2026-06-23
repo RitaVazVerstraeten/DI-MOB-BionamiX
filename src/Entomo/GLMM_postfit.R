@@ -48,7 +48,7 @@ sink(summary_file)
 tryCatch({
   cat("Run suffix:", run_suffix, "\n")
   cat("Formula:", formula_str, "\n\n")
-  op <- options(max.print = 999999)
+  op <- options(max.print = 999999, width = 200)
   print(summary(model))
   options(op)
 }, finally = sink())

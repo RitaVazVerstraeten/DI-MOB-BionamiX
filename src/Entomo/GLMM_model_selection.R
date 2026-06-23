@@ -40,9 +40,9 @@ cfg <- list(
   # Predictors
   lag_vars      = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd", "hurricane_within_120km"),
 
-  unlagged_vars = c("is_urban", "is_WUI", "is_WI","has_aljibes", "water_containers", "water_shortage", "pop_density"),
+  unlagged_vars = c("is_urban", "is_WUI", "is_WI","water_containers", "water_shortage"),
   # unlagged_vars = c("is_urban", "is_WUI", "is_WI","has_aljibes", "water_containers"),
-  numeric_vars  = c("total_rainy_days", "precip_max_day_resid_on_trd", "avg_VPD", "water_containers", "pop_density"),
+  numeric_vars  = c("total_rainy_days", "precip_max_day_resid_on_trd", "avg_VPD", "water_containers"),
 
   # Lag levels to drop after expansion (NULL = keep all)
   exclude_predictors = NULL,
@@ -74,6 +74,16 @@ cfg <- list(
   n_cores = if (Sys.info()["nodename"] == "frietjes") parallel::detectCores(logical = FALSE) else 1L
 )
 
+# Generate interactions dynamically up to max_lag
+# Each pair: (modifier, lagged_var) — modifier is unlagged, lagged_var gets _lagX appended
+interaction_pairs <- list(
+  c("is_urban",       "total_rainy_days"),
+  c("water_shortage", "total_rainy_days")
+)
+cfg$interactions <- do.call(c, lapply(interaction_pairs, function(pair)
+  lapply(0:cfg$max_lag, function(l) c(pair[1], paste0(pair[2], "_lag", l)))
+))
+
 # Derived spatial fields
 cfg$block_col    <- if (cfg$spatial_level == "CMF") "cmf"      else "manzana"
 cfg$sf_block_col <- if (cfg$spatial_level == "CMF") "Area_CMF" else "CODIGO_"
@@ -102,13 +112,36 @@ model_spec <- paste0(
   "_betabinom-", cfg$link_function
 )
 
-predictor_spec <- paste0(
+var_abbrev <- c(
+  total_rainy_days            = "trd",
+  avg_VPD                     = "vpd",
+  precip_max_day_resid_on_trd = "pmdr",
+  hurricane_within_120km      = "hurr",
+  is_urban                    = "urb",
+  is_WUI                      = "wui",
+  is_WI                       = "wi",
+  has_aljibes                 = "alj",
+  water_containers            = "wc",
+  water_shortage              = "ws",
+  pop_density                 = "popd",
+  landcover                   = "lc"
+)
+abbrev <- function(x) {
+  for (nm in names(var_abbrev)) x <- gsub(nm, var_abbrev[[nm]], x, fixed = TRUE)
+  x
+}
+
+predictor_spec_full <- paste0(
   "lag-",   paste(cfg$lag_vars,      collapse = "-"),
   "_unlag-", paste(cfg$unlagged_vars, collapse = "-"),
+  if (!is.null(cfg$interactions) && length(cfg$interactions) > 0)
+    paste0("_ix-", paste(sapply(cfg$interactions, function(p) paste(p, collapse = "x")), collapse = "_"))
+  else "",
   if (!is.null(cfg$exclude_predictors) && length(cfg$exclude_predictors) > 0)
     paste0("_excl-", paste(cfg$exclude_predictors, collapse = "-"))
   else ""
 )
+predictor_spec <- abbrev(predictor_spec_full)
 
 sel_model_dir <- file.path(cfg$output_dir, predictor_spec, model_spec, run_suffix)
 dir.create(sel_model_dir, recursive = TRUE, showWarnings = FALSE)
@@ -127,7 +160,8 @@ df <- load_base_data(cfg$data_file) %>%
     cos_annual = cos(2 * pi * as.integer(format(year_month_date, "%m")) / 12),
     # landcover  = factor(landcover),
     temp_cat   = factor(temp_cat),
-    precip_cat = factor(precip_cat)
+    precip_cat = factor(precip_cat),
+    is_urban   = factor(is_urban, levels = c(1, 0))  # urban = reference
   ) %>%
   select(-any_of(cfg$block_col))
 
@@ -209,7 +243,11 @@ df <- df %>%
 # =============================================================================
 # 5. BUILD FORMULA
 # =============================================================================
-fixed_effects <- c(lagged_cols, cfg$unlagged_vars, "reactive_shift")
+interaction_terms <- if (!is.null(cfg$interactions) && length(cfg$interactions) > 0) {
+  sapply(cfg$interactions, function(p) paste(p, collapse = ":"))
+} else c()
+
+fixed_effects <- c(lagged_cols, cfg$unlagged_vars, "reactive_shift", interaction_terms)
 if (!is.null(cfg$exclude_predictors))
   fixed_effects <- setdiff(fixed_effects, cfg$exclude_predictors)
 
@@ -227,8 +265,10 @@ formula_str <- paste(
 )
 formula <- as.formula(formula_str)
 
+# Interaction terms (e.g. "a:b") are formula syntax, not column names — expand them
+main_effect_cols <- unique(unlist(strsplit(fixed_effects, ":")))
 required_cols <- unique(c(
-  "y_bt", "n_trials", fixed_effects,
+  "y_bt", "n_trials", main_effect_cols,
   if (cfg$include_block_re)     "block",
   if (cfg$include_time_re)      "year_month",
   if (cfg$include_ar1_temporal) c("year_month_ar1", "ar1_group"),
@@ -259,7 +299,7 @@ full_aic <- AIC(model_full)
 cat("Full model AIC:", round(full_aic, 2), "\n\n")
 
 summary_output_full <- local({
-  op <- options(max.print = 99999); on.exit(options(op))
+  op <- options(max.print = 99999, width = 200); on.exit(options(op))
   capture.output(summary(model_full))
 })
 writeLines(c(paste0("Formula: ", formula_str), "", summary_output_full),
@@ -303,7 +343,7 @@ fit_minus_one <- function(pred) {
 
   aic_val   <- AIC(model_minus)
   summ_out  <- local({
-    op <- options(max.print = 99999); on.exit(options(op))
+    op <- options(max.print = 99999, width = 200); on.exit(options(op))
     capture.output(summary(model_minus))
   })
   list(predictor = pred,

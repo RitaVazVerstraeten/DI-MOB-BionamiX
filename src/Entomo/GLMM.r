@@ -15,6 +15,8 @@ if (!require("conflicted", quietly = TRUE)) {
 conflicted::conflict_prefer("filter", "dplyr")
 conflicted::conflict_prefer("lag", "dplyr")
 
+options(width = 200)
+
 # =========================
 # SETTINGS
 # =========================
@@ -40,15 +42,15 @@ cfg <- list(
   #                (exclude factors, binary 0/1, and already-factored variables)
   lag_vars      = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd", "hurricane_within_120km"),
 
-  unlagged_vars = c("is_urban", "is_WUI", "is_WI","has_aljibes", "water_containers", "water_shortage", "pop_density", "landcover"),
+  unlagged_vars = c("is_urban", "is_WUI", "is_WI","has_aljibes", "water_containers", "water_shortage"), # "pop_density" and "landcover" removed due to collinearity with is_urban
   # unlagged_vars = c("is_urban", "is_WUI", "is_WI","has_aljibes", "water_containers"),
-  numeric_vars  = c("total_rainy_days", "precip_max_day_resid_on_trd", "avg_VPD", "water_containers", "pop_density"),
+  numeric_vars  = c("total_rainy_days", "precip_max_day_resid_on_trd", "avg_VPD", "water_containers"),
 
-  # Interaction terms (NULL = none)
+  # Interaction terms: generated dynamically after cfg is defined (see below)
   # Each element is a character vector of exactly 2 variable names (column names
   # after lag expansion, e.g. "temp_cat_lag1", or unlagged names e.g. "is_urban")
   # Example: interactions = list(c("temp_cat_lag1", "avg_VPD_lag1"), c("is_urban", "water_containers"))
-  interactions  = NULL,
+  interactions  = NULL,  # overwritten below
 
   # Predictors to drop after lag expansion (NULL = keep all)
   # Use the fully expanded column name, e.g. "avg_VPD_lag1", "is_urban"
@@ -94,6 +96,12 @@ cfg <- list(
   eval_max = 1500
 )
 
+# Generate interactions dynamically up to max_lag
+interaction_vars <- c("total_rainy_days", "precip_max_day_resid_on_trd")
+cfg$interactions <- do.call(c, lapply(interaction_vars, function(var)
+  lapply(0:cfg$max_lag, function(l) c("is_urban", paste0(var, "_lag", l)))
+))
+
 # Derived from spatial_level — keep consistent with Hierarch_StateSpace model
 cfg$block_col    <- if (cfg$spatial_level == "CMF") "cmf"      else "manzana"
 cfg$sf_block_col <- if (cfg$spatial_level == "CMF") "Area_CMF" else "CODIGO_"
@@ -116,7 +124,7 @@ ar1_suffix <- ifelse(
 )
 
 # Run suffix is the date
-run_suffix <- date_suffix
+run_suffix <- paste0(date_suffix, "_urbref1")
 
 # Output structure:
 # <output_dir>/<predictor_spec>/<model_spec>/<run_suffix>/plots/
@@ -134,8 +142,28 @@ model_spec <- paste0(
   "_betabinom-", cfg$link_function
 )
 
+# Abbreviation map for long variable names — keeps folder names short but readable
+var_abbrev <- c(
+  total_rainy_days            = "trd",
+  avg_VPD                     = "vpd",
+  precip_max_day_resid_on_trd = "pmdr",
+  hurricane_within_120km      = "hurr",
+  is_urban                    = "urb",
+  is_WUI                      = "wui",
+  is_WI                       = "wi",
+  has_aljibes                 = "alj",
+  water_containers            = "wc",
+  water_shortage              = "ws",
+  pop_density                 = "popd",
+  landcover                   = "lc"
+)
+abbrev <- function(x) {
+  for (nm in names(var_abbrev)) x <- gsub(nm, var_abbrev[[nm]], x, fixed = TRUE)
+  x
+}
+
 # Encode predictor sets in folder name so each combination gets its own directory
-predictor_spec <- paste0(
+predictor_spec_full <- paste0(
   "lag-", paste(cfg$lag_vars, collapse = "-"),
   "_unlag-", paste(cfg$unlagged_vars, collapse = "-"),
   if (!is.null(cfg$interactions) && length(cfg$interactions) > 0)
@@ -146,6 +174,7 @@ predictor_spec <- paste0(
   else "",
   if (isTRUE(cfg$include_fourier)) "_fourier" else ""
 )
+predictor_spec <- abbrev(predictor_spec_full)
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
 run_output_dir    <- file.path(model_output_dir, run_suffix)
@@ -153,6 +182,7 @@ plots_output_dir  <- file.path(run_output_dir, "plots")
 resid_output_dir  <- file.path(run_output_dir, "residuals_check")
 dir.create(run_output_dir,   recursive = TRUE, showWarnings = FALSE)
 dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
+writeLines(predictor_spec_full, file.path(model_output_dir, "predictor_spec.txt"))
 dir.create(resid_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # =========================
@@ -168,7 +198,8 @@ df <- load_base_data(cfg$data_file) %>%
     cos_annual    = cos(2 * pi * as.integer(format(year_month_date, "%m")) / 12),
     landcover     = factor(landcover),
     temp_cat      = factor(temp_cat),
-    precip_cat    = factor(precip_cat)
+    precip_cat    = factor(precip_cat),
+    is_urban      = factor(is_urban, levels = c(1, 0))  # urban = reference
   ) %>%
   select(-any_of(cfg$block_col))
 
@@ -404,12 +435,12 @@ required_cols <- unique(c(
   if (cfg$include_spatial_ar) c("x_sc", "y_sc", "xy", "spatial") else NULL
 ))
 
-missing_required <- setdiff(required_cols, names(df_expanded))
+missing_required <- setdiff(required_cols, names(df))
 if (length(missing_required) > 0) {
   stop("Missing required columns for model fit: ", paste(missing_required, collapse = ", "))
 }
 
-na_counts <- sort(sapply(required_cols, function(col) sum(is.na(df_expanded[[col]]))), decreasing = TRUE)
+na_counts <- sort(sapply(required_cols, function(col) sum(is.na(df[[col]]))), decreasing = TRUE)
 na_counts <- na_counts[na_counts > 0]
 if (length(na_counts) > 0) {
   cat("NA counts in required columns:\n")
