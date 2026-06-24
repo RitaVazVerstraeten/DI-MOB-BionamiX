@@ -95,18 +95,17 @@ cfg <- list(
   max_lag = 6,
   kappa = 4,
 
-  unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers"),
+  unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
 
-  numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd", "water_containers"),
-  # numeric_vars = c("total_rainy_days", "avg_VPD", "mean_ndvi", "water_containers"),
+  numeric_vars = c("total_rainy_days", "total_precip", "avg_VPD", "precip_max_day_resid_on_trd", "water_containers"),
 
   # DLNM settings (only used when use_dlnm = TRUE)
-  dlnm_vars   = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),  # vars for crossbasis
-  # dlnm_vars   = c("total_rainy_days", "avg_VPD"),  # vars for crossbasis
+  dlnm_vars   = c("total_rainy_days", "total_precip", "avg_VPD", "precip_max_day_resid_on_trd"),
 
-  dlnm_argvar = list(                   # per-variable predictor basis; defaults to ns (natural spline (df=3) if omitted
-    total_rainy_days    = list(fun = "ns", df = 3),
-    avg_VPD             = list(fun = "ns", df = 3),
+  dlnm_argvar = list(
+    total_rainy_days            = list(fun = "ns", df = 3),
+    total_precip                = list(fun = "ns", df = 3),
+    avg_VPD                     = list(fun = "ns", df = 3),
     precip_max_day_resid_on_trd = list(fun = "ns", df = 3)
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
@@ -114,13 +113,13 @@ cfg <- list(
   # Interaction cross-bases: each entry is a (binary_var, active_level, dlnm_var, label) tuple.
   # active_level: the value of binary_var for which the modifier is active.
   #   is_urban coded 1=urban (reference), 0=non-urban -> active_level=0 for non-urban modifier
-  #   water_shortage logical (TRUE=1)    -> active_level=1 for water-shortage modifier
+  #   water_shortage logical (TRUE=1)             -> active_level=1 for water-shortage modifier
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
   # dlnm_ix_vars = list(
-  #   list(binary_var = "is_urban",       active_level = 0, dlnm_var = "total_rainy_days", label = "nonurban_x_trd"),
-  #   list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_rainy_days", label = "ws_x_trd")
+  #   list(binary_var = "is_urban",       active_level = 0, dlnm_var = "total_precip", label = "nonurban_x_tp"),
+  #   list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "ws_x_tp")
   # ),
-  dlnm_ix_vars = NULL, 
+  dlnm_ix_vars = NULL,
 
   # MCMC
   chains = 4,
