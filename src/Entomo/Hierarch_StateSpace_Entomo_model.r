@@ -89,7 +89,7 @@ cfg <- list(
   response_start = "2016_01",
   n_blocks = NULL, # set NULL for all blocks/CMFs
 
-  lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd"),
+  lag_vars = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp", "hurricane_within_120km"),
   # lag_vars = c("total_rainy_days", "avg_VPD"),
 
   max_lag = 6,
@@ -97,16 +97,15 @@ cfg <- list(
 
   unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
 
-  numeric_vars = c("total_rainy_days", "total_precip", "avg_VPD", "precip_max_day_resid_on_trd", "water_containers"),
+  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers"),
 
   # DLNM settings (only used when use_dlnm = TRUE)
-  dlnm_vars   = c("total_rainy_days", "total_precip", "avg_VPD", "precip_max_day_resid_on_trd"),
+  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp"),
 
   dlnm_argvar = list(
-    total_rainy_days            = list(fun = "ns", df = 3),
     total_precip                = list(fun = "ns", df = 3),
     avg_VPD                     = list(fun = "ns", df = 3),
-    precip_max_day_resid_on_trd = list(fun = "ns", df = 3)
+    precip_max_day_resid_on_tp = list(fun = "ns", df = 3)
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
 
