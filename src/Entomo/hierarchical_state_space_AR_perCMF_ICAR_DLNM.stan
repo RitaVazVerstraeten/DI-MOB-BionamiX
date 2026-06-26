@@ -103,8 +103,8 @@ transformed parameters {
 
 model {
   alpha      ~ normal(-7.0, 1.5);
-  w_cb       ~ normal(0, 1.0);
-  w_unlagged ~ normal(0, 0.5);
+  w_cb       ~ student_t(3, 0, 1.0);
+  w_unlagged ~ student_t(3, 0, 0.5);
 
   to_vector(v_raw) ~ normal(0, 1);
   tau  ~ normal(0, 1.0);
