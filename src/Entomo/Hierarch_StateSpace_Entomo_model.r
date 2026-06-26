@@ -103,9 +103,9 @@ cfg <- list(
   dlnm_vars   = c("total_rainy_days",  "avg_VPD", "precip_max_day_resid_on_trd"),
 
   dlnm_argvar = list(
-    total_rainy_days                = list(fun = "ns", df = 3),
-    avg_VPD                     = list(fun = "ns", df = 3),
-    precip_max_day_resid_on_trd = list(fun = "ns", df = 3)
+    total_rainy_days                = list(fun = "ns", df = 4),
+    avg_VPD                     = list(fun = "ns", df = 4),
+    precip_max_day_resid_on_trd = list(fun = "ns", df = 4)
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
 
@@ -200,7 +200,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "_Normal_shrinkage")
+run_suffix <- paste0(date_suffix, "_StudentT_shrinkage")
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
 run_output_dir    <- file.path(model_output_dir, run_suffix)
