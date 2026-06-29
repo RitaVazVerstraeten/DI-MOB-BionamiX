@@ -299,6 +299,16 @@ build_dlnm_stan_data <- function(cfg) {
   default_argvar <- list(fun = "ns", df = 3)
   default_arglag <- list(fun = "ns", df = 3)
 
+  # Strip arguments that are incompatible with the basis function.
+  # lin accepts no extra args; strata only accepts breaks.
+  # This prevents leftover df/knots fields from causing errors.
+  clean_basis_spec <- function(spec) {
+    if (is.null(spec$fun)) return(spec)
+    if (spec$fun == "lin")    return(list(fun = "lin"))
+    if (spec$fun == "strata") return(list(fun = "strata", breaks = spec$breaks))
+    spec
+  }
+
   # dlnm_arglag may be either a single global spec (unnamed list with fun/df keys)
   # or a named list keyed by dlnm_var name for per-variable lag bases.
   arglag_is_per_var <- !is.null(cfg$dlnm_arglag) &&
@@ -323,16 +333,20 @@ build_dlnm_stan_data <- function(cfg) {
       }
     }
 
-    argvar <- if (!is.null(cfg$dlnm_argvar) && var %in% names(cfg$dlnm_argvar))
-      cfg$dlnm_argvar[[var]] else default_argvar
-    arglag <- if (arglag_is_per_var && var %in% names(cfg$dlnm_arglag))
-      cfg$dlnm_arglag[[var]]
-    else if (arglag_is_per_var)
-      default_arglag
-    else if (!is.null(cfg$dlnm_arglag))
-      cfg$dlnm_arglag
-    else
-      default_arglag
+    argvar <- clean_basis_spec(
+      if (!is.null(cfg$dlnm_argvar) && var %in% names(cfg$dlnm_argvar))
+        cfg$dlnm_argvar[[var]] else default_argvar
+    )
+    arglag <- clean_basis_spec(
+      if (arglag_is_per_var && var %in% names(cfg$dlnm_arglag))
+        cfg$dlnm_arglag[[var]]
+      else if (arglag_is_per_var)
+        default_arglag
+      else if (!is.null(cfg$dlnm_arglag))
+        cfg$dlnm_arglag
+      else
+        default_arglag
+    )
 
     cb_mats[[var]] <- dlnm::crossbasis(Q, lag = c(0, L), argvar = argvar, arglag = arglag)
     cat(sprintf("  %-32s  %d columns\n", var, ncol(cb_mats[[var]])))
