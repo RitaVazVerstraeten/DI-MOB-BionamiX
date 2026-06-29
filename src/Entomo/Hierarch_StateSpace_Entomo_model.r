@@ -703,9 +703,12 @@ if (exists("loo_result")) {
       C_bt      = stan_data$C_bt[bad_obs]
     )
     bad_df <- bad_df[order(-bad_df$pareto_k), ]
-    writexl::write_xlsx(bad_df,
-                        file.path(run_output_dir,
-                                  paste0("pareto_k_flagged_", model_spec, ".xlsx")))
+    flagged_base <- file.path(run_output_dir, paste0("pareto_k_flagged_", model_spec))
+    if (requireNamespace("writexl", quietly = TRUE)) {
+      writexl::write_xlsx(bad_df, paste0(flagged_base, ".xlsx"))
+    } else {
+      write.csv(bad_df, paste0(flagged_base, ".csv"), row.names = FALSE)
+    }
     cat("Flagged observations saved to:", run_output_dir, "\n")
   }
   
