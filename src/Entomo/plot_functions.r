@@ -1616,3 +1616,214 @@ save_glmm_coef_forest_plot <- function(coef_table, cfg = NULL, output_dir, run_s
   invisible(p)
 }
 
+#' DLNM exposure-lag-response plots for a single variable from a glmmTMB model.
+#'
+#' Produces three plots per variable:
+#'   1. Cumulative effect curve (summed over all lags) with 95% CI
+#'   2. Lag-response profile at the 75th-percentile exposure value
+#'   3. Full exposure-lag-response heatmap
+#'
+#' @param var              Variable name (character), used in titles and filenames.
+#' @param cb_obj           crossbasis object built for this variable.
+#' @param cb_col_names_var Character vector of model coefficient names for this crossbasis.
+#' @param model            Fitted glmmTMB object.
+#' @param at               Numeric vector of exposure values to predict at.
+#' @param cen              Centering value for the log-odds ratio (typically the median).
+#' @param max_lag          Maximum lag used in the model.
+#' @param output_dir       Directory to write PNGs.
+#' @param run_suffix       String appended to filenames.
+save_glmm_dlnm_plots <- function(var, cb_obj, cb_term_name, model,
+                                 at, cen, max_lag, output_dir, run_suffix,
+                                 scale_center = NULL, scale_sd = NULL) {
+  if (!requireNamespace("dlnm", quietly = TRUE))
+    stop("Package 'dlnm' required for DLNM plots")
+
+  # Extract fixed-effect coefs and vcov from glmmTMB.
+  # Matrix column cb_term_name produces coefficients named <cb_term_name><cb_col_name>
+  # (e.g. cb_total_precipv1.l1). Grep by prefix to find them, then rename to match
+  # the crossbasis object's own column names so crosspred() can work correctly.
+  all_coef <- glmmTMB::fixef(model)$cond
+  all_vcov <- as.matrix(vcov(model)$cond)
+
+  cb_model_names <- grep(paste0("^", cb_term_name), names(all_coef), value = TRUE)
+  if (length(cb_model_names) != ncol(cb_obj))
+    stop(sprintf("Expected %d coefs for %s, found %d", ncol(cb_obj), cb_term_name, length(cb_model_names)))
+
+  cb_coef <- all_coef[cb_model_names]
+  cb_vcov <- all_vcov[cb_model_names, cb_model_names, drop = FALSE]
+
+  names(cb_coef)                         <- colnames(cb_obj)
+  rownames(cb_vcov) <- colnames(cb_vcov) <- colnames(cb_obj)
+
+  pred <- tryCatch(
+    suppressWarnings(
+      dlnm::crosspred(cb_obj, coef = cb_coef, vcov = cb_vcov, at = at, cen = cen)
+    ),
+    error = function(e) {
+      cat(sprintf("  crosspred() failed for %s: %s\n", var, conditionMessage(e)))
+      NULL
+    }
+  )
+  if (is.null(pred)) return(invisible(NULL))
+
+  # Resolve which matrix fields are populated.
+  # Without model.link, dlnm stores log-scale effects in matfit.
+  # With model.link it may route to matRRfit; fall back accordingly.
+  mat_fit  <- if (!is.null(pred$matfit)  && length(pred$matfit)  > 0) pred$matfit  else log(pred$matRRfit)
+  mat_low  <- if (!is.null(pred$matlow)  && length(pred$matlow)  > 0) pred$matlow  else log(pred$matRRlow)
+  mat_high <- if (!is.null(pred$mathigh) && length(pred$mathigh) > 0) pred$mathigh else log(pred$matRRhigh)
+
+  if (is.null(mat_fit) || length(mat_fit) == 0) {
+    cat(sprintf("  No prediction matrix for %s (fields: %s)\n", var, paste(names(pred), collapse=", ")))
+    return(invisible(NULL))
+  }
+
+  var_label <- gsub("_", " ", var)
+  lags      <- seq(0, max_lag, length.out = ncol(mat_fit))
+
+  # Back-transform exposure axis to original (unstandardized) scale where available
+  if (!is.null(scale_center) && !is.null(scale_sd) &&
+      var %in% names(scale_center) && var %in% names(scale_sd)) {
+    x_orig <- pred$predvar * scale_sd[[var]] + scale_center[[var]]
+    cen_orig <- cen * scale_sd[[var]] + scale_center[[var]]
+  } else {
+    x_orig   <- pred$predvar
+    cen_orig <- cen
+  }
+
+  # --- 1. Cumulative effect curve ---
+  # allfit (cumul=TRUE) doesn't always work with coef/vcov; sum over lags as fallback.
+  if (length(pred$allfit) == length(pred$predvar)) {
+    cum_fit  <- pred$allfit
+    cum_low  <- pred$alllow
+    cum_high <- pred$allhigh
+  } else {
+    cum_fit  <- rowSums(mat_fit)
+    cum_low  <- rowSums(mat_low)
+    cum_high <- rowSums(mat_high)
+  }
+  is_binary <- length(at) <= 2
+  df_cumul  <- data.frame(
+    exposure = x_orig,
+    fit      = cum_fit,
+    low      = cum_low,
+    high     = cum_high
+  )
+
+  if (is_binary) {
+    df_cumul$label <- ifelse(df_cumul$exposure == max(df_cumul$exposure), "Present", "Absent")
+    p_cumul <- ggplot2::ggplot(df_cumul, ggplot2::aes(x = label, y = fit)) +
+      ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+      ggplot2::geom_pointrange(ggplot2::aes(ymin = low, ymax = high),
+                               colour = "steelblue", size = 0.8, linewidth = 1) +
+      ggplot2::scale_x_discrete(limits = c("Absent", "Present")) +
+      ggplot2::labs(
+        title    = paste("Cumulative effect:", var_label),
+        subtitle = paste0("Log-odds summed over lags 0–", max_lag, "; ref = absent"),
+        x = var_label, y = "Cumulative log-odds ratio"
+      ) +
+      ggplot2::theme_minimal()
+  } else {
+    p_cumul <- ggplot2::ggplot(df_cumul, ggplot2::aes(x = exposure)) +
+      ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+      ggplot2::geom_ribbon(ggplot2::aes(ymin = low, ymax = high),
+                           fill = "steelblue", alpha = 0.25) +
+      ggplot2::geom_line(ggplot2::aes(y = fit), colour = "steelblue", linewidth = 1) +
+      ggplot2::labs(
+        title    = paste("Cumulative effect:", var_label),
+        subtitle = paste0("Log-odds summed over lags 0–", max_lag,
+                          "; ref = ", round(cen_orig, 2)),
+        x = var_label, y = "Cumulative log-odds ratio"
+      ) +
+      ggplot2::theme_minimal()
+  }
+  ggplot2::ggsave(file.path(output_dir, paste0("dlnm_cumul_", var, "_", run_suffix, ".png")),
+                  p_cumul, width = 7, height = 5, dpi = 150)
+
+  # --- 2. Lag-response profiles across exposure quantiles ---
+  if (is_binary) {
+    # Binary: single curve for "present" vs reference (absent)
+    present_idx <- which.max(pred$predvar)
+    df_lag <- data.frame(
+      lag     = lags,
+      fit     = mat_fit[present_idx, ],
+      low     = mat_low[present_idx, ],
+      high    = mat_high[present_idx, ],
+      exp_val = x_orig[present_idx]
+    )
+    p_lag <- ggplot2::ggplot(df_lag, ggplot2::aes(x = lag)) +
+      ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+      ggplot2::geom_ribbon(ggplot2::aes(ymin = low, ymax = high),
+                           fill = "steelblue", alpha = 0.25) +
+      ggplot2::geom_line(ggplot2::aes(y = fit), colour = "steelblue", linewidth = 1) +
+      ggplot2::geom_point(ggplot2::aes(y = fit), colour = "steelblue", size = 2.5) +
+      ggplot2::scale_x_continuous(breaks = 0:max_lag) +
+      ggplot2::labs(
+        title    = paste("Lag-response profile:", var_label),
+        subtitle = paste0("Exposure = present (1); ref = absent"),
+        x = "Lag (months)", y = "Log-odds ratio"
+      ) +
+      ggplot2::theme_minimal()
+  } else {
+    # Continuous: one curve per exposure quantile, coloured by exposure level
+    quant_probs <- c(0.10, 0.25, 0.50, 0.75, 0.90)
+    quant_idxs  <- sapply(quant_probs, function(q)
+      which.min(abs(pred$predvar - quantile(pred$predvar, q))))
+
+    df_lag_multi <- do.call(rbind, lapply(seq_along(quant_probs), function(i) {
+      idx <- quant_idxs[i]
+      data.frame(
+        lag     = lags,
+        fit     = mat_fit[idx, ],
+        low     = mat_low[idx, ],
+        high    = mat_high[idx, ],
+        exp_val = x_orig[idx]
+      )
+    }))
+
+    p_lag <- ggplot2::ggplot(df_lag_multi,
+                             ggplot2::aes(x = lag, y = fit,
+                                          colour = exp_val, group = factor(exp_val))) +
+      ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+      ggplot2::geom_ribbon(ggplot2::aes(ymin = low, ymax = high, fill = exp_val),
+                           alpha = 0.10, colour = NA) +
+      ggplot2::geom_line(linewidth = 1) +
+      ggplot2::geom_point(size = 2.5) +
+      ggplot2::scale_colour_viridis_c(name = var_label, option = "plasma") +
+      ggplot2::scale_fill_viridis_c(name = var_label, option = "plasma", guide = "none") +
+      ggplot2::scale_x_continuous(breaks = 0:max_lag) +
+      ggplot2::labs(
+        title    = paste("Lag-response profiles:", var_label),
+        subtitle = paste0("Lines at p10/p25/p50/p75/p90; ref = ", round(cen_orig, 2)),
+        x = "Lag (months)", y = "Log-odds ratio"
+      ) +
+      ggplot2::theme_minimal()
+  }
+  ggplot2::ggsave(file.path(output_dir, paste0("dlnm_lagresponse_", var, "_", run_suffix, ".png")),
+                  p_lag, width = 7, height = 5, dpi = 150)
+
+  # --- 3. Exposure-lag-response heatmap ---
+  df_heat <- expand.grid(exposure = x_orig, lag = lags)
+  df_heat$fit <- as.vector(mat_fit)
+  limit <- max(abs(df_heat$fit), na.rm = TRUE)
+
+  p_heat <- ggplot2::ggplot(df_heat, ggplot2::aes(x = lag, y = exposure, fill = fit)) +
+    ggplot2::geom_tile() +
+    ggplot2::scale_fill_gradient2(low = "steelblue", mid = "white", high = "firebrick",
+                                  midpoint = 0, limits = c(-limit, limit),
+                                  name = "Log-OR") +
+    ggplot2::scale_x_continuous(breaks = 0:max_lag) +
+    ggplot2::labs(
+      title    = paste("Exposure-lag-response surface:", var_label),
+      subtitle = "Colour = log-odds ratio vs median exposure",
+      x = "Lag (months)", y = var_label
+    ) +
+    ggplot2::theme_minimal() +
+    ggplot2::theme(panel.grid = ggplot2::element_blank())
+  ggplot2::ggsave(file.path(output_dir, paste0("dlnm_heatmap_", var, "_", run_suffix, ".png")),
+                  p_heat, width = 7, height = 5, dpi = 150)
+
+  cat(sprintf("DLNM plots saved for %s\n", var))
+  invisible(pred)
+}
+

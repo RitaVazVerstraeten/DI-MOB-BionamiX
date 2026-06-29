@@ -149,6 +149,11 @@ cfg <- list(
   n_blocks_facet = 9
 )
 
+# Allow a calling script to inject cfg overrides before the model runs.
+# Set .hierarch_cfg_override <- list(...) before source()-ing this script.
+if (exists(".hierarch_cfg_override") && is.list(.hierarch_cfg_override))
+  cfg <- modifyList(cfg, .hierarch_cfg_override)
+
 # ========== Output directory structure =============
 date_suffix <- format(Sys.Date(), "%Y%m%d")
 model_spec <- if (isTRUE(cfg$use_time_RE)) {
@@ -201,6 +206,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
 run_suffix <- paste0(date_suffix, "_StudentT_shrinkage_4df")
+if (exists(".hierarch_run_suffix")) run_suffix <- .hierarch_run_suffix
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
 run_output_dir    <- file.path(model_output_dir, run_suffix)
@@ -577,6 +583,43 @@ model_sum      <- rename_w_in_summary(
   unlagged_vars     = prep$unlagged_vars
 )
 summary_output <- capture.output({
+  cat("=== MODEL CONFIGURATION ===\n")
+  cat("Run suffix  :", run_suffix, "\n")
+  cat("Stan file   :", cfg$stan_file, "\n")
+  cat("Spatial level:", cfg$spatial_level, "\n\n")
+
+  cat("--- Predictors ---\n")
+  cat("Lag vars    :", paste(cfg$lag_vars, collapse = ", "), "\n")
+  cat("Unlagged    :", paste(cfg$unlagged_vars, collapse = ", "), "\n")
+  cat("Max lag     :", cfg$max_lag, "\n")
+  if (isTRUE(cfg$use_dlnm)) {
+    argspec_str <- function(s) {
+      if (is.null(s$fun)) return("?")
+      if (s$fun == "lin")    return("lin")
+      if (s$fun == "strata") return(paste0("strata(", s$breaks, ")"))
+      paste0(s$fun, "(df=", s$df, ")")
+    }
+    cat("DLNM argvar :", paste(names(cfg$dlnm_argvar), sapply(cfg$dlnm_argvar, argspec_str), sep = "=", collapse = ", "), "\n")
+    arglag_is_per_var <- !is.null(names(cfg$dlnm_arglag)) && any(names(cfg$dlnm_arglag) %in% cfg$dlnm_vars)
+    if (arglag_is_per_var) {
+      cat("DLNM arglag : per-variable —", paste(names(cfg$dlnm_arglag), sapply(cfg$dlnm_arglag, argspec_str), sep = "=", collapse = ", "), "\n")
+    } else {
+      cat("DLNM arglag :", argspec_str(cfg$dlnm_arglag), "\n")
+    }
+  }
+  if (!is.null(cfg$ix_vars) && length(cfg$ix_vars) > 0)
+    cat("Interactions:", paste(sapply(cfg$ix_vars, paste, collapse = " x "), collapse = ", "), "\n")
+
+  cat("\n--- Random effects ---\n")
+  cat("Block RE            :", isTRUE(cfg$use_block_RE) || isTRUE(cfg$use_block_dev), "\n")
+  cat("Temporal AR(1)/CMF  :", isTRUE(cfg$use_temporal_AR_perCMF), "\n")
+  cat("Temporal AR(1) global:", isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_temporal_AR_perCMF), "\n")
+  cat("Spatial ICAR        :", isTRUE(cfg$use_icar), "\n")
+  cat("Spatial BYM2        :", isTRUE(cfg$use_bym2), "\n")
+  cat("Reactive shift (delta1):", !isTRUE(cfg$fix_delta1), "\n")
+  cat("phi fixed           :", isTRUE(cfg$fix_phi), "\n")
+
+  cat("\n=== PARAMETER ESTIMATES ===\n")
   old_width <- options(width = 10000)
   print(as.data.frame(model_sum), digits = 3, row.names = FALSE)
   options(old_width)

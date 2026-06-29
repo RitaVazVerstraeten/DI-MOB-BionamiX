@@ -299,6 +299,12 @@ build_dlnm_stan_data <- function(cfg) {
   default_argvar <- list(fun = "ns", df = 3)
   default_arglag <- list(fun = "ns", df = 3)
 
+  # dlnm_arglag may be either a single global spec (unnamed list with fun/df keys)
+  # or a named list keyed by dlnm_var name for per-variable lag bases.
+  arglag_is_per_var <- !is.null(cfg$dlnm_arglag) &&
+                       !is.null(names(cfg$dlnm_arglag)) &&
+                       any(names(cfg$dlnm_arglag) %in% cfg$dlnm_vars)
+
   cat("Building DLNM cross-bases (max_lag =", L, "):\n")
   cb_mats <- list()
 
@@ -319,7 +325,14 @@ build_dlnm_stan_data <- function(cfg) {
 
     argvar <- if (!is.null(cfg$dlnm_argvar) && var %in% names(cfg$dlnm_argvar))
       cfg$dlnm_argvar[[var]] else default_argvar
-    arglag <- if (!is.null(cfg$dlnm_arglag)) cfg$dlnm_arglag else default_arglag
+    arglag <- if (arglag_is_per_var && var %in% names(cfg$dlnm_arglag))
+      cfg$dlnm_arglag[[var]]
+    else if (arglag_is_per_var)
+      default_arglag
+    else if (!is.null(cfg$dlnm_arglag))
+      cfg$dlnm_arglag
+    else
+      default_arglag
 
     cb_mats[[var]] <- dlnm::crossbasis(Q, lag = c(0, L), argvar = argvar, arglag = arglag)
     cat(sprintf("  %-32s  %d columns\n", var, ncol(cb_mats[[var]])))
