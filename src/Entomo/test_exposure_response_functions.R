@@ -36,6 +36,7 @@ test_output_dir <- if (hostname == "frietjes")
   "/home/rita/data/Entomo/fitting/stan/test_exposure_response_functions"
 else
   "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan/test_exposure_response_functions"
+dir.create(test_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Helper to build an argspec label
 argspec_label <- function(spec) {
