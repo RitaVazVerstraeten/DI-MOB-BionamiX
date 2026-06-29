@@ -14,14 +14,20 @@ library(loo)
 script_dir <- tryCatch({
   p <- rstudioapi::getActiveDocumentContext()$path
   if (nzchar(p)) dirname(p) else stop("empty path")
-}, error = function(e) {
+}, error = function(e) tryCatch({
   frames <- sys.frames()
   for (f in rev(frames)) {
     if (!is.null(f$ofile) && nzchar(f$ofile))
       return(dirname(normalizePath(f$ofile, mustWork = FALSE)))
   }
-  getwd()
-})
+  args <- commandArgs(trailingOnly = FALSE)
+  fa   <- grep("--file=", args, value = TRUE)
+  if (length(fa)) dirname(normalizePath(sub("--file=", "", fa[1]), mustWork = FALSE))
+  else stop("no path")
+}, error = function(e2) {
+  candidate <- file.path(getwd(), "src", "Entomo")
+  if (file.exists(file.path(candidate, "helper_functions.r"))) candidate else getwd()
+}))
 
 date_suffix <- format(Sys.Date(), "%Y%m%d")
 hostname    <- Sys.info()["nodename"]
