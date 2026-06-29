@@ -32,10 +32,11 @@ script_dir <- tryCatch({
 date_suffix <- format(Sys.Date(), "%Y%m%d")
 hostname    <- Sys.info()["nodename"]
 
-test_output_dir <- if (hostname == "frietjes")
+test_output_dir <- if (hostname == "frietjes") {
   "/home/rita/data/Entomo/fitting/stan/test_exposure_response_functions"
-else
+} else {
   "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan/test_exposure_response_functions"
+}
 dir.create(test_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Helper to build an argspec label
