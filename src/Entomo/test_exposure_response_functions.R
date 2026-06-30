@@ -33,7 +33,7 @@ date_suffix <- format(Sys.Date(), "%Y%m%d")
 hostname    <- Sys.info()["nodename"]
 
 test_output_dir <- if (hostname == "frietjes") {
-  "/home/rita/data/Entomo/fitting/stan/test_exposure_response_functions"
+  "/home/rita/data/Entomo/fitting/stan/test_exposure_response_functions_noHurr"
 } else {
   "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan/test_exposure_response_functions"
 }
@@ -41,7 +41,7 @@ dir.create(test_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Helper to build an argspec label
 argspec_label <- function(spec) {
-  if (is.null(spec)) return("default")
+  if (!is.list(spec) || is.null(spec$fun)) return("default")
   if (spec$fun == "lin")    return("lin")
   if (spec$fun == "strata") return("strata")
   paste0(spec$fun, spec$df, "df")
@@ -52,8 +52,8 @@ pervar_arglag_label <- function(named_arglag) {
   abbrevs <- c(
     total_precip               = "TP",
     precip_max_day_resid_on_tp = "RESID",
-    avg_VPD                    = "VPD",
-    hurricane_within_120km     = "HURR"
+    avg_VPD                    = "VPD"
+    # hurricane_within_120km     = "HURR"
   )
   parts <- sapply(names(named_arglag), function(v) {
     short <- if (v %in% names(abbrevs)) abbrevs[[v]] else v
@@ -74,8 +74,8 @@ configs <- list(
     dlnm_argvar = list(
       total_precip               = list(fun = "ns", df = 2),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
-      avg_VPD                    = list(fun = "lin"),
-      hurricane_within_120km     = hurr_argvar
+      avg_VPD                    = list(fun = "lin")
+      # hurricane_within_120km     = hurr_argvar
     ),
     dlnm_arglag = list(fun = "lin")
   ),
@@ -85,8 +85,8 @@ configs <- list(
     dlnm_argvar = list(
       total_precip               = list(fun = "ns", df = 3),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
-      avg_VPD                    = list(fun = "ns", df = 3),
-      hurricane_within_120km     = hurr_argvar
+      avg_VPD                    = list(fun = "ns", df = 3)
+      # hurricane_within_120km     = hurr_argvar
     ),
     dlnm_arglag = list(fun = "lin")
   ),
@@ -96,8 +96,8 @@ configs <- list(
     dlnm_argvar = list(
       total_precip               = list(fun = "ns", df = 3),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 3),
-      avg_VPD                    = list(fun = "ns", df = 3),
-      hurricane_within_120km     = hurr_argvar
+      avg_VPD                    = list(fun = "ns", df = 3)
+      # hurricane_within_120km     = hurr_argvar
     ),
     dlnm_arglag = list(fun = "lin")
   ),
@@ -107,8 +107,8 @@ configs <- list(
     dlnm_argvar = list(
       total_precip               = list(fun = "ns", df = 3),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 3),
-      avg_VPD                    = list(fun = "ns", df = 3),
-      hurricane_within_120km     = hurr_argvar
+      avg_VPD                    = list(fun = "ns", df = 3)
+      # hurricane_within_120km     = hurr_argvar
     ),
     dlnm_arglag = list(fun = "ns", df = 2)
   ),
@@ -118,8 +118,8 @@ configs <- list(
     dlnm_argvar = list(
       total_precip               = list(fun = "ns", df = 3),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 3),
-      avg_VPD                    = list(fun = "ns", df = 3),
-      hurricane_within_120km     = hurr_argvar
+      avg_VPD                    = list(fun = "ns", df = 3)
+      # hurricane_within_120km     = hurr_argvar
     ),
     dlnm_arglag = list(fun = "ns", df = 3)
   ),
@@ -129,8 +129,8 @@ configs <- list(
     dlnm_argvar = list(
       total_precip               = list(fun = "ns", df = 3),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
-      avg_VPD                    = list(fun = "ns", df = 3),
-      hurricane_within_120km     = hurr_argvar
+      avg_VPD                    = list(fun = "ns", df = 3)
+      # hurricane_within_120km     = hurr_argvar
     ),
     dlnm_arglag = list(fun = "ns", df = 3)
   ),
@@ -140,14 +140,14 @@ configs <- list(
     dlnm_argvar = list(
       total_precip               = list(fun = "ns", df = 3),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
-      avg_VPD                    = list(fun = "ns", df = 3),
-      hurricane_within_120km     = hurr_argvar
+      avg_VPD                    = list(fun = "ns", df = 3)
+      # hurricane_within_120km     = hurr_argvar
     ),
     dlnm_arglag = list(
       total_precip               = list(fun = "ns", df = 3),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
-      avg_VPD                    = list(fun = "ns", df = 3),
-      hurricane_within_120km     = list(fun = "ns", df = 2)
+      avg_VPD                    = list(fun = "ns", df = 3)
+      # hurricane_within_120km     = list(fun = "ns", df = 2)
     )
   )
 )
@@ -168,8 +168,8 @@ make_run_suffix <- function(cfg_i, date_suffix) {
     "_TP_",    argspec_label(av$total_precip),
     "_RESID_", argspec_label(av$precip_max_day_resid_on_tp),
     "_VPD_",   argspec_label(av$avg_VPD),
-    "_HURR_strata_",
-    lag_label
+    "_",       lag_label,
+    "_ix_nonurban_x_tp"
   )
 }
 
@@ -189,10 +189,13 @@ for (i in seq_along(configs)) {
   cat(strrep("=", 70), "\n\n")
 
   .hierarch_cfg_override <- list(
-    lag_vars     = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp", "hurricane_within_120km"),
-    dlnm_vars    = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp", "hurricane_within_120km"),
+    lag_vars     = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp"),
+    dlnm_vars    = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp"),
     numeric_vars = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp", "water_containers"),
-    dlnm_ix_vars = NULL,
+    dlnm_ix_vars = list(
+      list(binary_var = "is_urban", active_level = 0,
+           dlnm_var   = "total_precip", label = "nonurban_x_tp")
+    ),
     dlnm_argvar  = cfg_i$dlnm_argvar,
     dlnm_arglag  = cfg_i$dlnm_arglag,
     output_dir   = test_output_dir
@@ -200,11 +203,15 @@ for (i in seq_along(configs)) {
   .hierarch_run_suffix <- run_label
   loo_result           <- NULL   # clear stale value; Hierarch will overwrite if fit succeeds
 
-  source(file.path(script_dir, "Hierarch_StateSpace_Entomo_model.r"), local = FALSE)
+  tryCatch(
+    source(file.path(script_dir, "Hierarch_StateSpace_Entomo_model.r"), local = FALSE),
+    error = function(e) cat("ERROR in config", i, "post-processing:", conditionMessage(e), "\n(loo_result collected before error if LOO completed)\n")
+  )
 
   if (exists("loo_result") && !is.null(loo_result)) {
     loo_list[[run_label]] <- loo_result
     cat("LOO stored for:", run_label, "\n")
+    saveRDS(loo_list, file.path(test_output_dir, "loo_list_partial.rds"))
   } else {
     cat("WARNING: loo_result not found after config", i, "— skipping LOO for this run.\n")
   }
@@ -240,6 +247,7 @@ if (length(loo_list) >= 2) {
 
   saveRDS(loo_list, file.path(comp_dir, paste0("loo_list_", date_suffix, ".rds")))
   cat("LOO objects saved to:", file.path(comp_dir, paste0("loo_list_", date_suffix, ".rds")), "\n")
+  invisible(file.remove(file.path(test_output_dir, "loo_list_partial.rds")))
 } else {
   cat("Fewer than 2 successful LOO results — skipping comparison.\n")
 }

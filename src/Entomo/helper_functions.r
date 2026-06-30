@@ -303,7 +303,7 @@ build_dlnm_stan_data <- function(cfg) {
   # lin accepts no extra args; strata only accepts breaks.
   # This prevents leftover df/knots fields from causing errors.
   clean_basis_spec <- function(spec) {
-    if (is.null(spec$fun)) return(spec)
+    if (!is.list(spec) || is.null(spec$fun)) return(spec)
     if (spec$fun == "lin")    return(list(fun = "lin"))
     if (spec$fun == "strata") return(list(fun = "strata", breaks = spec$breaks))
     spec
