@@ -89,7 +89,7 @@ cfg <- list(
   response_start = "2016_01",
   n_blocks = NULL, # set NULL for all blocks/CMFs
 
-  lag_vars = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd", "hurricane_within_120km"),
+  lag_vars = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp"),
   # lag_vars = c("total_rainy_days", "avg_VPD"),
 
   max_lag = 6,
@@ -97,15 +97,15 @@ cfg <- list(
 
   unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
 
-  numeric_vars = c("total_rainy_days",  "avg_VPD", "precip_max_day_resid_on_trd", "water_containers"),
+  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers"),
 
   # DLNM settings (only used when use_dlnm = TRUE)
-  dlnm_vars   = c("total_rainy_days",  "avg_VPD", "precip_max_day_resid_on_trd"),
+  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp"),
 
   dlnm_argvar = list(
-    total_rainy_days                = list(fun = "ns", df = 4),
-    avg_VPD                     = list(fun = "ns", df = 4),
-    precip_max_day_resid_on_trd = list(fun = "ns", df = 4)
+    total_precip                = list(fun = "ns", df = 3),
+    avg_VPD                     = list(fun = "ns", df = 3),
+    precip_max_day_resid_on_tp = list(fun = "ns", df = 3)
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
 
@@ -114,11 +114,11 @@ cfg <- list(
   #   is_urban coded 1=urban (reference), 0=non-urban -> active_level=0 for non-urban modifier
   #   water_shortage logical (TRUE=1)             -> active_level=1 for water-shortage modifier
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
-  dlnm_ix_vars = list(
-    list(binary_var = "is_urban",       active_level = 0, dlnm_var = "total_rainy_days", label = "nonurban_x_trd")
-    # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "ws_x_tp")
-  ),
-  # dlnm_ix_vars = NULL,
+  # dlnm_ix_vars = list(
+  #   list(binary_var = "is_urban",       active_level = 0, dlnm_var = "total_rainy_days", label = "nonurban_x_trd")
+  #   # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "ws_x_tp")
+  # ),
+  dlnm_ix_vars = NULL,
 
   # MCMC
   chains = 4,
@@ -205,7 +205,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "_StudentT_shrinkage_4df")
+run_suffix <- paste0(date_suffix, "_StudentT_shrinkage_3df")
 if (exists(".hierarch_run_suffix")) run_suffix <- .hierarch_run_suffix
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
@@ -577,56 +577,9 @@ if (isTRUE(cfg$use_time_RE)) {
 }
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
 
-model_sum      <- rename_w_in_summary(
-  fit$summary(variables = summary_vars),
-  lag_vars_expanded = if (isTRUE(cfg$use_dlnm)) NULL else prep$lag_vars_expanded,
-  unlagged_vars     = prep$unlagged_vars
-)
-summary_output <- capture.output({
-  cat("=== MODEL CONFIGURATION ===\n")
-  cat("Run suffix  :", run_suffix, "\n")
-  cat("Stan file   :", cfg$stan_file, "\n")
-  cat("Spatial level:", cfg$spatial_level, "\n\n")
-
-  cat("--- Predictors ---\n")
-  cat("Lag vars    :", paste(cfg$lag_vars, collapse = ", "), "\n")
-  cat("Unlagged    :", paste(cfg$unlagged_vars, collapse = ", "), "\n")
-  cat("Max lag     :", cfg$max_lag, "\n")
-  if (isTRUE(cfg$use_dlnm)) {
-    argspec_str <- function(s) {
-      if (is.null(s$fun)) return("?")
-      if (s$fun == "lin")    return("lin")
-      if (s$fun == "strata") return(paste0("strata(", s$breaks, ")"))
-      paste0(s$fun, "(df=", s$df, ")")
-    }
-    cat("DLNM argvar :", paste(names(cfg$dlnm_argvar), sapply(cfg$dlnm_argvar, argspec_str), sep = "=", collapse = ", "), "\n")
-    arglag_is_per_var <- !is.null(names(cfg$dlnm_arglag)) && any(names(cfg$dlnm_arglag) %in% cfg$dlnm_vars)
-    if (arglag_is_per_var) {
-      cat("DLNM arglag : per-variable —", paste(names(cfg$dlnm_arglag), sapply(cfg$dlnm_arglag, argspec_str), sep = "=", collapse = ", "), "\n")
-    } else {
-      cat("DLNM arglag :", argspec_str(cfg$dlnm_arglag), "\n")
-    }
-  }
-  if (!is.null(cfg$ix_vars) && length(cfg$ix_vars) > 0)
-    cat("Interactions:", paste(sapply(cfg$ix_vars, paste, collapse = " x "), collapse = ", "), "\n")
-
-  cat("\n--- Random effects ---\n")
-  cat("Block RE            :", isTRUE(cfg$use_block_RE) || isTRUE(cfg$use_block_dev), "\n")
-  cat("Temporal AR(1)/CMF  :", isTRUE(cfg$use_temporal_AR_perCMF), "\n")
-  cat("Temporal AR(1) global:", isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_temporal_AR_perCMF), "\n")
-  cat("Spatial ICAR        :", isTRUE(cfg$use_icar), "\n")
-  cat("Spatial BYM2        :", isTRUE(cfg$use_bym2), "\n")
-  cat("Reactive shift (delta1):", !isTRUE(cfg$fix_delta1), "\n")
-  cat("phi fixed           :", isTRUE(cfg$fix_phi), "\n")
-
-  cat("\n=== PARAMETER ESTIMATES ===\n")
-  old_width <- options(width = 10000)
-  print(as.data.frame(model_sum), digits = 3, row.names = FALSE)
-  options(old_width)
-})
-writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", model_spec, ".txt")))
-
 # ======================= model selection criteria (LOO / WAIC / log-lik) ====
+# Runs before the summary capture.output block so loo_result is always saved
+# to disk (and available in globalenv) even if the summary section errors.
 if (requireNamespace("loo", quietly = TRUE)) {
   log_lik_draws <- fit$draws("log_lik", format = "array")
   log_lik_mat   <- fit$draws("log_lik", format = "matrix")
@@ -635,7 +588,6 @@ if (requireNamespace("loo", quietly = TRUE)) {
   loo_result <- loo::loo(log_lik_draws, r_eff = r_eff)
   waic_result <- loo::waic(log_lik_mat)
 
-  # Total log-likelihood summary (sum across observations, per draw)
   draw_llik   <- rowSums(log_lik_mat)
   llik_summary <- c(
     mean   = mean(draw_llik),
@@ -674,6 +626,55 @@ if (requireNamespace("loo", quietly = TRUE)) {
 } else {
   cat("Package 'loo' not installed; skipping model selection criteria.\n")
 }
+
+model_sum      <- rename_w_in_summary(
+  fit$summary(variables = summary_vars),
+  lag_vars_expanded = if (isTRUE(cfg$use_dlnm)) NULL else prep$lag_vars_expanded,
+  unlagged_vars     = prep$unlagged_vars
+)
+summary_output <- capture.output({
+  cat("=== MODEL CONFIGURATION ===\n")
+  cat("Run suffix  :", run_suffix, "\n")
+  cat("Stan file   :", cfg$stan_file, "\n")
+  cat("Spatial level:", cfg$spatial_level, "\n\n")
+
+  cat("--- Predictors ---\n")
+  cat("Lag vars    :", paste(cfg$lag_vars, collapse = ", "), "\n")
+  cat("Unlagged    :", paste(cfg$unlagged_vars, collapse = ", "), "\n")
+  cat("Max lag     :", cfg$max_lag, "\n")
+  if (isTRUE(cfg$use_dlnm)) {
+    argspec_str <- function(s) {
+      if (!is.list(s) || is.null(s$fun)) return("?")
+      if (s$fun == "lin")    return("lin")
+      if (s$fun == "strata") return(paste0("strata(", s$breaks, ")"))
+      paste0(s$fun, "(df=", s$df, ")")
+    }
+    cat("DLNM argvar :", paste(names(cfg$dlnm_argvar), sapply(cfg$dlnm_argvar, argspec_str), sep = "=", collapse = ", "), "\n")
+    arglag_is_per_var <- !is.null(names(cfg$dlnm_arglag)) && any(names(cfg$dlnm_arglag) %in% cfg$dlnm_vars)
+    if (arglag_is_per_var) {
+      cat("DLNM arglag : per-variable —", paste(names(cfg$dlnm_arglag), sapply(cfg$dlnm_arglag, argspec_str), sep = "=", collapse = ", "), "\n")
+    } else {
+      cat("DLNM arglag :", argspec_str(cfg$dlnm_arglag), "\n")
+    }
+  }
+  if (!is.null(cfg$ix_vars) && length(cfg$ix_vars) > 0)
+    cat("Interactions:", paste(sapply(cfg$ix_vars, paste, collapse = " x "), collapse = ", "), "\n")
+
+  cat("\n--- Random effects ---\n")
+  cat("Block RE            :", isTRUE(cfg$use_block_RE) || isTRUE(cfg$use_block_dev), "\n")
+  cat("Temporal AR(1)/CMF  :", isTRUE(cfg$use_temporal_AR_perCMF), "\n")
+  cat("Temporal AR(1) global:", isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_temporal_AR_perCMF), "\n")
+  cat("Spatial ICAR        :", isTRUE(cfg$use_icar), "\n")
+  cat("Spatial BYM2        :", isTRUE(cfg$use_bym2), "\n")
+  cat("Reactive shift (delta1):", !isTRUE(cfg$fix_delta1), "\n")
+  cat("phi fixed           :", isTRUE(cfg$fix_phi), "\n")
+
+  cat("\n=== PARAMETER ESTIMATES ===\n")
+  old_width <- options(width = 10000)
+  print(as.data.frame(model_sum), digits = 3, row.names = FALSE)
+  options(old_width)
+})
+writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", model_spec, ".txt")))
 
 # ── Pareto k diagnostics ─────────────────────────────────────────────────────
 if (exists("loo_result")) {
