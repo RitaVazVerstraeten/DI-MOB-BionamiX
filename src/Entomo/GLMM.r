@@ -1,6 +1,7 @@
 
 library(tidyverse)
 library(glmmTMB)
+library(dlnm)
 library(slider)
 library(sf)
 
@@ -22,7 +23,7 @@ options(width = 200)
 # =========================
 cfg <- list(
   # Spatial resolution: "CMF" or "manzana"
-  spatial_level = "CMF",
+  spatial_level = "manzana",
 
   # Random effects to include
   include_block_re     = TRUE,  # Random intercept for block (spatial)
@@ -40,17 +41,18 @@ cfg <- list(
   # unlagged_vars: variables entered directly without lag
   # numeric_vars : continuous variables to z-score standardize
   #                (exclude factors, binary 0/1, and already-factored variables)
-  lag_vars      = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd", "hurricane_within_120km"),
+  # lag_vars      = c("total_rainy_days", "avg_VPD", "precip_max_day_resid_on_trd", "hurricane_within_120km"),
+  lag_vars      = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp"),
 
   unlagged_vars = c("is_urban", "is_WUI", "is_WI","has_aljibes", "water_containers", "water_shortage"), # "pop_density" and "landcover" removed due to collinearity with is_urban
   # unlagged_vars = c("is_urban", "is_WUI", "is_WI","has_aljibes", "water_containers"),
-  numeric_vars  = c("total_rainy_days", "precip_max_day_resid_on_trd", "avg_VPD", "water_containers"),
+  numeric_vars  = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "water_containers"),
 
   # Interaction terms: generated dynamically after cfg is defined (see below)
   # Each element is a character vector of exactly 2 variable names (column names
   # after lag expansion, e.g. "temp_cat_lag1", or unlagged names e.g. "is_urban")
-  # Example: interactions = list(c("temp_cat_lag1", "avg_VPD_lag1"), c("is_urban", "water_containers"))
-  interactions  = NULL,  # overwritten below
+
+  interactions = NULL,  # derived below after cfg is fully defined
 
   # Predictors to drop after lag expansion (NULL = keep all)
   # Use the fully expanded column name, e.g. "avg_VPD_lag1", "is_urban"
@@ -75,9 +77,15 @@ cfg <- list(
   # response_start marks the start of the ento response period; 2015 rows
   # provide lag lead-in history and are dropped after distributed lags are built.
   data_file = if (Sys.info()["nodename"] == "frietjes") {
-    "/home/rita/data/Entomo/env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
+    if (spatial_level == "CMF"){
+      "/home/rita/data/Entomo/env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
+    } else {
+      "/home/rita/data/Entomo/env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv"}    
   } else {
-    "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
+    if (spatial_level == "CMF"){
+      "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
+    } else {
+      "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv"}
   },
   response_start = "2016_01",   # rows before this date are lag lead-in only
 
@@ -91,16 +99,27 @@ cfg <- list(
     } else {
     "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/GLMM"
     },
+  # DLNM: use cross-basis instead of individual lag columns
+  # argvar / arglag match the Stan model defaults in build_dlnm_stan_data()
+  use_dlnm    = TRUE,
+  dlnm_argvar = list(
+    total_precip               = list(fun = "ns", df = 3),
+    avg_VPD                    = list(fun = "ns", df = 3),
+    precip_max_day_resid_on_tp = list(fun = "ns", df = 3)
+    # hurricane_within_120km     = list(fun = "strata", breaks = 0.5)
+  ),
+  dlnm_arglag = list(fun = "ns", df = 3),
+
   # GLMM control
   iter_max = 1000,
   eval_max = 1500
 )
 
-# Generate interactions dynamically up to max_lag
-interaction_vars <- c("total_rainy_days", "precip_max_day_resid_on_trd")
-cfg$interactions <- do.call(c, lapply(interaction_vars, function(var)
-  lapply(0:cfg$max_lag, function(l) c("is_urban", paste0(var, "_lag", l)))
-))
+# Interactions with total_precip at each lag — derived after cfg so cfg$max_lag is available
+# cfg$interactions <- c(
+#   lapply(paste0("total_precip_lag", 0:cfg$max_lag), function(v) c("is_urban",       v)),
+#   lapply(paste0("total_precip_lag", 0:cfg$max_lag), function(v) c("water_shortage",  v))
+# )
 
 # Derived from spatial_level — keep consistent with Hierarch_StateSpace model
 cfg$block_col    <- if (cfg$spatial_level == "CMF") "cmf"      else "manzana"
@@ -124,7 +143,7 @@ ar1_suffix <- ifelse(
 )
 
 # Run suffix is the date
-run_suffix <- paste0(date_suffix, "_urbref1")
+run_suffix <- paste0(date_suffix)
 
 # Output structure:
 # <output_dir>/<predictor_spec>/<model_spec>/<run_suffix>/plots/
@@ -145,8 +164,10 @@ model_spec <- paste0(
 # Abbreviation map for long variable names — keeps folder names short but readable
 var_abbrev <- c(
   total_rainy_days            = "trd",
+  total_precip                = "tp",
   avg_VPD                     = "vpd",
   precip_max_day_resid_on_trd = "pmdr",
+  precip_max_day_resid_on_tp  = "pmdr",
   hurricane_within_120km      = "hurr",
   is_urban                    = "urb",
   is_WUI                      = "wui",
@@ -164,6 +185,7 @@ abbrev <- function(x) {
 
 # Encode predictor sets in folder name so each combination gets its own directory
 predictor_spec_full <- paste0(
+  if (isTRUE(cfg$use_dlnm)) "dlnm_" else "",
   "lag-", paste(cfg$lag_vars, collapse = "-"),
   "_unlag-", paste(cfg$unlagged_vars, collapse = "-"),
   if (!is.null(cfg$interactions) && length(cfg$interactions) > 0)
@@ -296,7 +318,10 @@ lag_vars      <- cfg$lag_vars
 unlagged_vars <- cfg$unlagged_vars
 numeric_vars  <- cfg$numeric_vars
 
-vars_to_std <- intersect(numeric_vars, names(df))
+vars_to_std  <- intersect(numeric_vars, names(df))
+scale_center <- colMeans(df[, vars_to_std, drop = FALSE], na.rm = TRUE)
+scale_sd     <- apply(df[, vars_to_std, drop = FALSE], 2, sd, na.rm = TRUE)
+scale_sd[scale_sd == 0 | is.na(scale_sd)] <- 1
 df[, vars_to_std] <- standardize_matrix(as.matrix(df[, vars_to_std]))
 
 # =========================
@@ -320,6 +345,34 @@ for (var in lag_vars) {
   }
 }
 lagged_cols <- unlist(lapply(lag_vars, function(v) paste0(v, "_lag", 0:L)))
+
+# =========================
+# 3b. BUILD DLNM CROSS-BASIS (on full data incl. lead-in, so knots use full distribution)
+# =========================
+cb_term_names       <- c()
+cb_col_names_by_var <- list()
+cb_objects          <- list()
+
+if (isTRUE(cfg$use_dlnm)) {
+  default_argvar <- list(fun = "ns", df = 3)
+
+  for (var in lag_vars) {
+    lag_mat <- as.matrix(df[, paste0(var, "_lag", 0:L)])
+    argvar  <- if (!is.null(cfg$dlnm_argvar) && var %in% names(cfg$dlnm_argvar))
+                 cfg$dlnm_argvar[[var]] else default_argvar
+    arglag  <- if (!is.null(cfg$dlnm_arglag)) cfg$dlnm_arglag else default_argvar
+
+    cb <- crossbasis(lag_mat, lag = c(0, L), argvar = argvar, arglag = arglag)
+    cb_objects[[var]] <- cb
+
+    cb_term <- paste0("cb_", var)
+    df[[cb_term]] <- as.matrix(cb)      # single matrix column; one formula term per variable
+    cb_term_names <- c(cb_term_names, cb_term)
+    cb_col_names_by_var[[var]] <- cb_term
+
+    cat(sprintf("DLNM crossbasis: %-32s  %d columns\n", var, ncol(cb)))
+  }
+}
 
 # Drop lead-in rows: 2015 rows existed only to provide lag history for early 2016 rows.
 # response_start is the first month that should appear as a model observation.
@@ -368,7 +421,15 @@ if (!is.null(cfg$interactions) && length(cfg$interactions) > 0) {
 }
 
 # Fixed effects: main effects + interactions, minus any explicitly excluded predictors
-fixed_effects <- c(lagged_cols, unlagged_vars, "reactive_shift", interaction_terms)
+# With DLNM, crossbasis columns replace individual lag columns; interactions with specific
+# lag columns no longer apply and are skipped.
+if (isTRUE(cfg$use_dlnm)) {
+  if (length(interaction_terms) > 0)
+    cat("Note: interactions skipped when use_dlnm = TRUE (lag columns folded into crossbasis)\n")
+  fixed_effects <- c(cb_term_names, unlagged_vars, "reactive_shift")
+} else {
+  fixed_effects <- c(lagged_cols, unlagged_vars, "reactive_shift", interaction_terms)
+}
 if (isTRUE(cfg$include_fourier)) {
   fixed_effects <- c(fixed_effects, "sin_annual", "cos_annual")
   cat("Fourier terms added: sin_annual, cos_annual\n")
@@ -427,8 +488,9 @@ formula <- as.formula(formula_str)
 # Use individual column names (not formula terms like "var1:var2") for NA checking
 required_cols <- unique(c(
   "y_bt", "n_trials",
-  lagged_cols, unlagged_vars, "reactive_shift",
-  unlist(cfg$interactions),  # individual vars from interaction pairs (already in lagged/unlagged but explicit)
+  if (isTRUE(cfg$use_dlnm)) cb_term_names else lagged_cols,
+  unlagged_vars, "reactive_shift",
+  if (!isTRUE(cfg$use_dlnm)) unlist(cfg$interactions) else NULL,
   if (cfg$include_block_re) "block" else NULL,
   if (cfg$include_time_re) "year_month" else NULL,
   if (cfg$include_ar1_temporal) c("year_month_ar1", "ar1_group") else NULL,
