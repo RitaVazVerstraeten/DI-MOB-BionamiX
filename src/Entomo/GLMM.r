@@ -77,12 +77,12 @@ cfg <- list(
   # response_start marks the start of the ento response period; 2015 rows
   # provide lag lead-in history and are dropped after distributed lags are built.
   data_file = if (Sys.info()["nodename"] == "frietjes") {
-    if (spatial_level == "CMF"){
+    if (cfg$spatial_level == "CMF"){
       "/home/rita/data/Entomo/env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
     } else {
       "/home/rita/data/Entomo/env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv"}    
   } else {
-    if (spatial_level == "CMF"){
+    if (cfg$spatial_level == "CMF"){
       "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
     } else {
       "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv"}
