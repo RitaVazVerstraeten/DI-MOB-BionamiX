@@ -73,20 +73,6 @@ cfg <- list(
   },
   spatial_crs = NA,             # Optional projected CRS. NA = keep CRS unless lon/lat (then use EPSG:3857)
 
-  # Data: extended-lag dataset (env 2015–2019, ento-epi 2016–2019).
-  # response_start marks the start of the ento response period; 2015 rows
-  # provide lag lead-in history and are dropped after distributed lags are built.
-  data_file = if (Sys.info()["nodename"] == "frietjes") {
-    if (cfg$spatial_level == "CMF"){
-      "/home/rita/data/Entomo/env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
-    } else {
-      "/home/rita/data/Entomo/env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv"}    
-  } else {
-    if (cfg$spatial_level == "CMF"){
-      "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
-    } else {
-      "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv"}
-  },
   response_start = "2016_01",   # rows before this date are lag lead-in only
 
   # Lag settings
@@ -122,6 +108,18 @@ cfg <- list(
 # )
 
 # Derived from spatial_level — keep consistent with Hierarch_StateSpace model
+# data_file is here (not inside list()) so cfg$spatial_level is already defined
+cfg$data_file <- if (Sys.info()["nodename"] == "frietjes") {
+  if (cfg$spatial_level == "CMF")
+    "/home/rita/data/Entomo/env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
+  else
+    "/home/rita/data/Entomo/env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
+} else {
+  if (cfg$spatial_level == "CMF")
+    "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
+  else
+    "/home/rita/PyProjects/DI-MOB-BionamiX/data/env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
+}
 cfg$block_col    <- if (cfg$spatial_level == "CMF") "cmf"      else "manzana"
 cfg$sf_block_col <- if (cfg$spatial_level == "CMF") "Area_CMF" else "CODIGO_"
 cfg$shapefile_file <- if (cfg$spatial_level == "CMF") {
