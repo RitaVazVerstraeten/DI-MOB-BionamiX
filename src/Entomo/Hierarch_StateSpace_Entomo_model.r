@@ -115,11 +115,11 @@ cfg <- list(
   #   is_urban coded 1=urban (reference), 0=non-urban -> active_level=0 for non-urban modifier
   #   water_shortage logical (TRUE=1)             -> active_level=1 for water-shortage modifier
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
-  # dlnm_ix_vars = list(
-  #   list(binary_var = "is_urban",       active_level = 0, dlnm_var = "total_rainy_days", label = "nonurban_x_trd")
-  #   # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "ws_x_tp")
-  # ),
-  dlnm_ix_vars = NULL,
+  dlnm_ix_vars = list(
+    list(binary_var = "is_urban",       active_level = 0, dlnm_var = "total_precip", label = "nonurban_x_tp")
+    # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "ws_x_tp")
+  ),
+  # dlnm_ix_vars = NULL,
 
   # MCMC
   chains = 4,
@@ -206,7 +206,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "_StudentT_shrinkage_3df")
+run_suffix <- paste0(date_suffix)
 if (exists(".hierarch_run_suffix")) run_suffix <- .hierarch_run_suffix
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
