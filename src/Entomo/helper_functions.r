@@ -153,8 +153,8 @@ prepare_unlagged <- function(df, unlagged_vars, binary_unlagged_vars) {
 #' @param x Numeric matrix to standardize
 #' @return Standardized matrix with same dimensions as input
 standardize_matrix <- function(x) {
-  m <- colMeans(x)
-  s <- apply(x, 2, sd)
+  m <- colMeans(x, na.rm = TRUE)
+  s <- apply(x, 2, sd, na.rm = TRUE)
   s[s == 0 | is.na(s)] <- 1
   scale(x, center = m, scale = s)
 }
@@ -246,6 +246,216 @@ build_icar_edges <- function(sf_blocks, block_ids, sf_block_col, snap_m = 100) {
   )
 }
 
+#' Build Stan Data with DLNM Cross-Basis Predictors
+#'
+#' Replaces the distributed-lag flat matrix (X_lag_flat / K / Lp1) with a
+#' DLNM cross-basis matrix (X_cb / P_cb) built via dlnm::crossbasis().
+#' Uses the full (unfiltered) data to construct lag matrices, then filters
+#' rows where time <= max_lag exactly as build_lag_design does.
+#'
+#' Extended-lag mode (cfg$response_start set, e.g. "2015_01"):
+#'   The dataset includes pre-response rows (e.g. 2015) that have NA for the
+#'   entomological response variables. These rows are used when building the
+#'   cross-basis lag matrix so that early response observations (e.g. Jan 2016)
+#'   have a full lag history. Only rows where Inspected_houses is not NA (i.e.
+#'   the response period) are passed to Stan as observations; the full time span
+#'   (including 2015) is retained for the AR(1) state index T so the AR(1)
+#'   warms up naturally through the pre-response period.
+#'
+#' @param cfg Config list. Must include dlnm_vars (character vector of predictor
+#'   names), max_lag, and optionally dlnm_argvar (named list of per-variable
+#'   argvar specs) and dlnm_arglag (single arglag spec shared across vars).
+#'   Set cfg$response_start (e.g. "2016_01") to activate extended-lag mode.
+#'   Defaults: argvar = list(fun="ns", df=3), arglag = list(fun="ns", df=3).
+#' @return Same shape as build_stan_data(): list(stan_data, df, dlnm_vars, cb_mats, unlagged_vars)
+build_dlnm_stan_data <- function(cfg) {
+  if (!requireNamespace("dlnm", quietly = TRUE))
+    stop("Package 'dlnm' required — install.packages('dlnm')")
+
+  input_data <- load_base_data(cfg$data_file)
+  block_col  <- if (!is.null(cfg$block_col)) cfg$block_col else "manzana"
+  idx        <- index_and_subset(input_data, cfg$n_blocks, block_col = block_col)
+
+  vars_to_std <- intersect(cfg$numeric_vars, names(idx$df))
+
+  # Save mean/SD for DLNM vars BEFORE standardizing (needed for back-transformation in plots)
+  dlnm_var_stats <- setNames(lapply(cfg$dlnm_vars, function(v) {
+    if (v %in% vars_to_std) {
+      x <- idx$df[[v]][is.finite(idx$df[[v]])]
+      s <- sd(x)
+      list(mean = mean(x), sd = if (s == 0 | is.na(s)) 1 else s)
+    } else {
+      list(mean = 0, sd = 1)   # not standardized; original = standardized
+    }
+  }), cfg$dlnm_vars)
+
+  idx$df[, vars_to_std] <- standardize_matrix(as.matrix(idx$df[, vars_to_std]))
+
+  B      <- idx$B
+  L      <- cfg$max_lag
+  df_all <- idx$df   # full data (all time points)
+
+  # Default basis specs
+  default_argvar <- list(fun = "ns", df = 3)
+  default_arglag <- list(fun = "ns", df = 3)
+
+  # Strip arguments that are incompatible with the basis function.
+  # lin accepts no extra args; strata only accepts breaks.
+  # This prevents leftover df/knots fields from causing errors.
+  clean_basis_spec <- function(spec) {
+    if (!is.list(spec) || is.null(spec$fun)) return(spec)
+    if (spec$fun == "lin")    return(list(fun = "lin"))
+    if (spec$fun == "strata") return(list(fun = "strata", breaks = spec$breaks))
+    spec
+  }
+
+  # dlnm_arglag may be either a single global spec (unnamed list with fun/df keys)
+  # or a named list keyed by dlnm_var name for per-variable lag bases.
+  arglag_is_per_var <- !is.null(cfg$dlnm_arglag) &&
+                       !is.null(names(cfg$dlnm_arglag)) &&
+                       any(names(cfg$dlnm_arglag) %in% cfg$dlnm_vars)
+
+  cat("Building DLNM cross-bases (max_lag =", L, "):\n")
+  cb_mats <- list()
+
+  for (var in cfg$dlnm_vars) {
+    if (!var %in% names(df_all))
+      stop(sprintf("DLNM variable '%s' not found in data", var))
+
+    # Build Q[N_all, L+1]: lag matrix before row filtering
+    # Row order matches df_all row order (block x time, sorted)
+    Q <- matrix(NA_real_, nrow = nrow(df_all), ncol = L + 1)
+    for (b in seq_len(B)) {
+      rows <- which(df_all$block == b)
+      x    <- df_all[[var]][rows]
+      for (l in 0:L) {
+        Q[rows, l + 1] <- if (l == 0) x else c(rep(NA_real_, l), x[seq_len(length(x) - l)])
+      }
+    }
+
+    argvar <- clean_basis_spec(
+      if (!is.null(cfg$dlnm_argvar) && var %in% names(cfg$dlnm_argvar))
+        cfg$dlnm_argvar[[var]] else default_argvar
+    )
+    arglag <- clean_basis_spec(
+      if (arglag_is_per_var && var %in% names(cfg$dlnm_arglag))
+        cfg$dlnm_arglag[[var]]
+      else if (arglag_is_per_var)
+        default_arglag
+      else if (!is.null(cfg$dlnm_arglag))
+        cfg$dlnm_arglag
+      else
+        default_arglag
+    )
+
+    cb_mats[[var]] <- dlnm::crossbasis(Q, lag = c(0, L), argvar = argvar, arglag = arglag)
+    cat(sprintf("  %-32s  %d columns\n", var, ncol(cb_mats[[var]])))
+  }
+
+  # Determine which rows are response observations.
+  # Extended-lag mode: dataset contains pre-response rows (e.g. 2015) with NA
+  # ento data; those rows provided lag history above but are not Stan observations.
+  # Standard mode: drop the first max_lag rows per block (no full history yet).
+  if (!is.null(cfg$response_start)) {
+    response_date <- as.Date(paste0(cfg$response_start, "_01"), "%Y_%m_%d")
+    # Also require time > L so rows without a full lag window (no pre-response
+    # data in this block) are always excluded, even if response_start is set
+    # for a dataset that contains no pre-response rows.
+    keep <- !is.na(df_all$y_bt) & df_all$year_month_date >= response_date & df_all$time > L
+    n_pre <- sum(df_all$year_month_date < response_date)
+    cat(sprintf(
+      "Extended-lag mode: response from %s — %d response rows, %d pre-response rows used for lag history\n",
+      cfg$response_start, sum(keep), n_pre
+    ))
+    if (n_pre == 0)
+      warning("response_start is set but dataset contains no pre-response rows. ",
+              "Use the 2015-2019 extended-lag dataset or set response_start = NULL.")
+  } else {
+    keep <- df_all$time > L
+  }
+  df_filt <- df_all[keep, ]
+
+  X_cb <- do.call(cbind, lapply(cb_mats, function(cb) {
+    m <- cb[keep, , drop = FALSE]
+    matrix(as.numeric(m), nrow = sum(keep), ncol = ncol(cb))
+  }))
+  P_cb <- ncol(X_cb)
+  cat("DLNM total cross-basis columns P_cb =", P_cb, "\n")
+
+  # Per-variable column counts in X_cb (needed for interaction construction)
+  cb_ncols      <- sapply(cfg$dlnm_vars, function(v) ncol(cb_mats[[v]]))
+  col_starts_cb <- cumsum(c(1L, cb_ncols[-length(cb_ncols)]))
+
+  # Build interaction cross-basis X_ix: for each (binary_var, dlnm_var) pair,
+  # multiply the 0/1 indicator into the corresponding DLNM sub-block of X_cb.
+  # active_level: value of binary_var for which the modifier is active (e.g. 0 for
+  # non-urban when is_urban is coded 1 = urban; 1 for water_shortage TRUE).
+  if (!is.null(cfg$dlnm_ix_vars) && length(cfg$dlnm_ix_vars) > 0) {
+    ix_mats <- lapply(cfg$dlnm_ix_vars, function(ix) {
+      binary_var   <- ix$binary_var
+      active_level <- ix$active_level
+      dlnm_var     <- ix$dlnm_var
+
+      if (!binary_var %in% names(df_filt))
+        stop(sprintf("dlnm_ix_vars: binary variable '%s' not found in data", binary_var))
+      if (!dlnm_var %in% cfg$dlnm_vars)
+        stop(sprintf("dlnm_ix_vars: DLNM variable '%s' not in cfg$dlnm_vars", dlnm_var))
+
+      raw_num   <- suppressWarnings(as.numeric(df_filt[[binary_var]]))
+      indicator <- as.numeric(raw_num == active_level)
+      if (any(is.na(indicator)))
+        stop(sprintf("dlnm_ix_vars: NA in indicator for '%s' at active_level = %s",
+                     binary_var, active_level))
+
+      var_idx   <- which(cfg$dlnm_vars == dlnm_var)
+      col_start <- col_starts_cb[var_idx]
+      col_end   <- col_start + cb_ncols[var_idx] - 1L
+      X_cb[, col_start:col_end, drop = FALSE] * indicator
+    })
+    X_ix <- do.call(cbind, ix_mats)
+    P_ix <- ncol(X_ix)
+    cat(sprintf("Interaction cross-basis: %d pair(s), P_ix = %d columns\n",
+                length(cfg$dlnm_ix_vars), P_ix))
+    for (ix in cfg$dlnm_ix_vars)
+      cat(sprintf("  %s (level=%s) x %s  [%d cols]\n",
+                  ix$binary_var, ix$active_level, ix$dlnm_var,
+                  cb_ncols[which(cfg$dlnm_vars == ix$dlnm_var)]))
+  } else {
+    X_ix <- matrix(0.0, nrow = nrow(X_cb), ncol = 0L)
+    P_ix <- 0L
+    cat("No DLNM interaction cross-basis (cfg$dlnm_ix_vars not set)\n")
+  }
+
+  binary_unlagged_vars <- setdiff(cfg$unlagged_vars, cfg$numeric_vars)
+  unl <- prepare_unlagged(df_filt, cfg$unlagged_vars, binary_unlagged_vars)
+
+  list(
+    stan_data = list(
+      N          = nrow(unl$df),
+      y          = unl$df$y_bt,
+      P_cb       = P_cb,
+      X_cb       = X_cb,
+      P_ix       = P_ix,
+      X_ix       = X_ix,
+      Ku         = unl$Ku,
+      X_unlagged = unl$X_unlagged_std,
+      B          = idx$B,
+      T          = idx$T,
+      block      = unl$df$block,
+      time       = unl$df$time,
+      C_bt       = unl$df$C_bt,
+      n_bt       = as.integer(unl$df$N_HH + cfg$kappa * unl$df$C_bt),
+      kappa      = cfg$kappa
+    ),
+    df             = unl$df,
+    dlnm_vars      = cfg$dlnm_vars,
+    cb_mats        = cb_mats,
+    dlnm_var_stats = dlnm_var_stats,
+    unlagged_vars  = cfg$unlagged_vars,
+    dlnm_ix_vars   = if (!is.null(cfg$dlnm_ix_vars)) cfg$dlnm_ix_vars else list()
+  )
+}
+
 build_stan_data <- function(cfg) {
   input_data <- load_base_data(cfg$data_file)
   block_col <- if (!is.null(cfg$block_col)) cfg$block_col else "manzana"
@@ -304,15 +514,22 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
                           use_icar = FALSE, use_bym2 = FALSE,
                           use_time_RE = FALSE, use_spatial_AC = TRUE,
                           use_block_dev = TRUE,
-                          use_temporal_AR_perCMF = FALSE) {
+                          use_temporal_AR_perCMF = FALSE,
+                          use_dlnm = FALSE) {
   function() {
     init_vals <- list(
       alpha      = rnorm(1, -4.5, 0.4),
-      w          = matrix(rnorm(stan_data$K * stan_data$Lp1, 0, 0.08), stan_data$K, stan_data$Lp1),
       w_unlagged = rnorm(stan_data$Ku, 0, 0.1),
       delta1     = runif(1, 0.01, 0.05),
       phi_raw    = runif(1, 15, 30)
     )
+    if (isTRUE(use_dlnm)) {
+      init_vals$w_cb <- rnorm(stan_data$P_cb, 0, 0.08)
+      if (!is.null(stan_data$P_ix) && stan_data$P_ix > 0)
+        init_vals$w_ix <- rnorm(stan_data$P_ix, 0, 0.05)
+    } else {
+      init_vals$w <- matrix(rnorm(stan_data$K * stan_data$Lp1, 0, 0.08), stan_data$K, stan_data$Lp1)
+    }
 
     if (isTRUE(use_time_RE)) {
       init_vals$v_time_raw  <- rnorm(stan_data$T, 0, 0.3)
@@ -340,10 +557,14 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
         }
       }
       if (isTRUE(use_temporal_AR_perCMF)) {
-        init_vals$v_raw   <- matrix(rnorm(stan_data$B * stan_data$T, 0, 0.3), stan_data$B, stan_data$T)
-        init_vals$sigma_v <- runif(1, 0.1, 0.5)
-        init_vals$rho     <- rnorm(1, 0.3, 0.15)
-        if (isTRUE(use_block_dev) && !isTRUE(use_icar)) {
+        init_vals$v_raw <- matrix(rnorm(stan_data$B * stan_data$T, 0, 0.3), stan_data$B, stan_data$T)
+        init_vals$tau   <- runif(1, 0.3, 0.8)
+        init_vals$rho   <- rnorm(1, 0.3, 0.15)
+        if (isTRUE(use_icar)) {
+          # DLNM+ICAR or perCMF+ICAR: ICAR spatial field replaces block RE
+          init_vals$u_icar_raw <- rnorm(stan_data$B, 0, 0.1)
+          init_vals$sigma_icar <- runif(1, 0.1, 0.4)
+        } else if (isTRUE(use_block_dev)) {
           init_vals$u_block_raw <- rnorm(stan_data$B, 0, 0.3)
           init_vals$sigma_block <- runif(1, 0.05, 0.3)
         }
@@ -476,7 +697,7 @@ save_trace_plots <- function(fit, output_dir, run_suffix, use_temporal_re) {
   draws_array <- fit$draws(format = "array")
 
   params_main <- c("alpha", "sigma_u", "delta0", "delta1")
-  if (use_temporal_re) params_main <- c(params_main, "sigma_v", "rho")
+  if (use_temporal_re) params_main <- c(params_main, "tau", "sigma_v", "rho")
 
   ggsave(
     file.path(output_dir, paste0("traceplot_params_", run_suffix, ".png")),

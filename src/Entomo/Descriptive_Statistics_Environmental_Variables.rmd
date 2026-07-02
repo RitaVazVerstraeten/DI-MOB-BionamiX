@@ -2,10 +2,13 @@
 title: "Descriptive Statistics - Environmental Variables"
 author: "Rita Verstraeten"
 date: "`r Sys.Date()`"
-output: 
-  html_document:
+output:
+  html_notebook:
     toc: true
-    toc_float: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    toc_depth: 3
     number_sections: true
 editor_options:
   chunk_output_type: console
@@ -35,14 +38,22 @@ This document provides descriptive statistics for environmental variables used i
 |wui | Integer | TRUE/FALSE value for wild-land urban interface for that manzana |
 |wi | Integer | TRUE/FALSE value for water interface for that manzana (or within 100m of manzana) |
 |urban | Integer | TRUE/FALSE value for whether/not urban for that manzana |
+|urban_pct | Numeric | Percentage of pixels within the manzana/CMF classified as urban according to the WSF classification |
 |has_aljibes | Binary | TRUE/FALSE value for whether/not there are underground cisternas within a 20m radius of the manzana |
 |nr_aljibes | Numeric | Number of underground water cisternas within 20m of the manzana |
 |water_shortage | Binary | TRUE/FALSE value for whether/not manzanas have reduced water provision (more days between water provision cycles) |
 |water_containers | Count | Nnumber of water containers available per person (at CP level) |
+|pop_density | Numeric | Population density (persons/km²) for that manzana/CMF, updated annually |
 |avg_temp | Numeric | average temperature (°C) for that manzana-month |
-|total_precip | Numeric | cummulative precipitation (mm) for that manzana-month | max_precip_daily
-|precip_max_day | Numeric | cummulative precipitation (mm/24h) for the day in that manzana-month with the highest precipitation | 
+|avg_VPD | Numeric | average Vapor Pressure Deficit (kPa) for that manzana-month; derived from avg_temp and rel_hum |
+|total_precip | Numeric | cumulative precipitation (mm) for that manzana-month |
+|precip_max_day | Numeric | maximum daily precipitation (mm/24h) in that manzana-month |
+|precip_max_day_resid_on_trd | Numeric | residual of precip_max_day after regressing on total_rainy_days; captures heavy-rain intensity independent of rain frequency |
+|total_rainy_days | Numeric | total number of days with precipitation > 1 mm in that month |
+|consec_rainy_days | Numeric | maximum number of consecutive days with precipitation > 1 mm in that month |
+|rain_sd | Numeric | standard deviation of daily precipitation (mm) for that manzana-month |
 |rel_hum | Numeric | average relative humidity (%) for that manzana-month |
+|hurricane_within_120km | Binary | 1 if a tropical storm or hurricane passed within 120 km of Cienfuegos in that month, 0 otherwise |
 
 ## Setup
 
@@ -73,6 +84,14 @@ if (!dir.exists(output_dir)) {
 # env_all <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_manzana_2016_01_to_2019_12_imputed.csv")
 
 env_all <- read_csv("/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/all_environmental_data_per_manzana_2016_01_to_2019_12_imputed.csv")
+
+# 2015-2019 climate-only dataset (no NDVI/NDMI/NDWI) — used for climate correlation plots
+env_all_clim <- read_csv(
+  "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/all_environmental_data_per_manzana_2015_01_to_2019_12_noNDXI.csv",
+  show_col_types = FALSE
+)
+if ("year_month" %in% colnames(env_all_clim))
+  env_all_clim <- env_all_clim %>% mutate(year_month = as.factor(year_month))
 
 # Load manzanas shapefile (assumed to be already loaded in environment as 'manzanas')
 # If not loaded, uncomment and adjust path:
@@ -105,7 +124,9 @@ Temporal variables that vary over time and are measured consistently across all 
 
 ```{r temporal_overall_summary}
 # temporal_vars <- c("WS2M", "avg_temp", "total_precip", "precip_max_day", "consec_rainy_days", "rel_hum")
-temporal_vars <- c("WS2M", "avg_temp", "total_precip", "precip_max_day", "consec_rainy_days", "total_rainy_days", "rel_hum", "avg_VPD")
+temporal_vars        <- c("WS2M", "avg_temp", "total_precip", "precip_max_day", "consec_rainy_days", "total_rainy_days", "rel_hum", "avg_VPD")
+spatiotemporal_vars  <- c("mean_ndvi", "mean_ndmi", "mean_ndwi")
+continuous_spatial   <- c("nr_aljibes", "water_containers", "pop_density", "urban_pct")
 
 temporal_data <- env_all %>%
   select(all_of(temporal_vars)) %>%
@@ -183,14 +204,17 @@ p <- ggplot(temporal_data_long, aes(x = Value)) +
        x = "Value",
        y = "Frequency")
 print(p)
-ggsave(file.path(output_dir, "01_temporal_distributions.png"), p, width = 12, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "all_env_temporal_all_vars_distribution.png"), p, width = 12, height = 8, dpi = 300)
 ```
 
 ### Temporal Variation Over Time
 
 ```{r temporal_by_month, fig.cap="Temporal variables by month - showing seasonal patterns", fig.width=14, fig.height=10}
 
-meteo_to_plot <- env_all %>%
+meteo_to_plot <- read_csv(
+    "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/all_environmental_data_per_manzana_2015_01_to_2019_12_noNDXI.csv",
+    show_col_types = FALSE
+  ) %>%
   mutate(year_month_date = as.Date(paste0(gsub("_", "-", as.character(year_month)), "-01")))
 
 # Plot 1: avg_temp with 95% CI
@@ -294,10 +318,31 @@ p4 <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
 combined_plot <- plot_grid(p1, p2, p3, p4, nrow = 2, ncol = 2)
 print(combined_plot)
 
-ggsave(file.path(output_dir, "02_temporal_by_month.png"), combined_plot, width = 14, height = 8, dpi = 300)
-ggsave(file.path(output_dir, "02a_temperature_by_month.png"), p1, width = 14, height = 8, dpi = 300)
-ggsave(file.path(output_dir, "02b_precipitation_by_month.png"), p4, width = 14, height = 8, dpi = 300)
-ggsave(file.path(output_dir, "02c_rel_hum_by_month.png"), p2, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "all_env_temporal_all_vars_by_month_lineplot.png"), combined_plot, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "all_env_temporal_temperature_lineplot.png"), p1, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "all_env_temporal_precipitation_lineplot.png"), p4, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "all_env_temporal_rel_hum_lineplot.png"), p2, width = 14, height = 8, dpi = 300)
+
+# Version with hurricane timing marked on all subplots
+hurricane_dates <- meteo_to_plot %>%
+  filter(hurricane_within_120km == 1) %>%
+  distinct(year_month_date)
+
+hurr_vline <- geom_vline(
+  data        = hurricane_dates,
+  aes(xintercept = year_month_date),
+  color       = "firebrick", linetype = "dashed", linewidth = 0.7
+)
+
+combined_plot_hurr <- plot_grid(
+  p1 + hurr_vline,
+  p2 + hurr_vline,
+  p3 + hurr_vline,
+  p4 + hurr_vline,
+  nrow = 2, ncol = 2
+)
+ggsave(file.path(output_dir, "all_env_temporal_all_vars_by_month_hurricanes_lineplot.png"),
+       combined_plot_hurr, width = 14, height = 8, dpi = 300)
 ```
 
 ---
@@ -310,7 +355,6 @@ Variables that describe the spatial characteristics of locations. With 1,409 spa
 
 
 ```{r spatial_continuous_summary}
-continuous_spatial <- c("nr_aljibes", "water_containers")
 
 # Get unique locations to understand spatial distribution
 spatial_unique <- env_all %>%
@@ -340,6 +384,132 @@ continuous_summary <- spatial_unique %>%
 knitr::kable(continuous_summary, digits = 2, caption = "Continuous Spatial Variables - Distribution Across 1,409 Manzanas")
 ```
 
+### Pop Density Outlier Analysis
+
+```{r pop_density_outliers}
+pd_data <- spatial_unique %>% select(manzana, pop_density) %>% drop_na()
+
+Q1          <- quantile(pd_data$pop_density, 0.25, na.rm = TRUE)
+Q3          <- quantile(pd_data$pop_density, 0.75, na.rm = TRUE)
+IQR_val     <- Q3 - Q1
+upper_fence <- Q3 + 1.5 * IQR_val
+lower_fence <- Q1 - 1.5 * IQR_val
+
+# Manzana area and identifier columns from shapefile
+mz_cols <- names(st_drop_geometry(manzanas))
+id_cols <- intersect(mz_cols, c("MZ", "AREA", "CMF", "NOMBRE", "NOM_CMF", "NOM_AREA"))
+
+mz_lookup <- manzanas %>%
+  mutate(manzana_area_km2 = as.numeric(st_area(geometry)) / 1e6) %>%
+  st_drop_geometry() %>%
+  select(CODIGO_, manzana_area_km2, all_of(id_cols)) %>%
+  distinct(CODIGO_, .keep_all = TRUE) %>%
+  rename(manzana = CODIGO_)
+
+outliers_mz <- pd_data %>%
+  filter(pop_density > upper_fence | pop_density < lower_fence) %>%
+  left_join(mz_lookup, by = "manzana") %>%
+  mutate(manzana_pop_count = round(pop_density * manzana_area_km2)) %>%
+  select(manzana, all_of(id_cols), pop_density, manzana_area_km2, manzana_pop_count) %>%
+  arrange(desc(pop_density))
+
+cat(sprintf("IQR method fences:  lower = %.1f,  upper = %.1f persons/km²\n",
+            lower_fence, upper_fence))
+cat(sprintf("Number of outlier manzanas: %d\n\n", nrow(outliers_mz)))
+
+knitr::kable(outliers_mz, digits = 2,
+             caption = "Population Density Outliers — manzana-level area and population estimates")
+```
+
+### CMF Level — Continuous Spatial Variables
+
+```{r load_env_cmf_data}
+cmf_path_local  <- "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/all_environmental_data_cmf_2016_01_to_2019_12_imputed.csv"
+cmf_path_remote <- "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_cmf_2016_01_to_2019_12_imputed.csv"
+
+env_all_cmf <- read_csv(
+  if (file.exists(cmf_path_local)) cmf_path_local else cmf_path_remote,
+  show_col_types = FALSE
+)
+if ("year_month" %in% colnames(env_all_cmf))
+  env_all_cmf <- env_all_cmf %>% mutate(year_month = as.factor(year_month))
+
+# 2015-2019 climate-only dataset (no NDVI/NDMI/NDWI) — used for climate correlation plots
+cmf_clim_path_local  <- "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/all_environmental_data_per_cmf_2015_01_to_2019_12_noNDXI.csv"
+cmf_clim_path_remote <- "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/all_environmental_data_per_cmf_2015_01_to_2019_12_noNDXI.csv"
+
+env_all_cmf_clim <- read_csv(
+  if (file.exists(cmf_clim_path_local)) cmf_clim_path_local else cmf_clim_path_remote,
+  show_col_types = FALSE
+)
+if ("year_month" %in% colnames(env_all_cmf_clim))
+  env_all_cmf_clim <- env_all_cmf_clim %>% mutate(year_month = as.factor(year_month))
+
+# Build CMF join key matching the cmf column in env_all_cmf (AS_CMF = paste(AS, CMF, "_"))
+cmfs_sf <- CMFs %>%
+  mutate(cmf = paste(AS, CMF, sep = "_"))
+```
+
+```{r cmf_spatial_continuous_summary}
+spatial_unique_cmf <- env_all_cmf %>%
+  select(cmf, all_of(continuous_spatial)) %>%
+  distinct(cmf, .keep_all = TRUE) %>%
+  drop_na()
+
+continuous_summary_cmf <- spatial_unique_cmf %>%
+  select(all_of(continuous_spatial)) %>%
+  summarise(
+    across(everything(),
+      list(
+        n_locations = ~n(),
+        Mean        = ~mean(., na.rm = TRUE),
+        SD          = ~sd(., na.rm = TRUE),
+        Min         = ~min(., na.rm = TRUE),
+        Median      = ~median(., na.rm = TRUE),
+        Max         = ~max(., na.rm = TRUE)
+      ),
+      .names = "{.col}_{.fn}"
+    )
+  ) %>%
+  pivot_longer(everything(), names_to = "Statistic", values_to = "Value") %>%
+  separate(Statistic, into = c("Variable", "Stat"), sep = "_(?=n_locations|Mean|SD|Min|Median|Max)") %>%
+  pivot_wider(names_from = "Stat", values_from = "Value")
+
+knitr::kable(continuous_summary_cmf, digits = 2,
+             caption = "Continuous Spatial Variables - Distribution Across CMFs")
+```
+
+### Pop Density Outlier Analysis (CMF level)
+
+```{r cmf_pop_density_outliers}
+pd_data_cmf   <- spatial_unique_cmf %>% select(cmf, pop_density) %>% drop_na()
+
+Q1_c          <- quantile(pd_data_cmf$pop_density, 0.25, na.rm = TRUE)
+Q3_c          <- quantile(pd_data_cmf$pop_density, 0.75, na.rm = TRUE)
+IQR_c         <- Q3_c - Q1_c
+upper_fence_c <- Q3_c + 1.5 * IQR_c
+lower_fence_c <- Q1_c - 1.5 * IQR_c
+
+cmf_area_lookup <- cmfs_sf %>%
+  mutate(cmf_area_km2 = as.numeric(st_area(geometry)) / 1e6) %>%
+  st_drop_geometry() %>%
+  select(cmf, cmf_area_km2) %>%
+  distinct(cmf, .keep_all = TRUE)
+
+outliers_cmf <- pd_data_cmf %>%
+  filter(pop_density > upper_fence_c | pop_density < lower_fence_c) %>%
+  left_join(cmf_area_lookup, by = "cmf") %>%
+  mutate(cmf_pop_count = round(pop_density * cmf_area_km2)) %>%
+  arrange(desc(pop_density))
+
+cat(sprintf("IQR method fences:  lower = %.1f,  upper = %.1f persons/km²\n",
+            lower_fence_c, upper_fence_c))
+cat(sprintf("Number of outlier CMFs: %d\n\n", nrow(outliers_cmf)))
+
+knitr::kable(outliers_cmf, digits = 2,
+             caption = "Population Density Outliers — CMF-level area and population estimates")
+```
+
 ## Binary Spatial Variables
 
 ```{r binary_spatial_summary}
@@ -366,6 +536,31 @@ binary_summary <- env_all %>%
 knitr::kable(binary_summary, digits = 1, caption = "Descriptive Statistics - Binary Spatial Variables")
 ```
 
+### CMF Level — Binary Spatial Variables
+
+```{r cmf_binary_spatial_summary}
+binary_summary_cmf <- env_all_cmf %>%
+  select(all_of(binary_spatial)) %>%
+  drop_na() %>%
+  summarise(
+    across(everything(),
+      list(
+        Total_n     = ~n(),
+        Count_TRUE  = ~sum(. == TRUE, na.rm = TRUE),
+        Count_FALSE = ~sum(. == FALSE, na.rm = TRUE),
+        Pct_TRUE    = ~sum(. == TRUE, na.rm = TRUE) / n() * 100
+      ),
+      .names = "{.col}_{.fn}"
+    )
+  ) %>%
+  pivot_longer(everything(), names_to = "Statistic", values_to = "Value") %>%
+  separate(Statistic, into = c("Variable", "Stat"), sep = "_(?=Total_n|Count_TRUE|Count_FALSE|Pct_TRUE)") %>%
+  pivot_wider(names_from = "Stat", values_from = "Value")
+
+knitr::kable(binary_summary_cmf, digits = 1,
+             caption = "Descriptive Statistics - Binary Spatial Variables (CMF level)")
+```
+
 ## Categorical Spatial Variables
 
 ```{r categorical_spatial_summary}
@@ -383,6 +578,24 @@ categorical_summary <- env_all %>%
   arrange(desc(Count))
 
 knitr::kable(categorical_summary, digits = 1, caption = "Descriptive Statistics - Landcover (Categorical)")
+```
+
+### CMF Level — Categorical Spatial Variables
+
+```{r cmf_categorical_spatial_summary}
+categorical_summary_cmf <- env_all_cmf %>%
+  select(all_of(categorical_spatial)) %>%
+  drop_na() %>%
+  group_by(landcover) %>%
+  summarise(
+    Count      = n(),
+    Percentage = n() / nrow(env_all_cmf %>% select(all_of(categorical_spatial)) %>% drop_na()) * 100,
+    .groups    = "drop"
+  ) %>%
+  arrange(desc(Count))
+
+knitr::kable(categorical_summary_cmf, digits = 1,
+             caption = "Descriptive Statistics - Landcover (Categorical) — CMF level")
 ```
 
 
@@ -407,7 +620,7 @@ p <- ggplot(binary_data_long, aes(x = Variable, y = Count, fill = Value)) +
        fill = "Value") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 print(p)
-ggsave(file.path(output_dir, "03_spatial_binary_barplot.png"), p, width = 10, height = 6, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_spatial_binary_vars_barplot.png"), p, width = 10, height = 6, dpi = 300)
 ```
 
 ```{r spatial_categorical_barplot, fig.cap="Landcover distribution"}
@@ -428,7 +641,7 @@ p <- ggplot(landcover_data, aes(x = reorder(landcover, -Count), y = Count, fill 
        x = "Landcover Type",
        y = "Count")
 print(p)
-ggsave(file.path(output_dir, "04_spatial_categorical_barplot.png"), p, width = 12, height = 6, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_spatial_categorical_vars_barplot.png"), p, width = 12, height = 6, dpi = 300)
 ```
 
 ### Spatial Distribution Maps
@@ -468,7 +681,7 @@ for (var in binary_spatial) {
 # Combine into 2x2 grid
 combined_binary <- cowplot::plot_grid(plotlist = binary_plots, nrow = 2, ncol = 3)
 print(combined_binary)
-ggsave(file.path(output_dir, "08_spatial_maps_binary.png"), combined_binary, width = 20, height = 10, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_spatial_binary_vars_map.png"), combined_binary, width = 20, height = 10, dpi = 300)
 ```
 
 ```{r spatial_maps_continuous, fig.cap="Spatial distribution of nr_aljibes across manzanas", fig.width=10, fig.height=8}
@@ -491,7 +704,7 @@ p <- ggplot() +
        fill = "Count")
 
 print(p)
-ggsave(file.path(output_dir, "09_spatial_map_nr_aljibes.png"), p, width = 10, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_spatial_nr_aljibes_map.png"), p, width = 10, height = 8, dpi = 300)
 ```
 
 ```{r spatial_maps_continuous water containers, fig.cap="Spatial distribution of nr of water containers across manzanas", fig.width=10, fig.height=8}
@@ -514,8 +727,44 @@ p <- ggplot() +
        fill = "Log of count")
 
 print(p)
-ggsave(file.path(output_dir, "10_spatial_map_nr_water_containers.png"), p, width = 10, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_spatial_water_containers_map.png"), p, width = 10, height = 8, dpi = 300)
 ```
+
+```{r spatial_map_pop_density_manzana, fig.cap="Population density per manzana (2016, log scale)", fig.width=10, fig.height=8}
+p_pd_mz <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = manzanas_spatial %>% filter(!is.na(pop_density)),
+          aes(fill = log10(pop_density + 1)), color = "gray30", size = 0.1) +
+  scale_fill_viridis_c(option = "viridis", na.value = "white",
+                       labels = function(x) scales::comma(round(10^x))) +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = "Population Density per Manzana (2016, log scale)",
+       fill = "Persons/km²\n(log scale)")
+
+print(p_pd_mz)
+ggsave(file.path(output_dir, "mz_env_spatial_pop_density_map.png"), p_pd_mz, width = 10, height = 8, dpi = 300)
+```
+
+```{r spatial_map_urban_pct_manzana, fig.cap="Percentage of urban (WSF) pixels per manzana", fig.width=10, fig.height=8}
+p_urban_pct_mz <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = manzanas_spatial %>% filter(!is.na(urban_pct)),
+          aes(fill = urban_pct), color = "gray30", size = 0.1) +
+  scale_fill_viridis_c(option = "viridis", na.value = "white", limits = c(0, 100)) +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = "Urban Pixel Percentage (WSF) per Manzana",
+       fill = "Urban %")
+
+print(p_urban_pct_mz)
+ggsave(file.path(output_dir, "mz_env_spatial_urban_pct_map.png"), p_urban_pct_mz, width = 10, height = 8, dpi = 300)
+```
+
 ```{r spatial_maps_categorical, fig.cap="Spatial distribution of landcover types across manzanas", fig.width=10, fig.height=8}
 # Map for categorical variable (landcover)
 p <- ggplot(manzanas_spatial) +
@@ -532,8 +781,174 @@ p <- ggplot(manzanas_spatial) +
        fill = "Landcover Type")
 
 print(p)
-ggsave(file.path(output_dir, "11_spatial_map_landcover.png"), p, width = 10, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_spatial_landcover_map.png"), p, width = 10, height = 8, dpi = 300)
 ```
+
+### CMF Level — Visualizations
+
+```{r cmf_spatial_maps_prep}
+spatial_map_data_cmf <- env_all_cmf %>%
+  select(cmf, all_of(c(binary_spatial, continuous_spatial, categorical_spatial))) %>%
+  distinct(cmf, .keep_all = TRUE)
+
+cmfs_spatial <- cmfs_sf %>%
+  left_join(spatial_map_data_cmf, by = "cmf")
+```
+
+```{r cmf_spatial_binary_barplot, fig.cap="Binary spatial variables frequency at CMF level"}
+binary_data_long_cmf <- env_all_cmf %>%
+  select(all_of(binary_spatial)) %>%
+  drop_na() %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Value") %>%
+  group_by(Variable, Value) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  mutate(Percentage = paste0(round(Count / sum(Count) * 100, 1), "%"), .by = Variable)
+
+p <- ggplot(binary_data_long_cmf, aes(x = Variable, y = Count, fill = Value)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = Percentage), position = position_dodge(width = 0.9), vjust = -0.5, size = 3.5) +
+  theme_minimal() +
+  labs(title = "Binary Spatial Variables Distribution among CMFs",
+       x = "Variable", y = "Count", fill = "Value") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(p)
+ggsave(file.path(output_dir, "cmf_env_spatial_binary_vars_barplot.png"), p, width = 10, height = 6, dpi = 300)
+```
+
+```{r cmf_spatial_categorical_barplot, fig.cap="Landcover distribution at CMF level"}
+landcover_data_cmf <- env_all_cmf %>%
+  select(landcover) %>%
+  drop_na() %>%
+  group_by(landcover) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  mutate(Percentage = paste0(round(Count / sum(Count) * 100, 1), "%"))
+
+p <- ggplot(landcover_data_cmf, aes(x = reorder(landcover, -Count), y = Count, fill = landcover)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Percentage), vjust = -0.5, size = 3.5) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Landcover Distribution among CMFs", x = "Landcover Type", y = "Count")
+print(p)
+ggsave(file.path(output_dir, "cmf_env_spatial_categorical_vars_barplot.png"), p, width = 12, height = 6, dpi = 300)
+```
+
+```{r cmf_spatial_maps_binary, fig.cap="Spatial distribution of binary variables across CMFs", fig.width=14, fig.height=12}
+binary_plots_cmf <- list()
+
+for (var in binary_spatial) {
+  p <- ggplot() +
+    geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+    geom_sf(data = cmfs_spatial, aes(fill = !!sym(var)), color = "gray30", size = 0.2) +
+    scale_fill_manual(values = c("TRUE" = "steelblue", "FALSE" = "gray90"),
+                      na.value = "white",
+                      labels = c("TRUE" = "Yes", "FALSE" = "No")) +
+    theme_minimal() +
+    theme(axis.text = element_blank(), axis.ticks = element_blank(),
+          panel.grid = element_blank(),
+          plot.title = element_text(face = "bold", size = 11)) +
+    labs(title = var, fill = "")
+  binary_plots_cmf[[var]] <- p
+}
+
+combined_binary_cmf <- cowplot::plot_grid(plotlist = binary_plots_cmf, nrow = 2, ncol = 3)
+print(combined_binary_cmf)
+ggsave(file.path(output_dir, "cmf_env_spatial_binary_vars_map.png"), combined_binary_cmf, width = 20, height = 10, dpi = 300)
+```
+
+```{r cmf_spatial_map_nr_aljibes, fig.cap="Spatial distribution of nr_aljibes across CMFs", fig.width=10, fig.height=8}
+p <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = cmfs_spatial %>% filter(!is.na(nr_aljibes) & nr_aljibes == 0),
+          fill = "gray70", color = "gray30", size = 0.2) +
+  geom_sf(data = cmfs_spatial %>% filter(!is.na(nr_aljibes) & nr_aljibes > 0),
+          aes(fill = nr_aljibes), color = "gray30", size = 0.2) +
+  scale_fill_viridis_c(option = "viridis", na.value = "white") +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = "Number of Aljibes per CMF", fill = "Count")
+print(p)
+ggsave(file.path(output_dir, "cmf_env_spatial_nr_aljibes_map.png"), p, width = 10, height = 8, dpi = 300)
+```
+
+```{r cmf_spatial_map_water_containers, fig.cap="Spatial distribution of water containers across CMFs", fig.width=10, fig.height=8}
+p <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = cmfs_spatial %>% filter(!is.na(water_containers)),
+          aes(fill = log1p(water_containers)), color = "gray30", size = 0.2) +
+  scale_fill_viridis_c(option = "viridis", na.value = "white") +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = "Number of water storage containers per CMF", fill = "Log of count")
+print(p)
+ggsave(file.path(output_dir, "cmf_env_spatial_water_containers_map.png"), p, width = 10, height = 8, dpi = 300)
+```
+
+```{r cmf_spatial_map_water_shortage, fig.cap="Spatial distribution of water shortage across CMFs", fig.width=10, fig.height=8}
+p <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = cmfs_spatial, aes(fill = water_shortage), color = "gray30", size = 0.2) +
+  scale_fill_brewer(palette = "Set3", na.value = "white") +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12),
+        legend.position = "bottom") +
+  labs(title = "Water Shortage Distribution across CMFs", fill = "Water shortage")
+print(p)
+ggsave(file.path(output_dir, "cmf_env_spatial_water_shortage_map.png"), p, width = 10, height = 8, dpi = 300)
+```
+
+```{r cmf_spatial_map_pop_density, fig.cap="Population density per CMF (log scale)", fig.width=10, fig.height=8}
+p_pd_cmf <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = cmfs_spatial %>% filter(!is.na(pop_density)),
+          aes(fill = log10(pop_density + 1)), color = "gray30", size = 0.2) +
+  scale_fill_viridis_c(option = "viridis", na.value = "white",
+                       labels = function(x) scales::comma(round(10^x))) +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = "Population Density per CMF (log scale)", fill = "Persons/km²\n(log scale)")
+print(p_pd_cmf)
+ggsave(file.path(output_dir, "cmf_env_spatial_pop_density_map.png"), p_pd_cmf, width = 10, height = 8, dpi = 300)
+```
+
+```{r cmf_spatial_map_urban_pct, fig.cap="Percentage of urban (WSF) pixels per CMF", fig.width=10, fig.height=8}
+p_urban_pct_cmf <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = cmfs_spatial %>% filter(!is.na(urban_pct)),
+          aes(fill = urban_pct), color = "gray30", size = 0.2) +
+  scale_fill_viridis_c(option = "viridis", na.value = "white", limits = c(0, 100)) +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = "Urban Pixel Percentage (WSF) per CMF", fill = "Urban %")
+print(p_urban_pct_cmf)
+ggsave(file.path(output_dir, "cmf_env_spatial_urban_pct_map.png"), p_urban_pct_cmf, width = 10, height = 8, dpi = 300)
+```
+
+```{r cmf_spatial_map_landcover, fig.cap="Spatial distribution of landcover types across CMFs", fig.width=10, fig.height=8}
+p <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = cmfs_spatial, aes(fill = landcover), color = "gray30", size = 0.2) +
+  scale_fill_brewer(palette = "Set3", na.value = "white") +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12),
+        legend.position = "bottom") +
+  labs(title = "Landcover Distribution across CMFs", fill = "Landcover Type")
+print(p)
+ggsave(file.path(output_dir, "cmf_env_spatial_landcover_map.png"), p, width = 10, height = 8, dpi = 300)
+```
+
 
 ---
 
@@ -546,8 +961,6 @@ Variables that vary in both space and time, representing vegetation and water co
 ## Summary Statistics - Overall
 
 ```{r spatiotemporal_summary ndxi}
-spatiotemporal_vars <- c("mean_ndvi", "mean_ndmi", "mean_ndwi")
-
 spatiotemporal_data <- env_all %>%
   select(all_of(spatiotemporal_vars)) %>%
   drop_na()
@@ -593,7 +1006,7 @@ p <- ggplot(spatiotemporal_data_long, aes(x = Value)) +
        x = "Index Value",
        y = "Frequency")
 print(p)
-ggsave(file.path(output_dir, "05_spatiotemporal_distributions.png"), p, width = 14, height = 6, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_spatiotemporal_all_vars_distribution.png"), p, width = 14, height = 6, dpi = 300)
 ```
 
 ### Temporal Variation by Month
@@ -618,7 +1031,7 @@ if ("year_month" %in% colnames(env_all)) {
          x = "Year-Month",
          y = "Index Value")
   print(p)
-  ggsave(file.path(output_dir, "06_spatiotemporal_by_month.png"), p, width = 14, height = 6, dpi = 300)
+  ggsave(file.path(output_dir, "mz_env_spatiotemporal_all_vars_by_month_boxplot.png"), p, width = 14, height = 6, dpi = 300)
 } else {
   cat("Note: year_month variable not found in dataset")
 }
@@ -646,7 +1059,7 @@ p <- ggplot(spatial_temporal_by_cover, aes(x = landcover, y = Value, fill = land
        y = "Index Value",
        fill = "Landcover")
 print(p)
-ggsave(file.path(output_dir, "07_spatiotemporal_by_landcover.png"), p, width = 12, height = 6, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_spatiotemporal_all_vars_by_landcover_boxplot.png"), p, width = 12, height = 6, dpi = 300)
 ```
 
 ### Spatial Map — NDVI (first month snapshot)
@@ -681,7 +1094,7 @@ p_ndvi <- ggplot() +
   labs(title = paste0("Mean NDVI per Manzana (", first_month, ")"))
 
 print(p_ndvi)
-ggsave(file.path(output_dir, "08b_spatial_map_ndvi.png"), p_ndvi, width = 10, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_spatial_ndvi_map.png"), p_ndvi, width = 10, height = 8, dpi = 300)
 ```
 
 ---
@@ -692,129 +1105,106 @@ Quick overview of correlations between all environmental numeric variables.
 Using the Spearman correlation instead of the Pearson correlation we don't make any assumptions about linearity in the relation between variables. Booth et al. (1994) suggest that anything above ± 0.5 indicates high collinearity
 
 ### Correlations in numerical data - raw
-NDVI, NDMI, NDWI, Temp, Precip, RH, Windspeed, nr of aljibes, water_containers
+NDVI, NDMI, NDWI, Temp, Precip, RH, Windspeed, nr of aljibes, water_containers, pop_density
 
 ```{r numeric_vars_correlation}
-all_numeric <- c(temporal_vars, continuous_spatial, spatiotemporal_vars)
+all_numeric <- c(temporal_vars, "hurricane_within_120km", continuous_spatial, spatiotemporal_vars)
 
-correlation_data <- env_all %>%
-  select(all_of(all_numeric)) %>%
-  drop_na()
+# Short prefix used in all plot filenames to keep mz/cmf sorted together
+lvl_prefix <- function(l) ifelse(l == "manzana", "mz", "cmf")
 
-corr_matrix <- cor(correlation_data, method = "spearman")
+for (lvl in c("manzana", "CMF")) {
+  dat        <- if (lvl == "manzana") env_all else env_all_cmf
+  plot_title <- paste("Spearman Correlation raw —", lvl)
 
-# Save to file
+  correlation_data <- dat %>%
+    select(all_of(all_numeric)) %>%
+    drop_na()
 
-png(file.path(output_dir, "11a_numeric_vars_correlation.png"), width = 800, height = 800, res = 150)
-corrplot(corr_matrix, 
-         method = "color",
-         type = "upper",
-         addCoef.col = "black",
-         diag = FALSE,
-         tl.col = "black",
-         tl.cex = 0.7,
-         number.cex = 0.7,
-         mar = c(0, 0, 3.5, 0),
-         title = "Spearman Correlation raw")
-dev.off()
+  corr_matrix <- cor(correlation_data, method = "spearman")
 
-# Display in notebook
-corrplot(corr_matrix, 
-         method = "color",
-         type = "upper",
-         addCoef.col = "black",
-         diag = FALSE,
-         tl.col = "black",
-         title = "Spearman Correlation raw",
-         tl.cex = 0.8)
+  png(file.path(output_dir, paste0(lvl_prefix(lvl), "_env_temporal_numeric_vars_corr.png")),
+      width = 1000, height = 1000, res = 150)
+  corrplot(corr_matrix,
+           method = "color", type = "upper", addCoef.col = "black",
+           diag = FALSE, tl.col = "black", tl.cex = 0.7, number.cex = 0.7,
+           mar = c(0, 0, 3.5, 0), title = plot_title)
+  dev.off()
+
+  corrplot(corr_matrix,
+           method = "color", type = "upper", addCoef.col = "black",
+           diag = FALSE, tl.col = "black", tl.cex = 0.8, title = plot_title)
+}
 ```
 
 ```{r correlation matrix numeric vars at each lag}
-# Variables to lag: temporal + spatiotemporal (vary over time per block)
-# continuous_spatial (nr_aljibes, water_containers) kept unlagged — no temporal dimension
-vars_to_lag <- c(temporal_vars, spatiotemporal_vars)
+vars_to_lag <- c(temporal_vars, "hurricane_within_120km", spatiotemporal_vars)
 max_lag     <- 2
 
-# Create lags grouped by manzana, then drop incomplete rows from the lag window
-env_lagged <- env_all %>%
-  group_by(manzana) %>%
-  arrange(year_month, .by_group = TRUE) %>%
-  mutate(
-    across(all_of(vars_to_lag), ~.x,          .names = "{.col}_lag0"),
-    across(all_of(vars_to_lag), ~lag(.x, n=1), .names = "{.col}_lag1"),
-    across(all_of(vars_to_lag), ~lag(.x, n=2), .names = "{.col}_lag2")
-  ) %>%
-  ungroup()
+for (lvl in c("manzana", "CMF")) {
+  dat        <- if (lvl == "manzana") env_all else env_all_cmf
+  id_col     <- if (lvl == "manzana") "manzana" else "cmf"
+  plot_title <- paste("Spearman Correlation — lag 0, 1, 2 —", lvl)
 
-lagged_cols <- unlist(lapply(vars_to_lag, function(v) paste0(v, "_lag", 0:max_lag)))
-all_numeric_lagged <- c(lagged_cols, continuous_spatial)
+  env_lagged <- dat %>%
+    group_by(.data[[id_col]]) %>%
+    arrange(year_month, .by_group = TRUE) %>%
+    mutate(
+      across(all_of(vars_to_lag), ~.x,           .names = "{.col}_lag0"),
+      across(all_of(vars_to_lag), ~lag(.x, n=1), .names = "{.col}_lag1"),
+      across(all_of(vars_to_lag), ~lag(.x, n=2), .names = "{.col}_lag2")
+    ) %>%
+    ungroup()
 
-corr_data_lagged <- env_lagged %>%
-  select(all_of(all_numeric_lagged)) %>%
-  drop_na()
+  lagged_cols        <- unlist(lapply(vars_to_lag, function(v) paste0(v, "_lag", 0:max_lag)))
+  all_numeric_lagged <- c(lagged_cols, continuous_spatial)
 
-corr_matrix_lagged <- cor(corr_data_lagged, method = "spearman")
+  corr_data_lagged   <- env_lagged %>%
+    select(all_of(all_numeric_lagged)) %>%
+    drop_na()
 
-# Save to file
-png(file.path(output_dir, "11b_numeric_vars_correlation_lagged.png"), width = 1400, height = 1400, res = 150)
-corrplot(corr_matrix_lagged,
-         method      = "color",
-         type        = "upper",
-         addCoef.col = "black",
-         diag        = FALSE,
-         tl.col      = "black",
-         tl.cex      = 0.5,
-         number.cex  = 0.4,
-         mar         = c(0, 0, 3.5, 0),
-         title       = "Spearman Correlation — lag 0, 1, 2")
-dev.off()
+  corr_matrix_lagged <- cor(corr_data_lagged, method = "spearman")
 
-# Display in notebook
-corrplot(corr_matrix_lagged,
-         method      = "color",
-         type        = "upper",
-         addCoef.col = "black",
-         diag        = FALSE,
-         tl.col      = "black",
-         tl.cex      = 0.5,
-         number.cex  = 0.45,
-         title       = "Spearman Correlation — lag 0, 1, 2")
+  png(file.path(output_dir, paste0(lvl_prefix(lvl), "_env_temporal_numeric_vars_lagged_corr.png")),
+      width = 1400, height = 1400, res = 150)
+  corrplot(corr_matrix_lagged,
+           method = "color", type = "upper", addCoef.col = "black",
+           diag = FALSE, tl.col = "black", tl.cex = 0.5, number.cex = 0.4,
+           mar = c(0, 0, 3.5, 0), title = plot_title)
+  dev.off()
+
+  corrplot(corr_matrix_lagged,
+           method = "color", type = "upper", addCoef.col = "black",
+           diag = FALSE, tl.col = "black", tl.cex = 0.5, number.cex = 0.45,
+           title = plot_title)
+}
 ```
 
+
 ```{r pairwise_plot_numeric_vars, fig.cap="Pairwise scatterplot matrix of numeric explanatory variables"}
-# Reuse numeric variables from previous chunk; build fresh complete-case dataset
-pairwise_data <- env_all %>%
-  select(all_of(all_numeric)) %>%
-  drop_na()
+for (lvl in c("manzana", "CMF")) {
+  dat <- if (lvl == "manzana") env_all else env_all_cmf
 
-# Optional downsampling for readability/performance with very large datasets
-set.seed(123)
-max_points <- 5000
-if (nrow(pairwise_data) > max_points) {
-  pairwise_data <- pairwise_data %>%
-    slice_sample(n = max_points)
-  cat("Note: pairs() plot uses a random sample of", max_points, "rows for readability.\n")
+  pairwise_data <- dat %>%
+    select(all_of(all_numeric)) %>%
+    drop_na()
+
+  set.seed(123)
+  max_points <- 5000
+  if (nrow(pairwise_data) > max_points) {
+    pairwise_data <- pairwise_data %>% slice_sample(n = max_points)
+    cat("Note: pairs() plot uses a random sample of", max_points, "rows for readability.\n")
+  }
+
+  png(file.path(output_dir, paste0(lvl_prefix(lvl), "_env_temporal_numeric_vars_pairs.png")),
+      width = 1800, height = 1800, res = 200)
+  pairs(pairwise_data, pch = 16, cex = 0.35, col = rgb(0, 0, 0, 0.15),
+        main = paste("Pairwise Scatterplot Matrix - Numeric Environmental Variables —", lvl))
+  dev.off()
+
+  pairs(pairwise_data, pch = 16, cex = 0.35, col = rgb(0, 0, 0, 0.15),
+        main = paste("Pairwise Scatterplot Matrix - Numeric Environmental Variables —", lvl))
 }
-
-# Save pairwise plot to file
-png(file.path(output_dir, "11a_numeric_vars_pairs_plot.png"), width = 1800, height = 1800, res = 200)
-pairs(
-  pairwise_data,
-  pch = 16,
-  cex = 0.35,
-  col = rgb(0, 0, 0, 0.15),
-  main = "Pairwise Scatterplot Matrix - Numeric Environmental Variables"
-)
-dev.off()
-
-# Display in report
-pairs(
-  pairwise_data,
-  pch = 16,
-  cex = 0.35,
-  col = rgb(0, 0, 0, 0.15),
-  main = "Pairwise Scatterplot Matrix - Numeric Environmental Variables"
-)
 ```
 
 There is a stong collinearity between NDVI, NDMI and NDWI. The easiest solution would be to keep only one of the 3 variables or to create a linear combination of the (two or) three. 
@@ -829,14 +1219,44 @@ library(dplyr)
 # 1) Fit regression of precip_max_day on total_precip
 resid_fit <- lm(precip_max_day ~ total_precip, data = env_all)
 
+b <- coef(resid_fit)
+cat(sprintf("precip_max_day = %.3f + %.3f * total_precip\n", b[1], b[2]))
+
 # 2) Add residualized variable
 env_all <- env_all %>%
   mutate(
-    precip_max_day_resid = resid(resid_fit)
+    precip_max_day_resid_on_tp = resid(resid_fit)
   )
 
 # 3) Quick check: should be ~uncorrelated with total_precip
-cor(env_all$total_precip, env_all$precip_max_day_resid, use = "complete.obs")
+cor(env_all$total_precip, env_all$precip_max_day_resid_on_tp, use = "complete.obs")
+
+# Same residualization for CMF data
+env_all_cmf <- env_all_cmf %>%
+  mutate(precip_max_day_resid_on_tp = resid(lm(precip_max_day ~ total_precip, data = env_all_cmf)))
+cor(env_all_cmf$total_precip, env_all_cmf$precip_max_day_resid_on_tp, use = "complete.obs")
+```
+
+### Correct correlation between total_rainy_days and precip_max_day
+
+```{r residualize precip_max_day on total_rainy_days}
+resid_fit <- lm(precip_max_day ~ total_rainy_days, data = env_all)
+
+b <- coef(resid_fit)
+cat(sprintf("precip_max_day = %.3f + %.3f * total_rainy_days\n", b[1], b[2]))
+
+env_all <- env_all %>%
+  mutate(
+    precip_max_day_resid_on_trd = resid(resid_fit)
+  )
+
+# 3) Quick check: should be ~uncorrelated with total_rainy_days
+cor(env_all$total_rainy_days, env_all$precip_max_day_resid_on_trd, use = "complete.obs")
+
+# Same residualization for CMF data
+env_all_cmf <- env_all_cmf %>%
+  mutate(precip_max_day_resid_on_trd = resid(lm(precip_max_day ~ total_rainy_days, data = env_all_cmf)))
+cor(env_all_cmf$total_rainy_days, env_all_cmf$precip_max_day_resid_on_trd, use = "complete.obs")
 ```
 
 ### Correct correlation between avg_temp and total_precip 
@@ -903,167 +1323,447 @@ temp_precip_cats <- ggplot(env_all_temp, aes(x=year_month_date)) +
 
 print(temp_precip_cats)
 
-ggsave(file.path(output_dir, "cat_temp_precip.png"), plot = temp_precip_cats, width = 20, height = 10, dpi = 300)
+ggsave(file.path(output_dir, "all_env_temporal_temp_precip_categories_mosaic.png"), plot = temp_precip_cats, width = 20, height = 10, dpi = 300)
 ```
 
 
 
-Re-check the correlation plot with the new variable. 
-```{r pairwise_plot_numeric_vars after correction, fig.cap="Pairwise scatterplot matrix of numeric explanatory variables after correction"}
-all_numeric <- c(all_numeric, "precip_max_day_resid")
+Re-check the correlation plot with the new variable.
 
-# remove the original variables causing issues with collinearity 
-all_numeric_no_colin <- all_numeric[!all_numeric %in% c("precip_max_day", "mean_ndmi", "mean_ndwi", "WS2M", "rel_hum")]
+**Design rationale — why four separate blocks instead of one matrix:**
 
-correlation_data <- env_all %>%
-  select(all_of(all_numeric_no_colin)) %>%
-  drop_na()
+- **Meteo variables** (`avg_temp`, `total_precip`, …) are municipality-wide: every manzana has the same value in a given month. Including all rows inflates N by ×1336 (manzanas) or ×149 (CMFs) without adding information. Correct N = 48 months (one row per month).
+- **Spatial continuous variables** (`nr_aljibes`, `water_containers`) are constant across time. Including all months inflates N by ×48. `pop_density` changes by year but not month →
+  averaged to one value per spatial unit. Correct N = number of unique spatial units.
+- **NDVI** is genuinely spatiotemporal. It needs two views: (a) averaged to a municipal monthly  mean to show its *temporal* relationship with meteo (N = 48), and (b) averaged to a per-unit  mean to show its *spatial* relationship with spatial variables (N = spatial units).
+- **Temporal × spatial cross-correlations** (e.g. meteo × nr_aljibes) are omitted: in a
+  balanced panel these variables live in orthogonal dimensions and any observed correlation
+  is an artifact of the panel structure, not a meaningful association.
 
-corr_matrix <- cor(correlation_data, method = "spearman")
+Cells with \* = p < 0.05 (Spearman, two-sided).
 
-# Save to file
-png(file.path(output_dir, "11a_numeric_vars_correlation_corrected.png"), width = 800, height = 800, res = 150)
-corrplot(corr_matrix, 
-         method = "color",
-         type = "upper",
-         addCoef.col = "black",
-         diag = FALSE,
-         tl.col = "black",
-         tl.cex = 0.7,
-         number.cex = 0.7,
-         mar = c(0, 0, 3.5, 0),
-         title = "Spearman Correlation raw")
-dev.off()
+```{r pairwise_plot_numeric_vars after correction, fig.cap="Corrected correlation plots split by spatiotemporal structure"}
+all_numeric <- c(all_numeric, "precip_max_day_resid_on_tp", "precip_max_day_resid_on_trd")
 
-# Display in notebook
-corrplot(corr_matrix, 
-         method = "color",
-         type = "upper",
-         addCoef.col = "black",
-         diag = FALSE,
-         tl.col = "black",
-         title = "Spearman Correlation raw",
-         tl.cex = 0.8)
+# Variable lists for each block
+temporal_vars_nc <- c("avg_temp", "avg_VPD", "total_precip", "total_rainy_days",
+                       "consec_rainy_days", "WS2M", "hurricane_within_120km",
+                       "precip_max_day_resid_on_tp", "precip_max_day_resid_on_trd")
+spatial_cont_nc  <- c("nr_aljibes", "water_containers", "pop_density", "urban_pct")
+
+# Helper: Spearman p-value matrix
+cor_pval_spearman <- function(df) {
+  vars <- names(df)
+  pm   <- diag(1, length(vars)); dimnames(pm) <- list(vars, vars)
+  for (i in seq_along(vars)) for (j in seq_along(vars)) if (i < j) {
+    x <- df[[vars[i]]]; y <- df[[vars[j]]]; ok <- complete.cases(x, y)
+    if (sum(ok) > 3 && sd(x[ok]) > 0 && sd(y[ok]) > 0) {
+      p <- cor.test(x[ok], y[ok], method = "spearman", exact = FALSE)$p.value
+      pm[i, j] <- pm[j, i] <- p
+    }
+  }
+  pm
+}
+
+# Helper: corrplot upper-triangle heatmap with title + subtitle.
+# subtitle is a character vector; each element goes on its own line.
+plot_corrblock <- function(cm, main_title, subtitle,
+                            png_path = NULL, w = 1100, h = 1050) {
+  n_sub   <- length(subtitle)
+  top_mar <- 1.5 + n_sub * 1.4
+
+  do_plot <- function() {
+    corrplot(cm,
+             method = "color", type = "upper",
+             addCoef.col = "black", number.cex = 0.65,
+             diag = FALSE, tl.col = "black",
+             tl.cex = 0.82, tl.srt = 45,
+             cl.ratio = 0.15, cl.align.text = "l",
+             mar = c(1, 0, top_mar, 2), title = "")
+    mtext(main_title, side = 3, line = top_mar - 1.2,
+          cex = 0.85, font = 2, col = "black")
+    for (i in seq_along(subtitle)) {
+      mtext(subtitle[i], side = 3, line = top_mar - 1.2 - i * 1.3,
+            cex = 0.66, col = "grey30")
+    }
+  }
+  if (!is.null(png_path)) { png(png_path, width = w, height = h, res = 150); do_plot(); dev.off() }
+  do_plot()
+}
+
+# Level label used in titles and file names
+lvl_label <- function(l) if (l == "manzana") "Manzana" else "CMF"
+
+for (lvl in c("manzana", "CMF")) {
+  dat    <- if (lvl == "manzana") env_all else env_all_cmf
+  id_col <- if (lvl == "manzana") "manzana" else "cmf"
+  pfx    <- lvl_prefix(lvl)   # "mz" or "cmf"
+  lbl    <- lvl_label(lvl)
+
+  # ── BLOCK 1: Meteo × Meteo ───────────────────────────────────────────────
+  # Meteo is municipality-wide: identical for all spatial units in a given month.
+  # → distinct(year_month) gives true N = number of months.
+  snap_t <- dat %>%
+    distinct(year_month, .keep_all = TRUE) %>%
+    select(all_of(temporal_vars_nc)) %>%
+    drop_na()
+
+  n_t  <- nrow(snap_t)
+  cm_t <- cor(snap_t, method = "spearman")
+  pm_t <- cor_pval_spearman(snap_t)
+
+  plot_corrblock(
+    cm         = cm_t,
+    main_title = paste0(lbl, " — Meteo × Meteo"),
+    subtitle   = paste0("Spearman  ·  N = ", n_t, " months  ·  1 row/month (meteo is municipality-wide)"),
+    png_path   = file.path(output_dir, paste0(pfx, "_env_corr_meteo_x_meteo.png")),
+    w = 1200, h = 1100
+  )
+
+  # ── BLOCK 2: Spatial continuous × Spatial continuous ─────────────────────
+  # nr_aljibes & water_containers are static in time; pop_density changes by
+  # year but not month → one mean per spatial unit across all months.
+  snap_s <- dat %>%
+    group_by(.data[[id_col]]) %>%
+    summarise(across(all_of(spatial_cont_nc), \(x) mean(x, na.rm = TRUE)),
+              .groups = "drop") %>%
+    select(all_of(spatial_cont_nc)) %>%
+    drop_na()
+
+  n_s  <- nrow(snap_s)
+  cm_s <- cor(snap_s, method = "spearman")
+  pm_s <- cor_pval_spearman(snap_s)
+
+  plot_corrblock(
+    cm         = cm_s,
+    main_title = paste0(lbl, " — Spatial continuous × Spatial continuous"),
+    subtitle   = paste0("Spearman  ·  N = ", n_s, " spatial units  ·  per-unit mean across all months"),
+    png_path   = file.path(output_dir, paste0(pfx, "_env_corr_spatial_x_spatial.png")),
+    w = 750, h = 720
+  )
+
+  # ── BLOCK 3: NDVI × Meteo ────────────────────────────────────────────────
+  # NDVI is spatiotemporal; aggregate to municipal monthly mean → N = months.
+  # Q: does municipality-wide average vegetation index track climate over time?
+  snap_nt <- dat %>%
+    group_by(year_month) %>%
+    summarise(
+      mean_ndvi = mean(mean_ndvi, na.rm = TRUE),
+      across(all_of(temporal_vars_nc), first),
+      .groups = "drop"
+    ) %>%
+    select(mean_ndvi, all_of(temporal_vars_nc)) %>%
+    drop_na()
+
+  n_nt  <- nrow(snap_nt)
+  cm_nt <- cor(snap_nt, method = "spearman")
+  pm_nt <- cor_pval_spearman(snap_nt)
+  plot_corrblock(
+    cm         = cm_nt,
+    main_title = paste0(lbl, " — NDVI × Meteo"),
+    subtitle   = paste0("Spearman  ·  N = ", n_nt, " months  ·  NDVI = municipal monthly mean"),
+    png_path   = file.path(output_dir, paste0(pfx, "_env_corr_ndvi_x_meteo.png")),
+    w = 1300, h = 1200
+  )
+
+  # ── BLOCK 4: NDVI × Spatial continuous ───────────────────────────────────
+  # Average NDVI over all months per spatial unit → spatial pattern of vegetation.
+  # Q: do manzanas with more aljibes / higher pop density have higher/lower NDVI?
+  snap_ns <- dat %>%
+    group_by(.data[[id_col]]) %>%
+    summarise(
+      mean_ndvi = mean(mean_ndvi, na.rm = TRUE),
+      across(all_of(spatial_cont_nc), \(x) mean(x, na.rm = TRUE)),
+      .groups = "drop"
+    ) %>%
+    select(mean_ndvi, all_of(spatial_cont_nc)) %>%
+    drop_na()
+
+  n_ns  <- nrow(snap_ns)
+  cm_ns <- cor(snap_ns, method = "spearman")
+  pm_ns <- cor_pval_spearman(snap_ns)
+  plot_corrblock(
+    cm         = cm_ns,
+    main_title = paste0(lbl, " — NDVI × Spatial continuous"),
+    subtitle   = paste0("Spearman  ·  N = ", n_ns, " spatial units  ·  NDVI = per-unit time mean"),
+    png_path   = file.path(output_dir, paste0(pfx, "_env_corr_ndvi_x_spatial.png")),
+    w = 800, h = 760
+  )
+}
 ```
 
 
 ```{r pairwise_plot_numeric_vars without collinearity, fig.cap="Pairwise scatterplot matrix of numeric explanatory variables"}
 all_numeric_no_colin <- all_numeric[!all_numeric %in% c("precip_max_day", "mean_ndmi", "mean_ndwi", "WS2M", "water_containers", "nr_aljibes")]
-# Reuse numeric variables from previous chunk; build fresh complete-case dataset
-pairwise_data <- env_all %>%
-  select(all_of(all_numeric_no_colin)) %>%
-  drop_na()
 
-# Optional downsampling for readability/performance with very large datasets
-set.seed(123)
-max_points <- 5000
-if (nrow(pairwise_data) > max_points) {
-  pairwise_data <- pairwise_data %>%
-    slice_sample(n = max_points)
-  cat("Note: pairs() plot uses a random sample of", max_points, "rows for readability.\n")
+for (lvl in c("manzana", "CMF")) {
+  dat <- if (lvl == "manzana") env_all else env_all_cmf
+
+  pairwise_data <- dat %>%
+    select(all_of(all_numeric_no_colin)) %>%
+    drop_na()
+
+  set.seed(123)
+  max_points <- 5000
+  if (nrow(pairwise_data) > max_points) {
+    pairwise_data <- pairwise_data %>% slice_sample(n = max_points)
+    cat("Note: pairs() plot uses a random sample of", max_points, "rows for readability.\n")
+  }
+
+  png(file.path(output_dir, paste0(lvl_prefix(lvl), "_env_temporal_numeric_vars_corrected_pairs.png")),
+      width = 1800, height = 1800, res = 200)
+  pairs(pairwise_data, pch = 25, cex = 0.35, col = rgb(0, 0, 0, 0.15),
+        main = paste("Pairwise Scatterplot Matrix - Numeric Environmental Variables —", lvl))
+  dev.off()
+
+  pairs(pairwise_data, pch = 20, cex = 0.35, col = rgb(0, 0, 0, 0.15),
+        main = paste("Pairwise Scatterplot Matrix - Numeric Environmental Variables —", lvl))
 }
-
-# Save pairwise plot to file
-png(file.path(output_dir, "11a_numeric_vars_pairs_plot_corrected.png"), width = 1800, height = 1800, res = 200)
-pairs(
-  pairwise_data,
-  pch = 25,
-  cex = 0.35,
-  col = rgb(0, 0, 0, 0.15),
-  main = "Pairwise Scatterplot Matrix - Numeric Environmental Variables"
-)
-dev.off()
-
-# Display in report
-pairs(
-  pairwise_data,
-  pch = 20,
-  cex = 0.35,
-  col = rgb(0, 0, 0, 0.15),
-  main = "Pairwise Scatterplot Matrix - Numeric Environmental Variables"
-)
 ```
 
+```{r correlation_lag5_selected_vars}
+# Use 2015–2019 climate-only datasets (no NDVI) for the full study period.
+# Residualize precip_max_day on total_rainy_days for both climate datasets.
+env_all_clim <- env_all_clim %>%
+  mutate(precip_max_day_resid_on_trd = resid(lm(precip_max_day ~ total_rainy_days, data = env_all_clim)))
+env_all_cmf_clim <- env_all_cmf_clim %>%
+  mutate(precip_max_day_resid_on_trd = resid(lm(precip_max_day ~ total_rainy_days, data = env_all_cmf_clim)))
 
+vars_lag5 <- c("total_rainy_days", "avg_VPD", "WS2M",
+                "precip_max_day_resid_on_trd", "hurricane_within_120km")
+max_lag5  <- 5
+
+for (lvl in c("manzana", "CMF")) {
+  dat        <- if (lvl == "manzana") env_all_clim else env_all_cmf_clim
+  id_col     <- if (lvl == "manzana") "manzana" else "cmf"
+  plot_title <- paste("Spearman Correlation — selected vars lag 0–5 —", lvl)
+
+  env_lagged5 <- dat %>%
+    group_by(.data[[id_col]]) %>%
+    arrange(year_month, .by_group = TRUE) %>%
+    mutate(across(all_of(vars_lag5),
+                  list(lag0 = ~.x,
+                       lag1 = ~lag(.x, 1),
+                       lag2 = ~lag(.x, 2),
+                       lag3 = ~lag(.x, 3),
+                       lag4 = ~lag(.x, 4),
+                       lag5 = ~lag(.x, 5)),
+                  .names = "{.col}_{.fn}")) %>%
+    ungroup()
+
+  lagged_cols5     <- unlist(lapply(vars_lag5, function(v) paste0(v, "_lag", 0:max_lag5)))
+  corr_data_lag5   <- env_lagged5 %>% select(all_of(lagged_cols5)) %>% drop_na()
+  corr_matrix_lag5 <- cor(corr_data_lag5, method = "spearman")
+
+  png(file.path(output_dir, paste0(lvl_prefix(lvl), "_env_temporal_numeric_vars_lag5_selected_corr.png")),
+      width = 1400, height = 1400, res = 150)
+  corrplot(corr_matrix_lag5,
+           method = "color", type = "upper", addCoef.col = "black",
+           diag = FALSE, tl.col = "black", tl.cex = 0.6, number.cex = 0.5,
+           mar = c(0, 0, 3.5, 0), title = plot_title)
+  dev.off()
+
+  corrplot(corr_matrix_lag5,
+           method = "color", type = "upper", addCoef.col = "black",
+           diag = FALSE, tl.col = "black", tl.cex = 0.6, number.cex = 0.55,
+           title = plot_title)
+}
+```
 
 ### Correlation Among Binary Spatial Variables
 
-```{r spatial_categorical_correlation}
-# Select binary spatial variables (excluding landcover as it's multi-category categorical)
-binary_vars <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage")
-
-# Prepare data: convert all to numeric format for correlation
-spatial_binary_data <- env_all %>%
-  select(all_of(binary_vars)) %>%
-  drop_na() %>%
-  mutate(
-    across(all_of(binary_vars), ~as.numeric(.))
-  )
-
-# Calculate Spearman correlation matrix
-corr_matrix_categ <- cor(spatial_binary_data, method = "spearman")
-
-# Create correlation plot
-png(file.path(output_dir, "11b_spatial_categorical_correlation.png"), width = 800, height = 800, res = 150)
-corrplot(corr_matrix_categ,
-         method = "color",
-         type = "lower",
-         addCoef.col = "black",
-         diag = FALSE,
-         tl.col = "black",
-         tl.cex = 0.9,
-         title = "Spearman Correlation - Binary Spatial Variables",
-         mar = c(0, 0, 2, 0))
-dev.off()
-
-# Display in notebook
-corrplot(corr_matrix_categ,
-         method = "color",
-         type = "lower",
-         addCoef.col = "black",
-         diag = FALSE,
-         tl.col = "black",
-         tl.cex = 0.9,
-         title = "Spearman Correlation - Binary Spatial Variables",
-         mar = c(0, 0, 2, 0))
+```{r mixed_cor_helper}
+# Correlation matrix that picks the right statistic per pair of columns:
+#   binary–binary      → phi coefficient  (= Pearson r on 0/1 vectors)
+#   binary–continuous  → point-biserial   (= Pearson r, binary treated as 0/1)
+#   continuous–continuous → Spearman (rank-based, no linearity assumption)
+# `binary_vars` lists which column names in `df` are binary/logical;
+# everything else in `df` is treated as continuous.
+mixed_cor_matrix <- function(df, binary_vars) {
+  vars   <- names(df)
+  n      <- length(vars)
+  cor_m  <- matrix(NA_real_, n, n, dimnames = list(vars, vars))
+  pval_m <- matrix(NA_real_, n, n, dimnames = list(vars, vars))
+  for (i in seq_len(n)) {
+    for (j in seq_len(n)) {
+      if (i == j) { cor_m[i, j] <- 1; next }
+      x <- df[[vars[i]]]; y <- df[[vars[j]]]
+      method <- if (vars[i] %in% binary_vars || vars[j] %in% binary_vars) "pearson" else "spearman"
+      if (sd(x, na.rm = TRUE) > 0 && sd(y, na.rm = TRUE) > 0) {
+        cor_m[i, j]  <- cor(x, y, method = method, use = "complete.obs")
+        pval_m[i, j] <- cor.test(x, y, method = method, exact = FALSE)$p.value
+      }
+    }
+  }
+  list(cor = cor_m, pval = pval_m)
+}
 ```
 
-Binary variables don't seem to have any issues with collinearity. 
+```{r spatial_unit_helper}
+# One row per spatial unit instead of an arbitrary snapshot month:
+#   binary spatial vars & landcover are time-invariant → take their one value
+#   continuous spatial vars (pop_density changes by year, urban_pct is static)
+#     → mean across the full panel
+# This avoids both the repeat-measure N inflation of the raw full panel AND
+# the arbitrariness of picking a single snapshot month.
+spatial_unit_summary <- function(dat, id_col, binary_vars, continuous_vars,
+                                  categorical_vars = character(0)) {
+  dat %>%
+    group_by(.data[[id_col]]) %>%
+    summarise(
+      across(all_of(binary_vars), ~ as.numeric(first(na.omit(.x)))),
+      across(all_of(continuous_vars), ~ mean(.x, na.rm = TRUE)),
+      across(all_of(categorical_vars), ~ first(na.omit(.x))),
+      .groups = "drop"
+    ) %>%
+    drop_na()
+}
+
+spatial_binary_vars     <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage")
+spatial_continuous_vars <- c("pop_density", "urban_pct")
+```
+
+landcover is nominal categorical, so its association with each spatial variable
+needs a test that matches that variable's own type:
+  binary spatial vars (is_WI, is_WUI, is_urban, has_aljibes, water_shortage)
+    → Cramér's V (chi-squared based effect size). V ranges 0-1; for a 2-column
+      table (binary outcome) V = |phi|.
+  continuous spatial vars (pop_density, urban_pct)
+    → Kruskal-Wallis (landcover groups vs. a continuous variable is not a
+      contingency-table problem; Cramér's V on a landcover x continuous table
+      would be meaningless/inflated because almost every value is its own column).
+One row per spatial unit (spatial_unit_summary()) instead of a snapshot month.
+
+```{r landcover_cramerv_association}
+library(vcd)
+
+for (lvl in c("manzana", "CMF")) {
+  dat    <- if (lvl == "manzana") env_all else env_all_cmf
+  id_col <- if (lvl == "manzana") "manzana" else "cmf"
+  cat("\n=== landcover × spatial variables —", lvl, "===\n")
+
+  snap <- spatial_unit_summary(dat, id_col, spatial_binary_vars, spatial_continuous_vars,
+                                categorical_vars = "landcover") %>%
+    mutate(landcover = as.factor(landcover))
+
+  cat("N:", nrow(snap), "\n\n")
+
+  cat("-- Cramér's V (binary spatial vars) --\n")
+  results <- lapply(spatial_binary_vars, function(var) {
+    tbl <- table(snap$landcover, snap[[var]])
+    v   <- assocstats(tbl)$cramer
+    chi <- chisq.test(tbl, simulate.p.value = (min(tbl) < 5))
+    data.frame(variable = var,
+               cramer_V = round(v, 3),
+               p_value  = round(chi$p.value, 4))
+  })
+  print(do.call(rbind, results))
+
+  cat("\n-- Kruskal-Wallis (continuous spatial vars) --\n")
+  results_kw <- lapply(spatial_continuous_vars, function(var) {
+    kw <- kruskal.test(snap[[var]] ~ snap$landcover)
+    data.frame(variable = var,
+               chi_sq  = round(unname(kw$statistic), 3),
+               df      = unname(kw$parameter),
+               p_value = round(kw$p.value, 4))
+  })
+  print(do.call(rbind, results_kw))
+}
+```
+
+Binary variables don't seem to have any issues with collinearity.
+
+> **Note on repeated measures**: the Spearman correlations above use the full panel
+> (~64k rows at manzana level). Binary spatial variables are constant per manzana across
+> all months, so every month is an identical repeat — artificially multiplying N by 48 and
+> inflating all p-values. The chunk below aggregates to one row per spatial unit instead
+> (`spatial_unit_summary()`, defined above) to give unbiased association estimates, without
+> the arbitrariness of picking a single snapshot month.
+> For binary–binary pairs the appropriate statistic is the **phi coefficient**, which equals
+> Pearson r on two binary variables. For binary–continuous (pop_density, urban_pct) it is the
+> **point-biserial correlation**, also equal to Pearson r. The continuous–continuous pair
+> (pop_density vs. urban_pct) is intentionally left blank here — it's already reported with
+> the correct per-unit-mean N in "Spatial continuous × Spatial continuous" above, so we don't
+> duplicate it. `mixed_cor_matrix()` (defined above) picks the right statistic per pair.
+
+```{r binary_spatial_correlation}
+for (lvl in c("manzana", "CMF")) {
+  dat    <- if (lvl == "manzana") env_all else env_all_cmf
+  id_col <- if (lvl == "manzana") "manzana" else "cmf"
+  plot_title <- paste("Phi / point-biserial —", lvl)
+
+  unit_data <- spatial_unit_summary(dat, id_col, spatial_binary_vars, spatial_continuous_vars)
+
+  cat("\n===", lvl, "— N spatial units:", nrow(unit_data), "===\n")
+
+  mixed_res <- mixed_cor_matrix(unit_data %>% select(-all_of(id_col)),
+                                 binary_vars = spatial_binary_vars)
+  corr_mat <- mixed_res$cor
+  pval_mat <- mixed_res$pval
+
+  # Continuous-continuous pair already covered in "Spatial continuous × Spatial
+  # continuous" above (per-unit mean, Spearman) — blank it out here to avoid
+  # reporting the same association twice.
+  corr_mat["pop_density", "urban_pct"] <- NA
+  corr_mat["urban_pct", "pop_density"] <- NA
+  pval_mat["pop_density", "urban_pct"] <- NA
+  pval_mat["urban_pct", "pop_density"] <- NA
+
+  cat("Phi / point-biserial matrix:\n")
+  print(round(corr_mat, 3))
+  cat("\nP-values:\n")
+  print(round(pval_mat, 4))
+
+  png(file.path(output_dir,
+        paste0(lvl_prefix(lvl), "_env_binary_spatial_corr.png")),
+      width = 900, height = 800, res = 150)
+  corrplot(corr_mat,
+           method = "color", type = "lower", addCoef.col = "black",
+           p.mat = pval_mat, sig.level = 0.05, insig = "label_sig", na.label = " ",
+           diag = FALSE, tl.col = "black", tl.cex = 0.9,
+           title = plot_title, mar = c(0, 0, 2, 0))
+  dev.off()
+
+  corrplot(corr_mat,
+           method = "color", type = "lower", addCoef.col = "black",
+           p.mat = pval_mat, sig.level = 0.05, insig = "label_sig", na.label = " ",
+           diag = FALSE, tl.col = "black", tl.cex = 0.9,
+           title = plot_title, mar = c(0, 0, 2, 0))
+}
+```
 
 ```{r correlation with landcover and binary vars}
-# List of binary variables
 binary_vars <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage")
 
 run_fisher <- function(tbl) {
   tryCatch(
     fisher.test(tbl),
-    error = function(e) {
-      fisher.test(tbl, simulate.p.value = TRUE, B = 10000)
-    }
+    error = function(e) fisher.test(tbl, simulate.p.value = TRUE, B = 10000)
   )
 }
 
 library(vcd)
-for (var in binary_vars) {
-  tbl <- table(env_all$landcover, env_all[[var]])
-  print(var)
-  print(tbl)
-  if (any(tbl < 5)) {
-    print(run_fisher(tbl))
-  } else {
+library(ggplot2)
+
+for (lvl in c("manzana", "CMF")) {
+  dat <- if (lvl == "manzana") env_all else env_all_cmf
+  cat("\n=== Landcover × Binary variable associations —", lvl, "===\n")
+
+  for (var in binary_vars) {
+    tbl <- table(dat$landcover, dat[[var]])
+    print(var)
+    print(tbl)
     print(run_fisher(tbl))
   }
-}
 
-# Visualize with bar plots
-library(ggplot2)
-for (var in binary_vars) {
-  p <- ggplot(env_all, aes(x = landcover, fill = as.factor(.data[[var]]))) +
-    geom_bar(position = "fill") +
-    labs(title = paste("Proportion of", var, "by Landcover"),
-         x = "Landcover", y = "Proportion", fill = var) +
-    theme_minimal()
-  print(p)
+  for (var in binary_vars) {
+    p <- ggplot(dat, aes(x = landcover, fill = as.factor(.data[[var]]))) +
+      geom_bar(position = "fill") +
+      labs(title = paste("Proportion of", var, "by Landcover —", lvl),
+           x = "Landcover", y = "Proportion", fill = var) +
+      theme_minimal()
+    print(p)
+  }
 }
 ```
 
@@ -1082,13 +1782,13 @@ if ("year_month" %in% colnames(env_epi_ento)) {
 }
 ```
 
-## Remove precip_max_day and replace by precip_max_day_resid to reduce colinnearity 
+## Remove precip_max_day and replace by precip_max_day_resid_on_tp to reduce colinnearity 
 ```{r create residuals for precip_max_day in linear relation to total_precip}
 # na.exclude pads residuals with NA for missing rows so lengths match the dataframe
 resid_fit <- lm(precip_max_day ~ total_precip, data = env_epi_ento, na.action = na.exclude)
 
 env_epi_ento <- env_epi_ento %>%
-  mutate(precip_max_day_resid = resid(resid_fit)) 
+  mutate(precip_max_day_resid_on_tp = resid(resid_fit)) 
 ```
 
 
@@ -1195,7 +1895,7 @@ if (all(c("Houses_pos_IS", "Inspected_houses", "year_month") %in% colnames(env_e
          y = "Positivity Rate")
   
   print(p)
-  ggsave(file.path(output_dir, "11_ento_temporal_positivity.png"), p, width = 12, height = 6, dpi = 300)
+  ggsave(file.path(output_dir, "mz_ento_temporal_positivity_trend.png"), p, width = 12, height = 6, dpi = 300)
 }
 ```
 
@@ -1262,7 +1962,7 @@ if (all(c("manzana", "Houses_pos_IS", "Inspected_houses") %in% colnames(env_epi_
          y = "Number of Manzanas")
   
   print(p)
-  ggsave(file.path(output_dir, "12_ento_positivity_distribution.png"), p, width = 10, height = 6, dpi = 300)
+  ggsave(file.path(output_dir, "mz_ento_spatial_positivity_distribution.png"), p, width = 10, height = 6, dpi = 300)
 }
 ```
 
@@ -1330,7 +2030,7 @@ if (all(c("manzana", "Houses_pos_IS", "Inspected_houses") %in% colnames(env_epi_
     )
   
   print(p)
-  ggsave(file.path(output_dir, "13_ento_spatial_map_positivity.png"), p, width = 11, height = 9, dpi = 300)
+  ggsave(file.path(output_dir, "mz_ento_spatial_positivity_map.png"), p, width = 11, height = 9, dpi = 300)
   
   # Print summary of categories for reference
   cat("\n**Positivity Category Breakdown:**\n")
@@ -1400,7 +2100,7 @@ if (all(c("manzana", "year_month", "Houses_pos_IS", "Inspected_houses") %in% col
     )
   
   print(p)
-  ggsave(file.path(output_dir, "14_ento_positivity_heatmap_manzana_time.png"), p,width = 20, height = 10, dpi = 300)
+  ggsave(file.path(output_dir, "mz_ento_spatiotemporal_positivity_heatmap.png"), p,width = 20, height = 10, dpi = 300)
 }
 ```
 
@@ -1431,7 +2131,7 @@ if (exists("manzana_month_positivity")) {
     )
 
   print(p_trend)
-  ggsave(file.path(output_dir, "15_ento_positivity_trend_25_manzanas.png"),
+  ggsave(file.path(output_dir, "mz_ento_temporal_positivity_trend_25mz.png"),
          p_trend, width = 18, height = 12, dpi = 300)
 }
 ```
@@ -1494,7 +2194,7 @@ p <- ggplot(cmf_heatmap_data, aes(x = cmf, y = year_month, fill = Positivity_Rat
   )
 
 print(p)
-ggsave(file.path(output_dir, "15_ento_positivity_heatmap_cmf_time.png"), p, width = 20, height = 10, dpi = 300)
+ggsave(file.path(output_dir, "cmf_ento_spatiotemporal_positivity_heatmap.png"), p, width = 20, height = 10, dpi = 300)
 ```
 
 
@@ -1526,7 +2226,7 @@ if (exists("env_epi_ento_CMF")) {
     )
 
   print(p_trend_cmf)
-  ggsave(file.path(output_dir, "16_ento_positivity_trend_25_cmfs.png"),
+  ggsave(file.path(output_dir, "cmf_ento_temporal_positivity_trend_25cmf.png"),
          p_trend_cmf, width = 18, height = 12, dpi = 300)
 }
 ```
@@ -1597,7 +2297,7 @@ if (exists("env_epi_ento_CMF") && exists("CMFs")) {
     )
 
   print(p_cmf_map)
-  ggsave(file.path(output_dir, "17_ento_spatial_map_positivity_cmf.png"),
+  ggsave(file.path(output_dir, "cmf_ento_spatial_positivity_map.png"),
          p_cmf_map, width = 11, height = 9, dpi = 300)
 
   cat("\n**Positivity Category Breakdown (CMFs):**\n")
@@ -1617,6 +2317,34 @@ if (exists("env_epi_ento_CMF") && exists("CMFs")) {
 }
 ```
 
+### Population Density Map (CMF level)
+
+```{r spatial_map_pop_density_cmf, fig.cap="Population density per CMF (avg 2016–2019, log scale)", fig.width=10, fig.height=8}
+cmf_pd_avg <- env_epi_ento_CMF %>%
+  group_by(cmf) %>%
+  summarise(pop_density = mean(pop_density, na.rm = TRUE), .groups = "drop")
+
+cmfs_pd_map <- CMFs %>%
+  mutate(Area_CMF = paste(AS, CMF, sep = "_")) %>%
+  left_join(cmf_pd_avg, by = c("Area_CMF" = "cmf"))
+
+p_pd_cmf_map <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", linewidth = 0.8) +
+  geom_sf(data = cmfs_pd_map,
+          aes(fill = log10(pop_density)), color = "gray40", linewidth = 0.2) +
+  scale_fill_viridis_c(option = "viridis", na.value = "grey90",
+                       labels = function(x) scales::comma(round(10^x))) +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = "Population Density per CMF (avg 2016–2019, log scale)",
+       fill = "Persons/km²\n(log scale)")
+
+print(p_pd_cmf_map)
+ggsave(file.path(output_dir, "cmf_env_spatial_pop_density_avg_map.png"),
+       p_pd_cmf_map, width = 11, height = 9, dpi = 300)
+```
 
 ## Temporal autocorrelation
 
@@ -1951,7 +2679,7 @@ grid()
 # Save the current base plot
 dev.copy(
   png,
-  filename = file.path(output_dir, "16_squared_inv_moransI_correlogram_distance_band.png"),
+  filename = file.path(output_dir, "mz_ento_spatial_moransI_squared_inv_correlogram.png"),
   width = 1200,
   height = 800,
   res = 150
@@ -2030,7 +2758,7 @@ p_dist <- ggplot(dist_df, aes(x = distance_upper, y = cum_pairs)) +
   theme_minimal()
 
 print(p_dist)
-ggsave(file.path(output_dir, "15b_block_pair_distance_distribution.png"),
+ggsave(file.path(output_dir, "mz_ento_spatial_block_pair_distance_distribution.png"),
        p_dist, width = 10, height = 5, dpi = 300)
 ```
 
@@ -2112,7 +2840,7 @@ p_moran_phi <- ggplot(plot_data, aes(x = Distance_mid_m, y = Morans_I, color = p
   )
 
 print(p_moran_phi)
-ggsave(file.path(output_dir, "16_exp_moransI_correlogram_multi_phi.png"), p_moran_phi, width = 11, height = 7, dpi = 300)
+ggsave(file.path(output_dir, "mz_ento_spatial_moransI_exp_correlogram.png"), p_moran_phi, width = 11, height = 7, dpi = 300)
 ```
 
 ### Moran's I correlogram by year (exponential kernel, φ = 400 m)
@@ -2226,7 +2954,7 @@ p_moran_by_year <- ggplot(
 
 print(p_moran_by_year)
 ggsave(
-  file.path(output_dir, "16b_exp_moransI_by_year.png"),
+  file.path(output_dir, "mz_ento_spatial_moransI_by_year.png"),
   p_moran_by_year, width = 11, height = 5, dpi = 300
 )
 ```
@@ -2284,7 +3012,7 @@ if (!any(is.na(vg_fit$psill))) {
 }
 
 print(p)
-ggsave(file.path(output_dir, "16_variogram_positivity_rate.png"), p, width = 10, height = 6, dpi = 300)
+ggsave(file.path(output_dir, "mz_ento_spatial_positivity_variogram.png"), p, width = 10, height = 6, dpi = 300)
 ```
 
 ## Spatial autocorrelation at CMF level 
@@ -2392,7 +3120,7 @@ p_moran_phi_cmf <- ggplot(plot_data_cmf, aes(x = Distance_mid_m, y = Morans_I, c
   )
 
 print(p_moran_phi_cmf)
-ggsave(file.path(output_dir, "cmf_exp_moransI_correlogram_multi_phi.png"),
+ggsave(file.path(output_dir, "cmf_ento_spatial_moransI_exp_correlogram.png"),
        p_moran_phi_cmf, width = 11, height = 7, dpi = 300)
 
 ```
@@ -2501,10 +3229,270 @@ p_moran_by_year_cmf <- ggplot(
   )
 
 print(p_moran_by_year_cmf)
-ggsave(file.path(output_dir, "cmf_exp_moransI_by_year.png"),
+ggsave(file.path(output_dir, "cmf_ento_spatial_moransI_by_year.png"),
        p_moran_by_year_cmf, width = 11, height = 5, dpi = 300)
 
 ```
+
+### Moran scatter plot + LISA clusters (CMF)
+
+Diagnostics to identify *which* CMFs drive the spatial autocorrelation. Full exponential weight
+matrix at φ = 400 m (maximum *Ae. aegypti* flight range) applied globally (not per annulus).
+
+```{r cmf_moran_scatter}
+# Full exponential weight matrix (phi = 400 m, all pairs)
+phi_lisa <- 150
+w_full_cmf <- exp(-dist_matrix_cmf / phi_lisa)
+diag(w_full_cmf) <- 0
+w_full_cmf[is.na(dist_matrix_cmf)] <- 0
+lw_full_cmf <- mat2listw(w_full_cmf, style = "W", zero.policy = TRUE)
+
+# Standardise positivity and compute spatial lag
+pos_z_cmf <- scale(positivity_cmf_clean)[, 1]
+lag_z_cmf <- scale(lag.listw(lw_full_cmf, positivity_cmf_clean, zero.policy = TRUE))[, 1]
+
+moran_scatter_df <- data.frame(
+  cmf       = mosquito_cmf$Area_CMF[valid_idx_cmf],
+  pos_z     = pos_z_cmf,
+  lag_z     = lag_z_cmf,
+  quadrant  = case_when(
+    pos_z_cmf >= 0 & lag_z_cmf >= 0 ~ "HH",
+    pos_z_cmf <  0 & lag_z_cmf <  0 ~ "LL",
+    pos_z_cmf >= 0 & lag_z_cmf <  0 ~ "HL",
+    pos_z_cmf <  0 & lag_z_cmf >= 0 ~ "LH"
+  )
+)
+
+# Compute global Moran's I for the annotation
+global_moran_cmf <- moran.test(positivity_cmf_clean, lw_full_cmf, zero.policy = TRUE)
+moran_I_val  <- round(global_moran_cmf$estimate[["Moran I statistic"]], 3)
+moran_p_val  <- global_moran_cmf$p.value
+moran_I_label <- sprintf("Global Moran's I = %.3f (p %s)",
+                          moran_I_val,
+                          ifelse(moran_p_val < 0.001, "< 0.001",
+                                 paste0("= ", round(moran_p_val, 3))))
+
+# Quadrant description strings for the legend-like annotations
+quad_labels <- c(
+  "HH" = "High–High: CMF above avg,\nneighbours above avg\n(spatial cluster)",
+  "LL" = "Low–Low: CMF below avg,\nneighbours below avg\n(spatial cluster)",
+  "HL" = "High–Low: CMF above avg,\nneighbours below avg\n(spatial outlier)",
+  "LH" = "Low–High: CMF below avg,\nneighbours above avg\n(spatial outlier)"
+)
+
+p_moran_scatter <- ggplot(moran_scatter_df, aes(x = pos_z, y = lag_z, color = quadrant)) +
+  geom_point(alpha = 0.8, size = 2.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_smooth(aes(group = 1), method = "lm", se = FALSE,
+              color = "black", linewidth = 0.8) +
+  geom_text(aes(label = cmf), size = 2, vjust = -0.5, check_overlap = TRUE) +
+  scale_color_manual(
+    values = c("HH" = "#d7191c", "LL" = "#2c7bb6", "HL" = "#e06070", "LH" = "#abd9e9"),
+    labels = quad_labels,
+    name   = "Quadrant"
+  ) +
+  annotate("text", x =  max(pos_z_cmf) * 0.8, y =  max(lag_z_cmf) * 0.85,
+           label = "HH", size = 5, color = "#d7191c", fontface = "bold") +
+  annotate("text", x = -max(pos_z_cmf) * 0.8, y = -max(lag_z_cmf) * 0.85,
+           label = "LL", size = 5, color = "#2c7bb6", fontface = "bold") +
+  annotate("text", x =  max(pos_z_cmf) * 0.8, y = -max(lag_z_cmf) * 0.85,
+           label = "HL", size = 5, color = "#e06070", fontface = "bold") +
+  annotate("text", x = -max(pos_z_cmf) * 0.8, y =  max(lag_z_cmf) * 0.85,
+           label = "LH", size = 5, color = "#abd9e9", fontface = "bold") +
+  annotate("text", x = 0, y = -max(lag_z_cmf) * 0.98,
+           label = moran_I_label, size = 3.5, color = "black", fontface = "italic") +
+  labs(
+    title    = "Moran scatter plot — CMF mosquito positivity",
+    subtitle = sprintf(
+      "X-axis: each CMF's positivity z-scored across all CMFs (mean=0, sd=1)\nY-axis: weighted avg positivity of neighbours (w = exp(-d / %dm)), then z-scored\nSlope of black regression line = global Moran's I",
+      phi_lisa),
+    x       = "Standardised positivity rate of CMF  [z = (xᵢ − x̅) / sd]",
+    y       = "Spatially lagged positivity of neighbours  [z-scored]",
+    caption = sprintf(
+      "Weights: exponential decay wᵢⱼ = exp(−dᵢⱼ / φ), φ = %dm · row-standardised · diagonal = 0\nPositivity = cumulative Houses_pos_IS / Inspected_houses × 100 (2016–2019)",
+      phi_lisa)
+  ) +
+  theme_minimal() +
+  theme(
+    legend.text         = element_text(size = 8),
+    legend.key.height   = unit(1.5, "lines"),
+    plot.caption        = element_text(size = 8, color = "grey40", hjust = 0),
+    plot.subtitle       = element_text(size = 9, color = "grey30")
+  )
+
+print(p_moran_scatter)
+ggsave(file.path(output_dir, "cmf_ento_spatial_moransI_scatter.png"),
+       p_moran_scatter, width = 14, height = 8, dpi = 300)
+```
+
+```{r cmf_lisa_clusters}
+# Local Moran's I
+lisa_cmf <- localmoran(positivity_cmf_clean, lw_full_cmf, zero.policy = TRUE)
+cat("LISA column names:", paste(colnames(lisa_cmf), collapse = ", "), "\n")
+
+lisa_df <- data.frame(
+  cmf     = mosquito_cmf$Area_CMF[valid_idx_cmf],
+  Ii      = lisa_cmf[, "Ii"],
+  p_value = lisa_cmf[, ncol(lisa_cmf)],   # last column is always the p-value
+  pos_z   = pos_z_cmf,
+  lag_z   = lag_z_cmf
+) %>%
+  mutate(
+    significant = p_value < 0.05,
+    cluster = case_when(
+      !significant                          ~ "NS",
+      pos_z >= 0 & lag_z >= 0              ~ "HH",
+      pos_z <  0 & lag_z <  0              ~ "LL",
+      pos_z >= 0 & lag_z <  0              ~ "HL",
+      pos_z <  0 & lag_z >= 0              ~ "LH"
+    ),
+    cluster = factor(cluster, levels = c("HH", "LL", "HL", "LH", "NS"))
+  )
+
+cat("\nLISA cluster counts:\n")
+cluster_counts <- table(lisa_df$cluster)
+print(cluster_counts)
+
+cluster_labels <- setNames(
+  paste0(names(cluster_counts), "  (n = ", as.integer(cluster_counts), ")"),
+  names(cluster_counts)
+)
+
+# Map clusters on CMF polygons
+lisa_map_sf <- mosquito_cmf[valid_idx_cmf, ] %>%
+  left_join(lisa_df, by = c("Area_CMF" = "cmf"))
+
+p_lisa_map <- ggplot() +
+  geom_sf(data = mosquito_cmf, fill = "grey90", color = "grey60", linewidth = 0.2) +
+  geom_sf(data = lisa_map_sf, aes(fill = cluster), color = "grey40", linewidth = 0.2) +
+  scale_fill_manual(
+    values = c("HH" = "#d7191c", "LL" = "#2c7bb6",
+               "HL" = "#e06070", "LH" = "#abd9e9", "NS" = "grey85"),
+    labels = cluster_labels,
+    drop   = FALSE,
+    name   = "LISA cluster"
+  ) +
+  labs(
+    title    = "Local Moran's I (LISA) — CMF mosquito positivity",
+    subtitle = sprintf("Exponential weights φ = %d m · significant at p < 0.05", phi_lisa)
+  ) +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.title = element_blank())
+
+print(p_lisa_map)
+ggsave(file.path(output_dir, "cmf_ento_spatial_LISA_clusters_map.png"),
+       p_lisa_map, width = 10, height = 9, dpi = 300)
+```
+
+The global Moran's I is not reflecting a diffuse city-wide transmission gradient — it's being driven by spatially concentrated, geographically fixed cluster zones that are stable enough across your 2016–2019 study period to produce a clear pooled LISA signal. That has direct implications for targeting: blanket city-wide vector control would be inefficient; the HH core and the HH/LH boundary zone are where the leverage is.
+
+## LISA clusters vs urban categories
+
+Do `is_urban`, `is_WI`, or `is_WUI` explain which CMFs fall into HH/LL clusters? The stacked bars show the cluster composition within each category (Yes/No), and the chi-squared tests assess whether the association is stronger than chance. The maps overlay the binary category as a bold border on top of the LISA cluster colours.
+
+```{r lisa_urban_categories}
+urban_vars <- c("is_WI", "is_WUI", "is_urban")
+cluster_colors <- c("HH" = "#d7191c", "LL" = "#2c7bb6",
+                    "HL" = "#e06070", "LH" = "#abd9e9", "NS" = "grey85")
+
+# One row per CMF for the three binary variables
+urban_source <- if (exists("env_all_CMF")) env_all_CMF else env_epi_ento_CMF
+cmf_urban <- urban_source %>%
+  select(cmf, any_of(urban_vars)) %>%
+  distinct(cmf, .keep_all = TRUE)
+
+# Join onto LISA results and recode binary vars to Yes/No
+lisa_urban <- lisa_df %>%
+  left_join(cmf_urban, by = "cmf") %>%
+  mutate(across(any_of(urban_vars), ~ case_when(
+    as.character(.) %in% c("1", "TRUE", "T", "Yes", "yes") ~ "Yes",
+    as.character(.) %in% c("0", "FALSE", "F", "No", "no")  ~ "No",
+    TRUE ~ NA_character_
+  )))
+
+var_labels <- c(
+  "is_WI"    = "Water interface\n(is_WI)",
+  "is_WUI"   = "Wildland-urban interface\n(is_WUI)",
+  "is_urban" = "Urban\n(is_urban)"
+)
+
+# Stacked bar: cluster composition within Yes / No for each binary variable
+lisa_long <- lisa_urban %>%
+  select(cmf, cluster, any_of(urban_vars)) %>%
+  pivot_longer(any_of(urban_vars), names_to = "Variable", values_to = "Group") %>%
+  filter(!is.na(Group)) %>%
+  mutate(Group = factor(Group, levels = c("No", "Yes")))
+
+p_bar <- ggplot(lisa_long, aes(x = Group, fill = cluster)) +
+  geom_bar(position = "fill", color = "grey40", linewidth = 0.2) +
+  scale_fill_manual(values = cluster_colors, name = "LISA cluster", drop = FALSE) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  facet_wrap(~Variable, labeller = labeller(Variable = var_labels)) +
+  theme_minimal() +
+  labs(
+    title = "LISA cluster composition by urban category (CMF level)",
+    x = "Category present", y = "Proportion of CMFs"
+  )
+print(p_bar)
+ggsave(file.path(output_dir, "cmf_lisa_cluster_by_urban_category_bar.png"),
+       p_bar, width = 12, height = 5, dpi = 300)
+
+# Chi-squared tests and row-proportion tables
+cat("\n=== Chi-squared tests: LISA cluster type vs urban categories ===\n")
+for (v in urban_vars) {
+  if (!v %in% colnames(lisa_urban)) next
+  tbl <- table(LISA_cluster = lisa_urban$cluster,
+               Category     = lisa_urban[[v]])
+  cat(sprintf("\n--- %s ---\n", v))
+  print(addmargins(tbl))
+  chi <- chisq.test(tbl, simulate.p.value = TRUE, B = 5000)
+  cat(sprintf("Chi² = %.3f  (Monte Carlo p = %.4f, B = 5000)\n",
+              chi$statistic, chi$p.value))
+  cat("Column proportions — % of CMFs in each cluster type, by category:\n")
+  print(round(prop.table(tbl, margin = 2) * 100, 1))
+}
+```
+
+```{r lisa_urban_categories_maps, fig.width=15, fig.height=5}
+# Three side-by-side maps: LISA cluster fill + bold outline where binary var = Yes
+lisa_map_urban <- lisa_map_sf %>%
+  left_join(cmf_urban, by = c("Area_CMF" = "cmf")) %>%
+  mutate(across(any_of(urban_vars), ~ case_when(
+    as.character(.) %in% c("1", "TRUE", "T", "Yes", "yes") ~ "Yes",
+    as.character(.) %in% c("0", "FALSE", "F", "No", "no")  ~ "No",
+    TRUE ~ NA_character_
+  )))
+
+map_list <- lapply(urban_vars, function(v) {
+  if (!v %in% colnames(lisa_map_urban)) return(NULL)
+  in_cat <- lisa_map_urban %>% filter(.data[[v]] == "Yes")
+  ggplot() +
+    geom_sf(data = mosquito_cmf, fill = "grey90", color = "grey60",
+            linewidth = 0.2) +
+    geom_sf(data = lisa_map_urban, aes(fill = cluster),
+            color = "grey40", linewidth = 0.2) +
+    geom_sf(data = in_cat, fill = NA, color = "black", linewidth = 0.5) +
+    scale_fill_manual(values = cluster_colors, drop = FALSE,
+                      name = "LISA cluster") +
+    labs(title = var_labels[[v]], subtitle = "Black outline = category present") +
+    theme_minimal() +
+    theme(axis.text = element_blank(), axis.title = element_blank(),
+          plot.title = element_text(face = "bold", size = 10))
+})
+map_list <- Filter(Negate(is.null), map_list)
+
+p_maps <- cowplot::plot_grid(plotlist = map_list, nrow = 1, align = "h")
+print(p_maps)
+ggsave(file.path(output_dir, "cmf_lisa_clusters_urban_overlay_maps.png"),
+       p_maps, width = 15, height = 5, dpi = 300)
+```
+
+**HH cluster is urban but not all urban is HH**. is_urban captures the broad contrast but leaves within-urban heterogeneity unexplained — that's work for the other predictors to do, not a random effects problem.
+
+**is_WI concentrates around the HH zone and its LH fringe.** This is epidemiologically coherent and suggests water interface is one of the drivers distinguishing high-positivity urban CMFs from their NS neighbours.
+
+**The LL cluster is outside all three categories.** Non-urban, non-WUI, non-WI — the fixed effects should handle that contrast cleanly.
 
 # Descriptive statistics - Cases
 
@@ -2527,7 +3515,7 @@ p <- ggplot(cases_temporal, aes(x = year_month, y = Total_cases)) +
         y = "Total dengue case count")
 
 print(p)
-ggsave(file.path(output_dir, "17_dengue_cases_temp.png"), p, width = 16, height = 10, dpi = 300)
+ggsave(file.path(output_dir, "all_epi_temporal_dengue_cases_trend.png"), p, width = 16, height = 10, dpi = 300)
 
 ```
 
@@ -2580,7 +3568,7 @@ if (all(c("manzana", "year_month", "cases") %in% colnames(env_epi_ento))) {
     )
   
   print(p)
-  ggsave(file.path(output_dir, "18_dengue_cases_heatmap_manzana_time.png"), p, width = 16, height = 10, dpi = 300)
+  ggsave(file.path(output_dir, "mz_epi_spatiotemporal_dengue_cases_heatmap.png"), p, width = 16, height = 10, dpi = 300)
 } else {
   cat("Note: Required columns not found in dataset.\n")
 }
@@ -2634,7 +3622,7 @@ if (all(c("cmf", "year_month", "cases") %in% colnames(env_epi_ento_CMF))) {
     )
   
   print(p)
-  ggsave(file.path(output_dir, "18_dengue_cases_heatmap_cmf_time.png"), p, width = 16, height = 10, dpi = 300)
+  ggsave(file.path(output_dir, "cmf_epi_spatiotemporal_dengue_cases_heatmap.png"), p, width = 16, height = 10, dpi = 300)
 } else {
   cat("Note: Required columns not found in dataset.\n")
 }
@@ -2657,7 +3645,7 @@ env_epi_ento_CMF <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_M
 ```{r env_vs_positivity_one_on_one, fig.width=16, fig.height=12, fig.cap="Temporal variables vs mosquito positivity rate manzanas"}
 # Temporal-only associations (corrected: one point per month)
 
-temporal_only_vars <- c("avg_temp", "total_precip", "rel_hum", "WS2M", "precip_max_day", "precip_max_day_resid")
+temporal_only_vars <- c("avg_temp", "total_precip", "total_rainy_days", "rel_hum", "avg_VPD", "WS2M", "precip_max_day", "precip_max_day_resid_on_tp")
 
 # 1) Monthly outcome (weighted by inspected houses)
 monthly_pos <- env_epi_ento %>%
@@ -2707,7 +3695,7 @@ p_temporal <- ggplot(plot_data, aes(x = Value, y = Positivity_Rate)) +
   )
 
 print(p_temporal)
-ggsave(file.path(output_dir, "19_manzana_temporal_env_vs_monthly_positivity.png"), p_temporal, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_ento_temporal_env_vars_vs_positivity_scatter.png"), p_temporal, width = 14, height = 8, dpi = 300)
 ```
 
 Actually, the correlation with windspeed and total_precipitation is very very low 0.03 and 0.01 respectively, while the correlation with relative humidity is higher (0.28). 
@@ -2743,7 +3731,7 @@ lagged_long <- lagged_data %>%
     mutate(
       Variable = factor(
         Variable,
-        levels = c("avg_temp", "total_precip", "precip_max_day", "precip_max_day_resid", "rel_hum", "WS2M")
+        levels = c("avg_temp", "total_precip", "total_rainy_days", "rel_hum", "avg_VPD", "WS2M", "precip_max_day", "precip_max_day_resid_on_tp")
       )
     )
 
@@ -2770,7 +3758,7 @@ p_temporal_lagged <- ggplot(plot_data, aes(x = Value, y = Positivity_Rate)) +
   )
 
 print(p_temporal_lagged)
-ggsave(file.path(output_dir, "19b_manzana_temporal_env_vs_monthly_lag_0_1_2_positivity.png"), p_temporal_lagged, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_ento_temporal_env_vars_lagged_vs_positivity_scatter.png"), p_temporal_lagged, width = 14, height = 8, dpi = 300)
 ```
 
 ### Testing non-linear transformations of numeric variables 
@@ -2790,7 +3778,7 @@ p_temporal_lagged_quad <- ggplot(plot_data, aes(x = Value, y = Positivity_Rate))
 
 print(p_temporal_lagged_quad)
 
-ggsave(file.path(output_dir, "19b_manana_temporal_env_vs_monthly_lag_0_1_2_positivity_quadratic.png"), p_temporal_lagged_quad, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_ento_temporal_env_vars_lagged_vs_positivity_quadratic.png"), p_temporal_lagged_quad, width = 14, height = 8, dpi = 300)
 
 ```
 
@@ -2810,11 +3798,375 @@ p_temporal_lagged_spline <- ggplot(plot_data, aes(x = Value, y = Positivity_Rate
   )
 
 print(p_temporal_lagged_spline)
-ggsave(file.path(output_dir, "19b_manzana_temporal_env_vs_monthly_lag_0_1_2_positivity_spline.png"), p_temporal_lagged_spline, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_ento_temporal_env_vars_lagged_vs_positivity_spline.png"), p_temporal_lagged_spline, width = 14, height = 8, dpi = 300)
 ```
+
+```{r spline + linear fit in one plot}
+p_temporal_lagged_spline <- ggplot(plot_data, aes(x = Value, y = Positivity_Rate)) +
+  geom_point(color = "firebrick", alpha = 0.4, size = 0.8) +
+  
+  # Linear fit as reference
+  geom_smooth(method  = "lm", 
+              formula = y ~ x,
+              color   = "grey50", 
+              linetype = "dashed",
+              se      = TRUE) +
+  
+  # Spline fit
+  geom_smooth(method   = "gam", 
+              formula  = y ~ s(x, bs = "cs", k = 4),
+              color    = "steelblue",
+              fill     = "steelblue",
+              alpha    = 0.2) +
+  
+  facet_grid(Lag ~ Variable, scales = "free_x") +
+  labs(
+    title    = "Environmental variables vs larval positivity by lag",
+    subtitle = "Blue = spline (k=4), dashed grey = linear reference, R = Spearman correlation",
+    x        = "Lagged environmental value",
+    y        = "Positivity rate"
+  ) +
+  theme_bw() +
+  theme(strip.text = element_text(size = 8))
+
+# add correlation per panel 
+library(ggpubr)
+
+p_temporal_lagged_spline <- p_temporal_lagged_spline +
+  stat_cor(method   = "spearman",
+           aes(label = after_stat(r.label)),
+           color    = "firebrick",
+           size     = 3,
+           label.x.npc = "left",
+           label.y.npc = "top")
+
+show(p_temporal_lagged_spline)
+```
+
 
 The spline is definitely not worth it... not better 
 
+```{r lagged correlation plot with only 1 value per month}
+# Aggregate to unique monthly values first
+plot_data_monthly <- plot_data %>%
+  group_by(Lag, Variable, Value) %>%
+  summarise(
+    Positivity_Rate = mean(Positivity_Rate, na.rm = TRUE),
+    n_cmf           = n(),
+    .groups         = "drop"
+  )
+
+```
+
+#### Monthly aggregated env values vs larval infestation
+```{r monthly lagged environmental variables correlation to positivity}
+library(purrr)
+library(stringr)
+# ── Parameters ────────────────────────────────────────────────────────────────
+temporal_only_vars <- c("avg_temp", "total_precip", "total_rainy_days", 
+                        "rel_hum", "avg_VPD", "WS2M", 
+                        "precip_max_day", "precip_max_day_resid_on_tp")
+max_lag <- 3
+
+# ── 1. Monthly outcome (weighted by inspected houses) ─────────────────────────
+monthly_pos <- env_epi_ento %>%
+  group_by(year_month) %>%
+  summarise(
+    Positivity_Rate = sum(Houses_pos_IS,     na.rm = TRUE) / 
+                      sum(Inspected_houses,  na.rm = TRUE) * 100,
+    .groups = "drop"
+  ) %>%
+  arrange(year_month)
+
+# ── 2. Monthly environmental predictors (one row per month) ───────────────────
+monthly_env <- env_epi_ento %>%
+  group_by(year_month) %>%
+  summarise(
+    across(all_of(temporal_only_vars), ~mean(.x, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  arrange(year_month)
+
+# ── 3. Create lagged versions ─────────────────────────────────────────────────
+# For each lag, shift the environmental predictors forward by lag months
+# so that env at time t-lag is matched to outcome at time t
+lagged_data <- do.call(rbind, lapply(0:max_lag, function(lag) {
+
+  env_lagged <- monthly_env %>%
+    mutate(
+      year_month_outcome = if (lag == 0) {
+        year_month
+      } else {
+        format(
+          as.Date(paste0(year_month, "_01"), "%Y_%m_%d") %m+% months(lag),
+          "%Y_%m"
+        )
+      }
+    ) %>%
+    rename_with(
+      ~paste0(.x, "_lag", lag),
+      all_of(temporal_only_vars)
+    )
+
+  monthly_pos %>%
+    left_join(
+      env_lagged %>%
+        select(year_month_outcome,
+               ends_with(paste0("_lag", lag))),
+      by = c("year_month" = "year_month_outcome")
+    ) %>%
+    pivot_longer(
+      cols      = ends_with(paste0("_lag", lag)),
+      names_to  = "Variable",
+      values_to = "Value"
+    ) %>%
+    mutate(
+      Variable = sub(paste0("_lag", lag, "$"), "", Variable),
+      Lag      = paste0("Lag ", lag)
+    )
+}))
+
+
+# ── 4. Spearman rho per variable × lag ───────────────────────────────────────
+rho_tbl <- lagged_data %>%
+  filter(!is.na(Value), !is.na(Positivity_Rate)) %>%
+  group_by(Variable, Lag) %>%
+  summarise(
+    rho   = cor(Value, Positivity_Rate, method = "spearman"),
+    n_obs = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(label = paste0("ρ = ", round(rho, 2), " (n=", n_obs, ")"))
+
+# ── 5. Final plot data ────────────────────────────────────────────────────────
+plot_data <- lagged_data %>%
+  filter(!is.na(Value), !is.na(Positivity_Rate)) %>%
+  left_join(rho_tbl, by = c("Variable", "Lag"))
+
+# ── 6. Plot ───────────────────────────────────────────────────────────────────
+p_temporal_lagged_spline <- ggplot(plot_data, 
+                                    aes(x = Value, y = Positivity_Rate)) +
+  
+  geom_point(color = "firebrick", alpha = 0.6, size = 2) +
+  
+  # Linear reference
+  geom_smooth(method   = "lm",
+              formula  = y ~ x,
+              color    = "grey50",
+              linetype = "dashed",
+              se       = TRUE,
+              linewidth = 0.7) +
+  
+  # Spline fit — k=4 appropriate for ~48 monthly data points
+  geom_smooth(method  = "gam",
+              formula = y ~ s(x, bs = "cs", k = 4),
+              color   = "steelblue",
+              fill    = "steelblue",
+              alpha   = 0.2,
+              linewidth = 1) +
+  
+  # Spearman rho annotation
+  geom_text(
+    data     = rho_tbl,
+    aes(label = label),
+    x        = -Inf, y = Inf,
+    hjust    = -0.1, vjust = 1.3,
+    size     = 3,
+    color    = "darkgreen",
+    inherit.aes = FALSE
+  ) +
+  
+  # Rug to show data density
+  geom_rug(sides = "b", alpha = 0.3, color = "firebrick") +
+  
+  facet_grid(Lag ~ Variable, scales = "free_x") +
+  
+  labs(
+    title    = "Monthly environmental variables at lag 0, 1, 2, 3 vs larval positivity",
+    subtitle = "Each point = one unique month (n≈48); blue = spline (k=4 (3 df)); dashed = linear",
+    x        = "Environmental value (lagged)",
+    y        = "Positivity rate (%)",
+    caption  = "Spearman ρ computed on monthly unique values"
+  ) +
+  
+  theme_bw(base_size = 11) +
+  theme(
+    strip.text.x     = element_text(size = 8, face = "bold"),
+    strip.text.y     = element_text(size = 9, face = "bold"),
+    panel.spacing    = unit(0.4, "lines"),
+    plot.title       = element_text(size = 12, face = "bold"),
+    plot.subtitle    = element_text(size = 9, color = "grey40")
+  )
+
+print(p_temporal_lagged_spline)
+
+ggsave(
+  file.path(output_dir, 
+            "mz_env_ento_temporal_env_vars_lag0123_vs_positivity_spline.png"),
+  p_temporal_lagged_spline,
+  width  = 20,
+  height = 12,
+  dpi    = 300
+)
+
+# ── 7. Print rho table for quick reference ────────────────────────────────────
+cat("\n── Spearman correlations by variable and lag ──\n")
+rho_tbl %>%
+  select(Variable, Lag, rho, n_obs) %>%
+  arrange(Variable, Lag) %>%
+  print(n = Inf)
+```
+
+#### Monthly aggregated env values vs larval infestation - precipitation outlier removed
+
+```{r monthly lagged environmental variables correlation to positivity no outlier in precipitation}
+mm_vars <- c("total_precip", "precip_max_day", "precip_max_day_resid_on_tp")
+
+plot_data_clean <- plot_data %>%
+  group_by(Variable) %>%
+  filter(!(Variable %in% mm_vars & Value > quantile(Value, 0.98, na.rm = TRUE))) %>%
+  ungroup()
+
+rho_tbl_clean <- plot_data_clean %>%
+  filter(!is.na(Value), !is.na(Positivity_Rate)) %>%
+  group_by(Variable, Lag) %>%
+  summarise(
+    rho   = cor(Value, Positivity_Rate, method = "spearman"),
+    n_obs = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(label = paste0("ρ = ", round(rho, 2), " (n=", n_obs, ")"))
+
+plot_data_clean <- plot_data_clean %>%
+  select(-rho, -n_obs, -label) %>%
+  left_join(rho_tbl_clean, by = c("Variable", "Lag"))
+
+
+
+# ── 6. Plot ───────────────────────────────────────────────────────────────────
+p_temporal_lagged_spline <- ggplot(plot_data_clean, 
+                                    aes(x = Value, y = Positivity_Rate)) +
+  
+  geom_point(color = "firebrick", alpha = 0.6, size = 2) +
+  
+  # Linear reference
+  geom_smooth(method   = "lm",
+              formula  = y ~ x,
+              color    = "grey50",
+              linetype = "dashed",
+              se       = TRUE,
+              linewidth = 0.7) +
+  
+  # Spline fit — k=4 appropriate for ~48 monthly data points
+  geom_smooth(method  = "gam",
+              formula = y ~ s(x, bs = "cs", k = 4),
+              color   = "steelblue",
+              fill    = "steelblue",
+              alpha   = 0.2,
+              linewidth = 1) +
+  
+  # Spearman rho annotation
+  geom_text(
+    data     = rho_tbl_clean,
+    aes(label = label),
+    x        = -Inf, y = Inf,
+    hjust    = -0.1, vjust = 1.3,
+    size     = 3,
+    color    = "darkgreen",
+    inherit.aes = FALSE
+  ) +
+  
+  # Rug to show data density
+  geom_rug(sides = "b", alpha = 0.3, color = "firebrick") +
+  
+  facet_grid(Lag ~ Variable, scales = "free_x") +
+  
+  labs(
+    title    = "Monthly environmental variables at lag 0, 1, 2, 3 vs larval positivity w/o precipitation outlier",
+    subtitle = "Each point = one unique month (n≈48); blue = spline (k=4 (3 df)); dashed = linear",
+    x        = "Environmental value (lagged)",
+    y        = "Positivity rate (%)",
+    caption  = "Spearman ρ computed on monthly unique values"
+  ) +
+  
+  theme_bw(base_size = 11) +
+  theme(
+    strip.text.x     = element_text(size = 8, face = "bold"),
+    strip.text.y     = element_text(size = 9, face = "bold"),
+    panel.spacing    = unit(0.4, "lines"),
+    plot.title       = element_text(size = 12, face = "bold"),
+    plot.subtitle    = element_text(size = 9, color = "grey40")
+  )
+
+print(p_temporal_lagged_spline)
+
+ggsave(
+  file.path(output_dir, 
+            "mz_env_ento_temporal_env_vars_lag0123_outlierremoved_vs_positivity_spline.png"),
+  p_temporal_lagged_spline,
+  width  = 20,
+  height = 12,
+  dpi    = 300
+)
+
+# ── 7. Print rho table for quick reference ────────────────────────────────────
+cat("\n── Spearman correlations by variable and lag ──\n")
+rho_tbl %>%
+  select(Variable, Lag, rho, n_obs) %>%
+  arrange(Variable, Lag) %>%
+  print(n = Inf)
+
+
+all_vars <- unique(plot_data_clean$Variable)
+
+for (var in all_vars) {
+  p_var <- plot_data_clean %>%
+    filter(Variable == var) %>%
+    ggplot(aes(x = Value, y = Positivity_Rate)) +
+    geom_point(color = "firebrick", alpha = 0.6, size = 2) +
+    geom_smooth(method   = "lm",
+                formula  = y ~ x,
+                color    = "grey50",
+                linetype = "dashed",
+                se       = TRUE,
+                linewidth = 1.0) +
+    geom_smooth(method    = "gam",
+                formula   = y ~ s(x, bs = "cs", k = 4),
+                color     = "steelblue",
+                fill      = "steelblue",
+                alpha     = 0.2,
+                linewidth = 1) +
+    geom_text(
+      data = rho_tbl_clean %>% filter(Variable == var),
+      aes(label = label),
+      x = -Inf, y = Inf,
+      hjust = -0.1, vjust = 1.3,
+      size = 3, color = "darkgreen",
+      inherit.aes = FALSE
+    ) +
+    geom_rug(sides = "b", alpha = 0.3, color = "firebrick") +
+    facet_grid(Lag~., scales = "free_x") +
+    labs(
+      title    = stringr::str_wrap(
+                   paste("Monthly", var, "at lag 0, 1, 2 vs larval positivity"),
+                   width = 40),
+      subtitle = stringr::str_wrap(
+                   "Each point = one unique month (n≈48); blue = spline (k=4 (3 df)); dashed = linear",
+                   width = 45),
+      x        = paste(var, "(lagged)"),
+      y        = "Positivity rate (%)",
+      caption  = "Spearman ρ computed on monthly unique values"
+
+    ) +
+    theme_bw(base_size = 11)
+
+  ggsave(
+    file.path(output_dir, paste0("mz_env_ento_spatiotemporal_DLNM_", var, "_vs_positivity.png")),
+    p_var, width = 4, height = 12, dpi = 300
+  )
+}
+
+```
 
 #### Binary spatial variables 
 
@@ -2829,7 +4181,7 @@ manzana_outcome <- env_epi_ento %>%
   )
 
 # 2) One row per manzana for spatial predictors
-spatial_vars <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage","landcover", "nr_aljibes", "water_containers")
+spatial_vars <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage","landcover", "nr_aljibes", "water_containers", "pop_density", "urban_pct")
 
 manzana_spatial <- env_all %>%
   select(manzana, all_of(spatial_vars)) %>%
@@ -2887,7 +4239,7 @@ p_bin_star <- p_bin +
   )
 
 print(p_bin_star)
-ggsave(file.path(output_dir, "20_manzana_spatial_binary_vs_positivity.png"), p_bin_star, width = 12, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_ento_spatial_binary_vars_vs_positivity_violin.png"), p_bin_star, width = 12, height = 8, dpi = 300)
 ```
 
 The Wilcox test should signficant differences in positivity rate between yes/no of all binary variables (except water_shortage).  
@@ -2904,7 +4256,7 @@ p_land <- ggplot(land_df, aes(x = landcover, y = Positivity_Rate, fill = landcov
         axis.text.x = element_text(angle = 45, hjust = 1)) +
   labs(title = "Positivity by landcover - mz", x = "Landcover", y = "Positivity rate (%)")
 print(p_land)
-ggsave(file.path(output_dir, "21_manzana_landcover_vs_positivity.png"), p_land, width = 11, height = 6, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_ento_spatial_landcover_vs_positivity_boxplot.png"), p_land, width = 11, height = 6, dpi = 300)
 
 kruskal_res <- kruskal_test(land_df, Positivity_Rate ~ landcover)
 print(kruskal_res)
@@ -2949,7 +4301,7 @@ p_alj <- ggplot(aljibes_df, aes(x = nr_aljibes_grp, y = Positivity_Rate)) +
   )
 
 print(p_alj)
-ggsave(file.path(output_dir, "22_manzana_nr_aljibes_ordered_vs_positivity.png"),
+ggsave(file.path(output_dir, "mz_env_ento_spatial_nr_aljibes_vs_positivity_scatter.png"),
        p_alj, width = 10, height = 6, dpi = 300)
 
 # Global group difference test
@@ -2967,16 +4319,46 @@ p_wc <- ggplot(wc_df, aes(x = water_containers, y = Positivity_Rate)) +
        y = "Positivity rate (%)")
 
 print(p_wc)
-ggsave(file.path(output_dir, "23_water_containers_vs_positivity.png"), p_wc, width = 10, height = 6, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_ento_spatial_water_containers_vs_positivity_scatter.png"), p_wc, width = 10, height = 6, dpi = 300)
 
 # Spearman correlation
 cor(wc_df$water_containers, wc_df$Positivity_Rate, method = "spearman")
 
-# Combine both plots in a 1x2 grid
+pd_df <- spatial_df %>%
+  filter(!is.na(pop_density), !is.na(Positivity_Rate))
+
+p_pd <- ggplot(pd_df, aes(x = pop_density, y = Positivity_Rate)) +
+  geom_point(alpha = 0.6, color = "darkred") +
+  theme_minimal() +
+  labs(title = "Positivity vs population density - manzanas",
+       x = "Population density (persons/km²)",
+       y = "Positivity rate (%)")
+
+print(p_pd)
+ggsave(file.path(output_dir, "mz_env_ento_spatial_pop_density_vs_positivity_scatter.png"), p_pd, width = 10, height = 6, dpi = 300)
+
+cor(pd_df$pop_density, pd_df$Positivity_Rate, method = "spearman")
+
+up_df <- spatial_df %>%
+  filter(!is.na(urban_pct), !is.na(Positivity_Rate))
+
+p_up <- ggplot(up_df, aes(x = urban_pct, y = Positivity_Rate)) +
+  geom_point(alpha = 0.6, color = "darkred") +
+  theme_minimal() +
+  labs(title = "Positivity vs urban percentage - manzanas",
+       x = "Urban pixels (%)",
+       y = "Positivity rate (%)")
+
+print(p_up)
+ggsave(file.path(output_dir, "mz_env_ento_spatial_urban_pct_vs_positivity_scatter.png"), p_up, width = 10, height = 6, dpi = 300)
+
+cor(up_df$urban_pct, up_df$Positivity_Rate, method = "spearman")
+
+# Combine into a 1x4 grid
 library(cowplot)
-combined_numeric_spatial <- cowplot::plot_grid(p_alj, p_wc, nrow = 1, ncol = 2, labels = c("A", "B"))
+combined_numeric_spatial <- cowplot::plot_grid(p_alj, p_wc, p_pd, p_up, nrow = 1, ncol = 4, labels = c("A", "B", "C", "D"))
 print(combined_numeric_spatial)
-ggsave(file.path(output_dir, "24_numeric_spatial_vs_positivity_combined.png"), combined_numeric_spatial, width = 18, height = 7, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_ento_spatial_numeric_vars_vs_positivity_scatter.png"), combined_numeric_spatial, width = 32, height = 7, dpi = 300)
 ```
 Again, the Kruskal-wallis test shows that my ordinal 
 
@@ -3046,7 +4428,7 @@ p_st_ann <- p_st +
   )
 
 print(p_st_ann)
-ggsave(file.path(output_dir, "25_manzana_spatiotemporal_vs_positivity.png"), p_st_ann, width = 14, height = 6, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_ento_spatiotemporal_env_vars_vs_positivity_scatter.png"), p_st_ann, width = 14, height = 6, dpi = 300)
 ```
 
 Significant correlations over all three variables, positive for NDWI, negative for NDVI and NDMI
@@ -3060,7 +4442,7 @@ Significant correlations over all three variables, positive for NDWI, negative f
 ```{r env_vs_positivity_one_on_one_cmf, fig.width=16, fig.height=12, fig.cap="Temporal variables vs mosquito positivity rate CMF"}
 # Temporal-only associations at CMF level (one point per month)
 
-temporal_only_vars_cmf <- c("avg_temp", "total_precip", "rel_hum", "WS2M", "precip_max_day", "precip_max_day_resid")
+temporal_only_vars_cmf <- c("avg_temp", "total_precip", "rel_hum", "WS2M", "precip_max_day", "precip_max_day_resid_on_tp")
 
 # 1) Monthly outcome (weighted by inspected houses)
 monthly_pos_cmf <- env_epi_ento_CMF %>%
@@ -3109,7 +4491,7 @@ p_temporal_cmf <- ggplot(plot_data_cmf, aes(x = Value, y = Positivity_Rate)) +
   )
 
 print(p_temporal_cmf)
-ggsave(file.path(output_dir, "19_cmf_temporal_env_vs_monthly_positivity.png"), p_temporal_cmf, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "cmf_env_ento_temporal_env_vars_vs_positivity_scatter.png"), p_temporal_cmf, width = 14, height = 8, dpi = 300)
 ```
 
 ```{r calculate_the_one_on_one_relations_and_their_spearman_correlation_with_lag_cmf}
@@ -3141,7 +4523,7 @@ lagged_long_cmf <- lagged_data_cmf %>%
   mutate(
     Variable = factor(
       Variable,
-      levels = c("avg_temp", "total_precip", "precip_max_day", "precip_max_day_resid", "rel_hum", "WS2M")
+      levels = c("avg_temp", "total_precip", "precip_max_day", "precip_max_day_resid_on_tp", "rel_hum", "WS2M")
     )
   )
 
@@ -3168,7 +4550,7 @@ p_temporal_lagged_cmf <- ggplot(plot_data_lag_cmf, aes(x = Value, y = Positivity
   )
 
 print(p_temporal_lagged_cmf)
-ggsave(file.path(output_dir, "19b_cmf_temporal_env_vs_monthly_lag_0_1_2_positivity.png"), p_temporal_lagged_cmf, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "cmf_env_ento_temporal_env_vars_lagged_vs_positivity_scatter.png"), p_temporal_lagged_cmf, width = 14, height = 8, dpi = 300)
 ```
 
 ### Testing non-linear transformations of numeric variables (CMF)
@@ -3187,7 +4569,7 @@ p_temporal_lagged_quad_cmf <- ggplot(plot_data_lag_cmf, aes(x = Value, y = Posit
   )
 
 print(p_temporal_lagged_quad_cmf)
-ggsave(file.path(output_dir, "19b_cmf_temporal_env_vs_monthly_lag_0_1_2_positivity_quadratic.png"), p_temporal_lagged_quad_cmf, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "cmf_env_ento_temporal_env_vars_lagged_vs_positivity_quadratic.png"), p_temporal_lagged_quad_cmf, width = 14, height = 8, dpi = 300)
 ```
 
 #### Spline
@@ -3204,7 +4586,7 @@ p_temporal_lagged_spline_cmf <- ggplot(plot_data_lag_cmf, aes(x = Value, y = Pos
   )
 
 print(p_temporal_lagged_spline_cmf)
-ggsave(file.path(output_dir, "19b_cmf_temporal_env_vs_monthly_lag_0_1_2_positivity_spline.png"), p_temporal_lagged_spline_cmf, width = 14, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "cmf_env_ento_temporal_env_vars_lagged_vs_positivity_spline.png"), p_temporal_lagged_spline_cmf, width = 14, height = 8, dpi = 300)
 ```
 
 #### Binary spatial variables (CMF)
@@ -3224,7 +4606,7 @@ cmf_outcome <- env_epi_ento_CMF %>%
   )
 
 # 2) One row per CMF for spatial predictors
-spatial_vars_cmf <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage", "landcover", "nr_aljibes", "water_containers")
+spatial_vars_cmf <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage", "landcover", "nr_aljibes", "water_containers", "pop_density", "urban_pct")
 
 spatial_source_cmf <- if (exists("env_all_CMF")) env_all_CMF else env_epi_ento_CMF
 
@@ -3288,7 +4670,7 @@ p_bin_star_cmf <- p_bin_cmf +
   )
 
 print(p_bin_star_cmf)
-ggsave(file.path(output_dir, "20_cmf_spatial_binary_vs_positivity.png"), p_bin_star_cmf, width = 12, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "cmf_env_ento_spatial_binary_vars_vs_positivity_violin.png"), p_bin_star_cmf, width = 12, height = 8, dpi = 300)
 ```
 
 #### Categorical variables (landcover, CMF)
@@ -3303,7 +4685,7 @@ p_land_cmf <- ggplot(land_df_cmf, aes(x = landcover, y = Positivity_Rate, fill =
         axis.text.x = element_text(angle = 45, hjust = 1)) +
   labs(title = "Positivity by landcover - CMF", x = "Landcover", y = "Positivity rate (%)")
 print(p_land_cmf)
-ggsave(file.path(output_dir, "28_cmf_landcover_vs_positivity.png"), p_land_cmf, width = 11, height = 6, dpi = 300)
+ggsave(file.path(output_dir, "cmf_env_ento_spatial_landcover_vs_positivity_boxplot.png"), p_land_cmf, width = 11, height = 6, dpi = 300)
 
 kruskal_res_cmf <- kruskal_test(land_df_cmf, Positivity_Rate ~ landcover)
 print(kruskal_res_cmf)
@@ -3346,7 +4728,7 @@ p_alj_cmf <- ggplot(aljibes_df_cmf, aes(x = nr_aljibes_grp, y = Positivity_Rate)
   )
 
 print(p_alj_cmf)
-ggsave(file.path(output_dir, "22_cmf_nr_aljibes_ordered_vs_positivity.png"),
+ggsave(file.path(output_dir, "cmf_env_ento_spatial_nr_aljibes_vs_positivity_scatter.png"),
        p_alj_cmf, width = 10, height = 6, dpi = 300)
 
 kruskal_test(aljibes_df_cmf, Positivity_Rate ~ nr_aljibes_grp)
@@ -3359,13 +4741,43 @@ p_wc_cmf <- ggplot(wc_df_cmf, aes(x = water_containers, y = Positivity_Rate)) +
        y = "Positivity rate (%)")
 
 print(p_wc_cmf)
-ggsave(file.path(output_dir, "23_cmf_containers_vs_positivity.png"), p_wc_cmf, width = 10, height = 6, dpi = 300)
+ggsave(file.path(output_dir, "cmf_env_ento_spatial_water_containers_vs_positivity_scatter.png"), p_wc_cmf, width = 10, height = 6, dpi = 300)
 
 cor(wc_df_cmf$water_containers, wc_df_cmf$Positivity_Rate, method = "spearman")
 
-combined_numeric_spatial_cmf <- cowplot::plot_grid(p_alj_cmf, p_wc_cmf, nrow = 1, ncol = 2, labels = c("A", "B"))
+pd_df_cmf <- spatial_df_cmf %>%
+  filter(!is.na(pop_density), !is.na(Positivity_Rate))
+
+p_pd_cmf <- ggplot(pd_df_cmf, aes(x = pop_density, y = Positivity_Rate)) +
+  geom_point(alpha = 0.6, color = "darkred") +
+  theme_minimal() +
+  labs(title = "Positivity vs population density - CMFs",
+       x = "Population density (persons/km²)",
+       y = "Positivity rate (%)")
+
+print(p_pd_cmf)
+ggsave(file.path(output_dir, "cmf_env_ento_spatial_pop_density_vs_positivity_scatter.png"), p_pd_cmf, width = 10, height = 6, dpi = 300)
+
+cor(pd_df_cmf$pop_density, pd_df_cmf$Positivity_Rate, method = "spearman")
+
+up_df_cmf <- spatial_df_cmf %>%
+  filter(!is.na(urban_pct), !is.na(Positivity_Rate))
+
+p_up_cmf <- ggplot(up_df_cmf, aes(x = urban_pct, y = Positivity_Rate)) +
+  geom_point(alpha = 0.6, color = "darkred") +
+  theme_minimal() +
+  labs(title = "Positivity vs urban percentage - CMFs",
+       x = "Urban pixels (%)",
+       y = "Positivity rate (%)")
+
+print(p_up_cmf)
+ggsave(file.path(output_dir, "cmf_env_ento_spatial_urban_pct_vs_positivity_scatter.png"), p_up_cmf, width = 10, height = 6, dpi = 300)
+
+cor(up_df_cmf$urban_pct, up_df_cmf$Positivity_Rate, method = "spearman")
+
+combined_numeric_spatial_cmf <- cowplot::plot_grid(p_alj_cmf, p_wc_cmf, p_pd_cmf, p_up_cmf, nrow = 1, ncol = 4, labels = c("A", "B", "C", "D"))
 print(combined_numeric_spatial_cmf)
-ggsave(file.path(output_dir, "24_cmf_numeric_spatial_vs_positivity_combined.png"), combined_numeric_spatial_cmf, width = 18, height = 7, dpi = 300)
+ggsave(file.path(output_dir, "cmf_env_ento_spatial_numeric_vars_vs_positivity_scatter.png"), combined_numeric_spatial_cmf, width = 32, height = 7, dpi = 300)
 ```
 
 #### Spatio-temporal variables (NDXI's, CMF)
@@ -3428,5 +4840,5 @@ p_st_ann_cmf <- p_st_cmf +
   )
 
 print(p_st_ann_cmf)
-ggsave(file.path(output_dir, "25_cmf_spatiotemporal_vs_positivity.png"), p_st_ann_cmf, width = 14, height = 6, dpi = 300)
+ggsave(file.path(output_dir, "cmf_env_ento_spatiotemporal_env_vars_vs_positivity_scatter.png"), p_st_ann_cmf, width = 14, height = 6, dpi = 300)
 ```

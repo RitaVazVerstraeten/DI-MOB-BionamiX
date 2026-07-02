@@ -52,15 +52,14 @@ hostname <- Sys.info()["nodename"]
 
 # ========== Spatial resolution =============
 # Set to "CMF" or "manzana" — all level-specific paths and column names derive from this.
-spatial_level <- "CMF"
+spatial_level <- "CMF" 
 
 # ========== Output structure and config =============
 cfg <- list(
-  data_dir = if (hostname == "frietjes") "~/data/Entomo" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/",
-  data_file_name = if (spatial_level == "CMF")
-    "env_epi_entomo_data_per_CMF_2016_01_to_2019_12_noColinnearity.csv"
-  else
-    "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv",
+  data_dir = if (hostname == "frietjes") "~/data/Entomo" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data",
+  # Extended-lag dataset: env 2015-2019 (NDVI only for 2016-2019), ento-epi 2016-2019.
+  # 2015 rows serve as lag lead-in; response_start below marks the observation period.
+  data_file_name = if (spatial_level == "CMF")"env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv" else "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv",
   output_dir = if (hostname == "frietjes") "/home/rita/data/Entomo/fitting/stan" else "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
@@ -74,6 +73,7 @@ cfg <- list(
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
   use_block_dev   = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
+  use_dlnm        = TRUE,  # TRUE = replace lag flat matrix with DLNM cross-basis (blockRE only for now)
 
   # spatial
   shapefile_path = if (hostname == "frietjes")
@@ -84,21 +84,56 @@ cfg <- list(
   block_col    = if (spatial_level == "CMF") "cmf"      else "manzana",
 
   # data prep
+  # response_start: marks the start of the ento response period. 2015 rows are
+  # used purely as lag lead-in and are never passed to Stan as observations.
+  response_start = "2016_01",
   n_blocks = NULL, # set NULL for all blocks/CMFs
-  lag_vars = c("total_rainy_days", "temp_cat", "avg_VPD", "precip_max_day"),
-  max_lag = 2,
-  kappa = 2,
-  unlagged_vars = c("mean_ndvi", "is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers"),
-  # numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
-  numeric_vars = c("total_rainy_days", "avg_VPD", "precip_max_day", "mean_ndvi"), 
+
+  lag_vars = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp"),
+  # lag_vars = c("total_rainy_days", "avg_VPD"),
+
+  max_lag = 6,
+  kappa = 4,
+
+  # unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
+  unlagged_vars = c("urban_pct", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
+
+  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "urban_pct"),
+
+  # DLNM settings (only used when use_dlnm = TRUE)
+  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp"),
+
+  dlnm_argvar = list(
+    total_precip                = list(fun = "ns", df = 3),
+    avg_VPD                     = list(fun = "ns", df = 3),
+    precip_max_day_resid_on_tp = list(fun = "ns", df = 3)
+  ),
+  dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
+
+  # Interaction cross-bases: each entry is a (binary_var, active_level, dlnm_var, label) tuple.
+  # active_level: the value of binary_var for which the modifier is active.
+  #   is_urban coded 1=urban (reference), 0=non-urban -> active_level=0 for non-urban modifier
+  #   water_shortage logical (TRUE=1)             -> active_level=1 for water-shortage modifier
+  # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
+  dlnm_ix_vars = list(
+    list(binary_var = "is_urban",       active_level = 0, dlnm_var = "total_precip", label = "nonurban_x_tp")
+    # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "ws_x_tp")
+  ),
+  # dlnm_ix_vars = NULL,
+
   # MCMC
   chains = 4,
   iter_warmup = 1000,
   iter_sampling = 1000,
-  # thin = 2,
-  adapt_delta = 0.95,
-  max_treedepth = 12,
+  adapt_delta = 0.97, # target average acceptance probability for the NUTS sampler in stan
+  max_treedepth = 10, # caps how many steps the NUTS sampler can take in a single iteration.
   parallel_chains = if (hostname == "frietjes") 4 else 1,
+
+  # delta1: set fix_delta1 = TRUE to fix the reactive detection boost at delta1_fixed value.
+  # Use delta1_fixed = 0 to disable reactive detection enhancement entirely.
+  # Only applies to the DLNM + perCMF + blockRE variant (selects the _delta1fixed Stan file).
+  fix_delta1  = FALSE,
+  delta1_fixed = 0,
 
   # phi: set fix_phi = TRUE to pass phi as data (fixed); FALSE to estimate it
   fix_phi = FALSE,
@@ -111,13 +146,32 @@ cfg <- list(
   plot_random_effects = TRUE,
   plot_ppc = TRUE,
   plot_timeseries = TRUE,
+  plot_morans_I = TRUE,   # FALSE to skip (memory-heavy: loads full y_pred matrix)
   n_blocks_facet = 9
 )
+
+# Allow a calling script to inject cfg overrides before the model runs.
+# Set .hierarch_cfg_override <- list(...) before source()-ing this script.
+if (exists(".hierarch_cfg_override") && is.list(.hierarch_cfg_override))
+  cfg <- modifyList(cfg, .hierarch_cfg_override)
 
 # ========== Output directory structure =============
 date_suffix <- format(Sys.Date(), "%Y%m%d")
 model_spec <- if (isTRUE(cfg$use_time_RE)) {
   paste0("timeRE_blockRE_lag", cfg$max_lag, "_k", cfg$kappa)
+} else if (isTRUE(cfg$use_dlnm)) {
+  ar1_suffix     <- if (isTRUE(cfg$use_temporal_AR_perCMF)) "AR1perCMF"
+                    else if (isTRUE(cfg$use_temporal_AR))   "AR1global"
+                    else                                     "noAR1"
+  sp_suffix      <- if (isTRUE(cfg$use_icar)) "ICAR"
+                    else if (isTRUE(cfg$use_bym2)) "BYM2"
+                    else "noGP"
+  re_suffix      <- if (isTRUE(cfg$use_icar)) "ICAR"
+                    else if (isTRUE(cfg$use_block_dev)) "blockRE"
+                    else "noBlockRE"
+  n_block_suffix <- paste0(ifelse(is.null(cfg$n_blocks), "All", cfg$n_blocks), "Blocks")
+  paste0("DLNM_", ar1_suffix, "_", sp_suffix, "_", re_suffix,
+         "_lag", cfg$max_lag, "_k", cfg$kappa, "_", n_block_suffix)
 } else {
   ar1_suffix <- if (isTRUE(cfg$use_temporal_AR_perCMF)) "AR1perCMF"
                else if (isTRUE(cfg$use_temporal_AR))      "AR1global"
@@ -135,14 +189,25 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
   paste0(ar1_suffix, "_", gp_suffix, "_", re_suffix,
          "_lag", cfg$max_lag, "_k", cfg$kappa, "_", n_block_suffix)
 }
-model_spec <- paste0(spatial_level,'_', model_spec)
-# model_tag <- ifelse(isTRUE(cfg$use_time_RE), "timeRE_blockRE",
-#              ifelse(isTRUE(cfg$use_temporal_AR), "withAR1", "noAR1"))
-predictor_spec <- paste0(
-  "lag-", paste(cfg$lag_vars, collapse = "-"),
-  "_unlag-", paste(cfg$unlagged_vars, collapse = "-")
-)
-run_suffix <- paste0(date_suffix, "_free_lag_str_logCases")
+model_spec <- paste0(spatial_level, "_", model_spec)
+if (isTRUE(cfg$fix_delta1)) {
+  model_spec <- paste0(model_spec, "_delta1fix", cfg$delta1_fixed)
+}
+predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
+  base_spec <- paste0("dlnm-", paste(cfg$dlnm_vars, collapse = "-"),
+                      "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
+  if (!is.null(cfg$dlnm_ix_vars) && length(cfg$dlnm_ix_vars) > 0) {
+    ix_labels <- sapply(cfg$dlnm_ix_vars, function(ix) ix$label)
+    paste0(base_spec, "_ix-", paste(ix_labels, collapse = "-"))
+  } else {
+    base_spec
+  }
+} else {
+  paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
+         "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
+}
+run_suffix <- paste0(date_suffix)
+if (exists(".hierarch_run_suffix")) run_suffix <- .hierarch_run_suffix
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
 run_output_dir    <- file.path(model_output_dir, run_suffix)
@@ -157,6 +222,20 @@ stan_dir <- "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo"
 cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   # iid time RE + iid block RE (no AR1, no GP)
   file.path(stan_dir, "hierarchical_state_space_timeRE_blockRE.stan")
+} else if (isTRUE(cfg$use_dlnm)) {
+  # DLNM cross-basis: per-CMF AR(1) variants
+  if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_icar)) {
+    file.path(stan_dir, "hierarchical_state_space_AR_perCMF_ICAR_DLNM.stan")
+  } else if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_block_dev)) {
+    if (isTRUE(cfg$fix_delta1))
+      file.path(stan_dir, "hierarchical_state_space_AR_perCMF_blockRE_DLNM_delta1fixed.stan")
+    else if (!is.null(cfg$dlnm_ix_vars) && length(cfg$dlnm_ix_vars) > 0)
+      file.path(stan_dir, "hierarchical_state_space_AR_perCMF_blockRE_DLNM_ix.stan")
+    else
+      file.path(stan_dir, "hierarchical_state_space_AR_perCMF_blockRE_DLNM.stan")
+  } else {
+    file.path(stan_dir, "hierarchical_state_space_blockRE_DLNM.stan")
+  }
 } else if (!isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_temporal_AR_perCMF) && !isTRUE(cfg$use_spatial_AC)) {
   # No AR, no GP: base or blockRE-only
   if (isTRUE(cfg$use_block_dev)) {
@@ -221,7 +300,7 @@ cat("Model variant:" , "Predictors: ", predictor_spec, "\n","level, RE and AR: "
 # STANDARDIZE NUMERIC COVARIATES - done in helper functions
 # =========================
 
-prep <- build_stan_data(cfg)
+prep <- if (isTRUE(cfg$use_dlnm)) build_dlnm_stan_data(cfg) else build_stan_data(cfg)
 stan_data <- prep$stan_data
 df <- prep$df
 
@@ -253,7 +332,8 @@ coords_sf  <- sf_blocks %>%
   distinct(block_chr, .keep_all = TRUE)
 
 # ======================== spatial data prep ====================================
-if (isTRUE(cfg$use_spatial_AC)) {
+# use_icar can also be set without use_spatial_AC when combined with use_dlnm
+if (isTRUE(cfg$use_spatial_AC) || isTRUE(cfg$use_icar)) {
   if (isTRUE(cfg$use_bym2) || isTRUE(cfg$use_icar)) {
     icar_edges <- build_icar_edges(sf_blocks, block_ids, cfg$sf_block_col, snap_m = 100)
     stan_data$N_edges <- icar_edges$N_edges
@@ -285,7 +365,7 @@ if (isTRUE(cfg$use_spatial_AC)) {
     ))
   }
 } else {
-  cat("No spatial AC: skipping coordinate/distance/neighbour setup.\n")
+  cat("No spatial AC or ICAR: skipping coordinate/distance/neighbour setup.\n")
 }
 
 # #================= check adjacency matrix (optional)==============
@@ -369,6 +449,12 @@ if (isTRUE(cfg$fix_phi)) {
 }
 
        
+# Pass delta1 as data when fix_delta1 = TRUE (uses the _delta1fixed Stan file)
+if (isTRUE(cfg$fix_delta1)) {
+  stan_data$delta1 <- cfg$delta1_fixed
+  cat(sprintf("delta1 fixed at %.4f (reactive detection boost disabled)\n", cfg$delta1_fixed))
+}
+
 # Always pass fix_phi flag; pass phi_data (used only when fix_phi = TRUE)
 stan_data$fix_phi <- as.integer(isTRUE(cfg$fix_phi))
 if (isTRUE(cfg$fix_phi)) {
@@ -452,7 +538,8 @@ fit <- mod$sample(
     use_time_RE           = isTRUE(cfg$use_time_RE),
     use_spatial_AC        = isTRUE(cfg$use_spatial_AC),
     use_block_dev         = isTRUE(cfg$use_block_dev),
-    use_temporal_AR_perCMF = isTRUE(cfg$use_temporal_AR_perCMF)
+    use_temporal_AR_perCMF = isTRUE(cfg$use_temporal_AR_perCMF),
+    use_dlnm              = isTRUE(cfg$use_dlnm)
   ),
   adapt_delta = cfg$adapt_delta,
   max_treedepth = cfg$max_treedepth,
@@ -467,7 +554,8 @@ fit <- mod$sample(
 invisible(file.remove(list.files(run_output_dir, pattern = "_(config|metric)\\.json$", full.names = TRUE)))
 
 # ======================= make model summary ============================
-summary_vars <- c("alpha", "delta1", "w", "w_unlagged")
+summary_vars <- c("alpha", if (!isTRUE(cfg$fix_delta1)) "delta1", if (isTRUE(cfg$use_dlnm)) "w_cb" else "w", "w_unlagged",
+                  if (isTRUE(cfg$use_dlnm) && !is.null(cfg$dlnm_ix_vars) && length(cfg$dlnm_ix_vars) > 0) "w_ix")
 if (isTRUE(cfg$use_time_RE)) {
   summary_vars <- c(summary_vars, "sigma_time", "sigma_block")
 } else {
@@ -477,38 +565,117 @@ if (isTRUE(cfg$use_time_RE)) {
     else                           summary_vars <- c(summary_vars, "sigma_gp", "rho_gp")
   }
   if (isTRUE(cfg$use_temporal_AR) || isTRUE(cfg$use_temporal_AR_perCMF))
-    summary_vars <- c(summary_vars, "sigma_v", "rho")
-  if (!isTRUE(cfg$use_bym2) && isTRUE(cfg$use_block_dev)) {
+    summary_vars <- c(summary_vars, "tau", "sigma_v", "rho")
+  # DLNM+ICAR: sigma_icar not captured by use_spatial_AC branch above
+  if (isTRUE(cfg$use_dlnm) && isTRUE(cfg$use_icar))
+    summary_vars <- c(summary_vars, "sigma_icar")
+  if (!isTRUE(cfg$use_bym2) && !isTRUE(cfg$use_icar) && isTRUE(cfg$use_block_dev)) {
     if (isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_temporal_AR_perCMF))
-      summary_vars <- c(summary_vars, "sigma_block_dev")        # global AR1 + block deviation
+      summary_vars <- c(summary_vars, "sigma_block_dev")
     else
-      summary_vars <- c(summary_vars, "sigma_block")  # blockRE-only or perCMF+blockRE model
+      summary_vars <- c(summary_vars, "sigma_block")
   }
 }
 if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
 
-model_sum      <- rename_w_in_summary(fit$summary(variables = summary_vars), prep$lag_vars_expanded, prep$unlagged_vars)
+# ======================= model selection criteria (LOO / WAIC / log-lik) ====
+# Runs before the summary capture.output block so loo_result is always saved
+# to disk (and available in globalenv) even if the summary section errors.
+if (requireNamespace("loo", quietly = TRUE)) {
+  log_lik_draws <- fit$draws("log_lik", format = "array")
+  log_lik_mat   <- fit$draws("log_lik", format = "matrix")
+
+  r_eff      <- loo::relative_eff(exp(log_lik_draws))
+  loo_result <- loo::loo(log_lik_draws, r_eff = r_eff)
+  waic_result <- loo::waic(log_lik_mat)
+
+  draw_llik   <- rowSums(log_lik_mat)
+  llik_summary <- c(
+    mean   = mean(draw_llik),
+    sd     = sd(draw_llik),
+    q5     = quantile(draw_llik, 0.05),
+    median = median(draw_llik),
+    q95    = quantile(draw_llik, 0.95)
+  )
+
+  criteria_output <- capture.output({
+    cat("Model:", model_spec, "\n")
+    cat("Run:  ", run_suffix,  "\n\n")
+
+    cat("=== LOO-CV ===\n")
+    print(loo_result)
+
+    cat("\n=== WAIC ===\n")
+    print(waic_result)
+
+    cat("\n=== Total log-likelihood (sum over observations, posterior draws) ===\n")
+    cat(sprintf("  Mean   : %.2f\n", llik_summary["mean"]))
+    cat(sprintf("  SD     : %.2f\n", llik_summary["sd"]))
+    cat(sprintf("  5%%     : %.2f\n", llik_summary["q5.5%"]))
+    cat(sprintf("  Median : %.2f\n", llik_summary["median"]))
+    cat(sprintf("  95%%    : %.2f\n", llik_summary["q95.95%"]))
+  })
+
+  cat(paste(criteria_output, collapse = "\n"), "\n")
+
+  crit_file <- file.path(run_output_dir,
+                         paste0("model_selection_criteria_", model_spec, ".txt"))
+  writeLines(criteria_output, crit_file)
+  saveRDS(loo_result,  file.path(run_output_dir, paste0("loo_",  model_spec, ".rds")))
+  saveRDS(waic_result, file.path(run_output_dir, paste0("waic_", model_spec, ".rds")))
+  cat("Model selection criteria saved to:", run_output_dir, "\n")
+} else {
+  cat("Package 'loo' not installed; skipping model selection criteria.\n")
+}
+
+model_sum      <- rename_w_in_summary(
+  fit$summary(variables = summary_vars),
+  lag_vars_expanded = if (isTRUE(cfg$use_dlnm)) NULL else prep$lag_vars_expanded,
+  unlagged_vars     = prep$unlagged_vars
+)
 summary_output <- capture.output({
+  cat("=== MODEL CONFIGURATION ===\n")
+  cat("Run suffix  :", run_suffix, "\n")
+  cat("Stan file   :", cfg$stan_file, "\n")
+  cat("Spatial level:", cfg$spatial_level, "\n\n")
+
+  cat("--- Predictors ---\n")
+  cat("Lag vars    :", paste(cfg$lag_vars, collapse = ", "), "\n")
+  cat("Unlagged    :", paste(cfg$unlagged_vars, collapse = ", "), "\n")
+  cat("Max lag     :", cfg$max_lag, "\n")
+  if (isTRUE(cfg$use_dlnm)) {
+    argspec_str <- function(s) {
+      if (!is.list(s) || is.null(s$fun)) return("?")
+      if (s$fun == "lin")    return("lin")
+      if (s$fun == "strata") return(paste0("strata(", s$breaks, ")"))
+      paste0(s$fun, "(df=", s$df, ")")
+    }
+    cat("DLNM argvar :", paste(names(cfg$dlnm_argvar), sapply(cfg$dlnm_argvar, argspec_str), sep = "=", collapse = ", "), "\n")
+    arglag_is_per_var <- !is.null(names(cfg$dlnm_arglag)) && any(names(cfg$dlnm_arglag) %in% cfg$dlnm_vars)
+    if (arglag_is_per_var) {
+      cat("DLNM arglag : per-variable —", paste(names(cfg$dlnm_arglag), sapply(cfg$dlnm_arglag, argspec_str), sep = "=", collapse = ", "), "\n")
+    } else {
+      cat("DLNM arglag :", argspec_str(cfg$dlnm_arglag), "\n")
+    }
+  }
+  if (!is.null(cfg$ix_vars) && length(cfg$ix_vars) > 0)
+    cat("Interactions:", paste(sapply(cfg$ix_vars, paste, collapse = " x "), collapse = ", "), "\n")
+
+  cat("\n--- Random effects ---\n")
+  cat("Block RE            :", isTRUE(cfg$use_block_RE) || isTRUE(cfg$use_block_dev), "\n")
+  cat("Temporal AR(1)/CMF  :", isTRUE(cfg$use_temporal_AR_perCMF), "\n")
+  cat("Temporal AR(1) global:", isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_temporal_AR_perCMF), "\n")
+  cat("Spatial ICAR        :", isTRUE(cfg$use_icar), "\n")
+  cat("Spatial BYM2        :", isTRUE(cfg$use_bym2), "\n")
+  cat("Reactive shift (delta1):", !isTRUE(cfg$fix_delta1), "\n")
+  cat("phi fixed           :", isTRUE(cfg$fix_phi), "\n")
+
+  cat("\n=== PARAMETER ESTIMATES ===\n")
   old_width <- options(width = 10000)
   print(as.data.frame(model_sum), digits = 3, row.names = FALSE)
   options(old_width)
 })
 writeLines(summary_output, file.path(run_output_dir, paste0("model_summary_", model_spec, ".txt")))
-
-# ======================= log likelihood / LOO-CV ============================
-if (requireNamespace("loo", quietly = TRUE)) {
-  log_lik_draws <- fit$draws("log_lik", format = "array")
-  r_eff         <- loo::relative_eff(exp(log_lik_draws))
-  loo_result    <- loo::loo(log_lik_draws, r_eff = r_eff)
-  cat("\n--- LOO-CV ---\n")
-  print(loo_result)
-  loo_output <- capture.output(print(loo_result))
-  writeLines(loo_output, file.path(run_output_dir, paste0("loo_", model_spec, ".txt")))
-  saveRDS(loo_result,    file.path(run_output_dir, paste0("loo_", model_spec, ".rds")))
-  cat("LOO-CV saved to:", run_output_dir, "\n")
-} else {
-  cat("Package 'loo' not installed; skipping LOO computation.\n")
-}
 
 # ── Pareto k diagnostics ─────────────────────────────────────────────────────
 if (exists("loo_result")) {
@@ -538,9 +705,12 @@ if (exists("loo_result")) {
       C_bt      = stan_data$C_bt[bad_obs]
     )
     bad_df <- bad_df[order(-bad_df$pareto_k), ]
-    writexl::write_xlsx(bad_df,
-                        file.path(run_output_dir,
-                                  paste0("pareto_k_flagged_", model_spec, ".xlsx")))
+    flagged_base <- file.path(run_output_dir, paste0("pareto_k_flagged_", model_spec))
+    if (requireNamespace("writexl", quietly = TRUE)) {
+      writexl::write_xlsx(bad_df, paste0(flagged_base, ".xlsx"))
+    } else {
+      write.csv(bad_df, paste0(flagged_base, ".csv"), row.names = FALSE)
+    }
     cat("Flagged observations saved to:", run_output_dir, "\n")
   }
   
@@ -731,6 +901,15 @@ if ("u_block_out" %in% model_vars) {
   save_u_block_plot(fit, plots_output_dir, model_spec)
 }
 
+if (isTRUE(cfg$use_dlnm)) {
+  cat("Generating DLNM exposure-response and lag-response plots...\n")
+  save_dlnm_response_plots(fit, prep, plots_output_dir, model_spec)
+  if (length(prep$dlnm_ix_vars) > 0) {
+    cat("Generating DLNM interaction surface plots...\n")
+    save_dlnm_interaction_response_plots(fit, prep, plots_output_dir, model_spec)
+  }
+}
+
 if (cfg$plot_ppc) {
   cat("Generating posterior predictive check plot...\n")
   save_ppc(df, fit, plots_output_dir, model_spec)
@@ -755,8 +934,8 @@ cat("\nAll outputs saved to:", run_output_dir, "\n")
 # 50m-annuli correlogram as GLMM.r section 15g, stratified by year.
 # Key question: does 2016 spatial autocorrelation disappear after Stan's
 # reactive mixture correction?
-
-if (requireNamespace("spdep", quietly = TRUE)) {
+# Set cfg$plot_morans_I = FALSE to skip (loads full y_pred matrix).
+if (isTRUE(cfg$plot_morans_I) && requireNamespace("spdep", quietly = TRUE)) {
 
   post_y_pred  <- fit$draws("y_pred", format = "matrix")
   mean_y_pred  <- colMeans(post_y_pred)
@@ -832,45 +1011,46 @@ if (requireNamespace("spdep", quietly = TRUE)) {
     cat("Skipping Stan Moran's I plot: not enough blocks per year (need >= 10).\n")
   } else {
 
-  moran_stan_df <- moran_stan_df %>%
-    filter(!is.na(morans_I)) %>%
-    mutate(year = factor(year))
+    moran_stan_df <- moran_stan_df %>%
+      filter(!is.na(morans_I)) %>%
+      mutate(year = factor(year))
 
-  p_moran_stan <- ggplot(
-    moran_stan_df,
-    aes(x = d_mid, y = morans_I, colour = year, group = year)
-  ) +
-    geom_hline(yintercept = 0, linetype = "dashed", colour = "gray50") +
-    geom_line(linewidth = 0.8) +
-    geom_point(aes(shape = significant), size = 2) +
-    scale_shape_manual(values  = c("TRUE" = 16, "FALSE" = 1),
-                       labels  = c("TRUE" = "p < 0.05", "FALSE" = "p >= 0.05"),
-                       na.value = 1) +
-    scale_x_continuous(breaks = seq(0, 2000, by = 200)) +
-    labs(
-      title    = "Moran's I on Stan posterior Pearson residuals - by year",
-      subtitle = "Remaining autocorrelation after reactive-mixture correction",
-      x = "Distance band midpoint (m)", y = "Moran's I",
-      colour = "Year", shape = NULL
+    p_moran_stan <- ggplot(
+      moran_stan_df,
+      aes(x = d_mid, y = morans_I, colour = year, group = year)
     ) +
-    theme_minimal()
+      geom_hline(yintercept = 0, linetype = "dashed", colour = "gray50") +
+      geom_line(linewidth = 0.8) +
+      geom_point(aes(shape = significant), size = 2) +
+      scale_shape_manual(values  = c("TRUE" = 16, "FALSE" = 1),
+                         labels  = c("TRUE" = "p < 0.05", "FALSE" = "p >= 0.05"),
+                         na.value = 1) +
+      scale_x_continuous(breaks = seq(0, 2000, by = 200)) +
+      labs(
+        title    = "Moran's I on Stan posterior Pearson residuals - by year",
+        subtitle = "Remaining autocorrelation after reactive-mixture correction",
+        x = "Distance band midpoint (m)", y = "Moran's I",
+        colour = "Year", shape = NULL
+      ) +
+      theme_minimal()
 
-  ggsave(
-    file.path(plots_output_dir,
-              paste0("moransI_stan_by_year_", model_spec, ".png")),
-    p_moran_stan, width = 11, height = 5, dpi = 150
-  )
+    ggsave(
+      file.path(plots_output_dir,
+                paste0("moransI_stan_by_year_", model_spec, ".png")),
+      p_moran_stan, width = 11, height = 5, dpi = 150
+    )
 
-  write.csv(
-    moran_stan_df,
-    file.path(plots_output_dir,
-              paste0("moransI_stan_by_year_", model_spec, ".csv")),
-    row.names = FALSE
-  )
-  cat("Stan Moran's I correlogram saved to:", plots_output_dir, "\n")
+    write.csv(
+      moran_stan_df,
+      file.path(plots_output_dir,
+                paste0("moransI_stan_by_year_", model_spec, ".csv")),
+      row.names = FALSE
+    )
+    cat("Stan Moran's I correlogram saved to:", plots_output_dir, "\n")
+  }
 
-  } # end if moran_stan_df non-empty
-
+} else if (!isTRUE(cfg$plot_morans_I)) {
+  cat("Skipping Stan Moran's I (plot_morans_I = FALSE).\n")
 } else {
   cat("Skipping Stan Moran's I: package 'spdep' not installed.\n")
 }
@@ -895,7 +1075,7 @@ if (cfg$plot_traceplots) {
     scalar_include <- c("alpha", "sigma_gp", "rho_gp", "sigma_icar",
                         "sigma_spatial", "phi_mix",
                         "delta1",
-                        "sigma_v", "rho", "sigma_block_dev",
+                        "tau", "sigma_v", "rho", "sigma_block_dev",
                         "sigma_time", "sigma_block",
                         "phi")
     scalar_vars <- intersect(scalar_include, model_vars)
@@ -920,8 +1100,13 @@ if (cfg$plot_traceplots) {
       cat("No scalar parameters found for traceplot.\n")
     }
 
-    # Lagged weights — draw by root name "w"; get element names from array dims
-    if ("w" %in% model_vars) {
+    # Lagged/DLNM weights
+    if ("w_cb" %in% model_vars) {
+      draws_w  <- fit$draws(variables = "w_cb", format = "array")
+      w_params <- dimnames(draws_w)[[3]]
+      cat("Plotting DLNM weight traceplots:", paste(head(w_params, 6), collapse = ", "), "...\n")
+      save_trace_chunks(w_params, draws_w, "traceplot_weights_wcb", chunk_size = 12, w = 12, h = 10)
+    } else if ("w" %in% model_vars) {
       draws_w  <- fit$draws(variables = "w", format = "array")
       w_params <- dimnames(draws_w)[[3]]
       cat("Plotting lag weight traceplots:", paste(w_params, collapse = ", "), "\n")
@@ -933,6 +1118,14 @@ if (cfg$plot_traceplots) {
       draws_wu  <- fit$draws(variables = "w_unlagged", format = "array")
       wu_params <- dimnames(draws_wu)[[3]]
       save_trace_chunks(wu_params, draws_wu, "traceplot_weights_unlagged", chunk_size = 12, w = 12, h = 8)
+    }
+
+    # Interaction cross-basis weights
+    if ("w_ix" %in% model_vars) {
+      draws_wix  <- fit$draws(variables = "w_ix", format = "array")
+      wix_params <- dimnames(draws_wix)[[3]]
+      cat("Plotting interaction weight traceplots:", paste(head(wix_params, 6), collapse = ", "), "...\n")
+      save_trace_chunks(wix_params, draws_wix, "traceplot_weights_ix", chunk_size = 12, w = 12, h = 8)
     }
   }
 }

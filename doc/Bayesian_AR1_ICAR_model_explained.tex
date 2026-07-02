@@ -10,6 +10,7 @@
 \usepackage{geometry}
 \usepackage{booktabs}
 \usepackage[normalem]{ulem}
+\usepackage{subcaption}
 \usepackage{lastpage}
 \usepackage{fancyhdr}
 
@@ -89,6 +90,137 @@ features of the CMF that do not vary month to month (except for ndvi):
 \end{equation}
 These include \texttt{mean\_ndvi} (greenness, a proxy for landscape type), binary land-use indicators (\texttt{is\_urban}, wild-land urban interface \texttt{is\_WUI}, water-interface \texttt{is\_WI}), and domestic water infrastructure variables (\texttt{has\_aljibes}, \texttt{water\_shortage}, \texttt{water\_containers}). Binary variables are not standardized.
 
+\subsection{Distributed Lag Non-linear Model (DLNM)}
+\label{sec:dlnm}
+
+The standard DLM constrains the effect of exposure $X_{k,b,t}$ to be \textbf{linear at every lag}: each weight $w_{k\ell}$ scales the raw value. A DLNM removes this restriction, modelling the effect as a \textbf{bi-dimensional exposure--lag--response surface}
+(\href{https://pubmed.ncbi.nlm.nih.gov/20812303/}{Gasparrini, Armstrong \& Kenward, \textit{Stat Med}, 2010};
+\href{http://www.ag-myresearch.com/package-dlnm.html}{\texttt{dlnm} R package}).
+
+The surface is parameterised via a \textbf{cross-basis}: a tensor product of a basis in the exposure dimension $\mathbf{b}_x(x) \in \mathbb{R}^{d_x}$ and a basis in the lag dimension $\mathbf{b}_\ell(\ell) \in \mathbb{R}^{d_\ell}$:
+\begin{equation}
+  f_k(x,\ell) = \mathbf{b}_x(x)^\top\,\mathbf{W}_k\,\mathbf{b}_\ell(\ell), \qquad
+  S_k(b,t) = \sum_{\ell=0}^{L} f_k\!\left(X_{k,b,t-\ell},\,\ell\right).
+\end{equation}
+The $d_x \cdot d_\ell$ coefficients $\mathrm{vec}(\mathbf{W}_k)$ are estimated jointly in Stan via the pre-computed cross-basis matrix $\mathbf{Q}_k$ (built in R with \texttt{dlnm::crossbasis()} and passed as data).
+The standard DLM is recovered when $d_x = 1$ and $\mathbf{b}_x(x) = x$.
+After fitting, \texttt{dlnm::crosspred()} reconstructs the surface and the cumulative effect $\sum_\ell f_k(x,\ell)$ on the logit scale; exponentiation gives odds ratios.
+
+\paragraph{Exposure basis options.}
+The choice of $\mathbf{b}_x(\cdot)$ determines what shapes of exposure--response the model can represent at any given lag:
+\begin{itemize}
+  \item \texttt{fun="lin"} ($d_x = 1$): identity $b_x(x) = x$; linear dose--response at each lag. Equivalent to a DLM with a smooth lag profile. Appropriate when the response is expected to be monotone and approximately proportional to the raw exposure value.
+  \item \texttt{fun="thr"} ($d_x = 1$ or $2$ depending on the number of threshold knots): piecewise-linear, with zero effect below a threshold and a linear slope above. One knot $c_1$ gives $b_x(x) = (x - c_1)_+$; two knots add a second slope change. Suitable for precipitation, where only accumulations above a trigger level may create new breeding sites.
+  \item \texttt{fun="ns"} ($d_x = \text{df}$, natural cubic spline): flexible non-linear response that can capture saturating, peaked, or U-shaped dose--response curves. Natural splines constrain the function to be linear beyond the boundary knots, preventing extreme extrapolation outside the observed exposure range.
+\end{itemize}
+
+\paragraph{Lag basis.}
+The lag basis $\mathbf{b}_\ell(\cdot)$ is a natural cubic spline (default \texttt{df}~$= 3$, $d_\ell = 3$) evaluated at the integer lags $\ell = 0, 1, \ldots, L$. This forces the lag profile to vary smoothly across consecutive lags rather than allowing arbitrary jumps at individual lags, effectively trading raw parameter flexibility for a biologically plausible constraint that effects decay or build gradually over months.
+
+\paragraph{Interpretation.}
+The individual elements of $\mathbf{W}_k$ are coefficients on basis functions and are not directly interpretable as lag weights. After fitting, \texttt{dlnm::crosspred()} maps them onto meaningful quantities on a user-supplied grid of exposure values:
+\begin{itemize}
+  \item \emph{Cumulative effect} $F_k(x) = \sum_{\ell=0}^{L} f_k(x,\ell)$: the total log-odds contribution summed over all lags, for a sustained exposure value $x$ relative to a reference level $x_0$. Exponentiating gives a cumulative odds ratio and is the primary quantity of interest when reporting ecological effects.
+  \item \emph{Lag-specific slice} $f_k(x_0, \cdot)$: how the response at a fixed reference exposure $x_0$ is distributed across lags $0$ to $L$, showing which delay dominates.
+  \item \emph{Exposure--response slice at fixed lag} $f_k(\cdot, \ell_0)$: dose--response shape at a single lag $\ell_0$, useful for diagnosing where non-linearity concentrates.
+\end{itemize}
+
+\subsection{Interaction Cross-Bases}
+\label{sec:interaction}
+
+The DLNM framework extends naturally to test whether the exposure--lag--response surface of a continuous predictor differs between groups defined by a binary land-use or infrastructure variable. This is achieved by constructing a separate \emph{interaction cross-basis} matrix that encodes the \emph{differential} surface of one group relative to the other, without fitting two separate models.
+
+\paragraph{Construction.}
+For a binary modifier variable $z_b^{(m)} \in \{0,1\}$ and a target DLNM predictor $k^*$, define the row-wise indicator
+\begin{equation}
+  z_{b} = \mathbf{1}\!\bigl[z_b^{(m)} = a\bigr],
+\end{equation}
+where $a$ is the \texttt{active\_level} that marks the modifier group. The interaction cross-basis matrix $\mathbf{X}_{ix} \in \mathbb{R}^{N \times d_{x} d_{\ell}}$ is formed by scaling each column of the DLNM sub-block $\mathbf{Q}_{k^*}$ by the row-wise indicator:
+\begin{equation}
+  [\mathbf{X}_{ix}]_{i,\cdot} = z_{b_i}\cdot [\mathbf{Q}_{k^*}]_{i,\cdot}.
+\end{equation}
+The cross-basis matrices for all interaction pairs are horizontally concatenated, giving $\mathbf{X}_{ix} \in \mathbb{R}^{N \times P_{ix}}$.
+The linear predictor becomes
+\begin{equation}
+  \text{logit}(p_{bt}) = \alpha
+  + \mathbf{X}_{cb}\,\mathbf{w}_{cb}
+  + \mathbf{X}_{ix}\,\mathbf{w}_{ix}
+  + \mathbf{X}^u\,\mathbf{w}^u
+  + v_{bt} + s_b,
+\end{equation}
+where $\mathbf{w}_{ix} \in \mathbb{R}^{P_{ix}}$ are the interaction coefficients. When no interaction pairs are specified, $P_{ix} = 0$ and $\mathbf{X}_{ix}\,\mathbf{w}_{ix} = \mathbf{0}$, recovering the base DLNM model exactly.
+
+\paragraph{Interpretation.}
+For observations where $z_{b} = 0$ (reference group), $\mathbf{X}_{ix} = \mathbf{0}$, so only the main-effect surface $\mathbf{Q}_{k^*}\,\mathbf{w}_{cb,k^*}$ applies. For observations where $z_{b} = 1$ (modifier group), the total surface is $\mathbf{Q}_{k^*}\,(\mathbf{w}_{cb,k^*} + \mathbf{w}_{ix})$. Hence $\mathbf{w}_{ix}$ captures the \emph{deviation} of the modifier group's exposure--lag--response surface from the reference group: a near-zero $\mathbf{w}_{ix}$ means the exposure response is the same in both groups; a non-zero $\mathbf{w}_{ix}$ indicates effect modification.
+
+\paragraph{Relation to the standard multiplicative interaction in a GLMM.}
+The DLNM interaction is structurally identical to the familiar product-term interaction in a GLMM, generalised from scalar coefficients to cross-basis coefficient vectors. In a standard GLMM with binary modifier $z_b \in \{0,1\}$ (e.g.\ $z_b = 1$ for non-urban) and continuous predictor $x_{bt}$, the linear predictor contains
+\begin{equation}
+  \beta_x \cdot x_{bt} + \beta_{xz} \cdot (z_b \times x_{bt}),
+\end{equation}
+where $z_b \times x_{bt}$ is the product term: the predictor value is literally multiplied by the group indicator. The DLNM interaction does exactly the same thing, but applied column-wise to the cross-basis matrix:
+\begin{equation}
+  [\mathbf{X}_{ix}]_{i,\cdot} = z_{b_i} \cdot [\mathbf{Q}_{k^*}]_{i,\cdot}
+  \quad \longleftrightarrow \quad
+  z_b \times x_{bt}.
+\end{equation}
+The scalar coefficient $\beta_{xz}$ (a single number) is replaced by the vector $\mathbf{w}_{ix}$ (one coefficient per cross-basis column), which allows the interaction to modify the entire shape of the exposure--lag--response surface rather than a single slope. All identifiability properties and posterior correlation structure of the standard interaction carry over directly: reference-group observations identify the main surface; modifier-group observations identify the differential surface; and the posteriors of $\mathbf{w}_{cb,k^*}$ and $\mathbf{w}_{ix}$ are correlated for exactly the same reason that $\hat\beta_x$ and $\hat\beta_{xz}$ are correlated in OLS.
+
+There is one coding detail worth noting. In a textbook interaction model with $z_b = \mathbf{1}[\text{non-urban}]$, the ``main effect of the modifier'' term $\beta_z \cdot z_b$ represents the mean log-odds shift for non-urban CMFs (at the reference exposure). In our model this role is played by $w^u_{\texttt{is\_urban}} \cdot \texttt{is\_urban}_b = w^u_{\texttt{is\_urban}} \cdot (1 - z_b)$, which represents the mean shift for \emph{urban} CMFs instead. The two parameterisations are algebraically equivalent (a sign flip and a redefinition of $\alpha$), but it means that $w^u_{\texttt{is\_urban}}$ is the effect of \emph{being urban}, not of being non-urban, and it enters exclusively in urban observations (where $z_b = 0$), as established above.
+
+\paragraph{Joint estimation and parameter identification.}
+The interaction weights $\mathbf{w}_{ix}$ are \emph{not} estimated independently from the main-effect cross-basis weights $\mathbf{w}_{cb,k^*}$ and the urbanization main effect $w^u_{\texttt{is\_urban}}$. All parameters are estimated jointly from the same likelihood in a single Stan model. Their posterior dependence, however, differs qualitatively between the two pairs.
+
+\smallskip\noindent\textit{$\mathbf{w}_{ix}$ and $\mathbf{w}_{cb,k^*}$ (main-effect TRD surface).}
+Non-urban observations simultaneously constrain both $\mathbf{w}_{cb,k^*}$ and $\mathbf{w}_{ix}$, because the total TRD contribution for a non-urban observation is $\mathbf{Q}_{k^*,i}\,(\mathbf{w}_{cb,k^*} + \mathbf{w}_{ix})$. Stan cannot separate the two contributions from non-urban data alone. What makes them jointly identified is that \emph{urban observations constrain $\mathbf{w}_{cb,k^*}$ without any contribution from $\mathbf{X}_{ix}$} (since $z_b = 0$ for urban CMFs, so $[\mathbf{X}_{ix}]_{i,\cdot} = \mathbf{0}$). Urban observations therefore pin down the reference surface; non-urban observations then identify the residual contrast $\mathbf{w}_{ix}$. The joint posterior of $(\mathbf{w}_{cb,k^*},\, \mathbf{w}_{ix})$ will have non-zero covariance: if the posterior of $\mathbf{w}_{cb,k^*}$ shifts upward, the posterior of $\mathbf{w}_{ix}$ shifts downward to preserve the fit on non-urban data. This is the standard main-effect/interaction posterior correlation that appears in any regression model containing $x$, $z$, and $x \times z$; it is expected and does not indicate confounding.
+
+\smallskip\noindent\textit{$\mathbf{w}_{ix}$ and $w^u_{\texttt{is\_urban}}$ (urbanization main effect).}
+Here the situation is different. Because \texttt{is\_urban} is coded $1 = \text{urban}$ and \texttt{active\_level} $= 0$ (non-urban modifier), the two parameters affect \emph{completely disjoint sets of observations}:
+\begin{itemize}
+  \item Urban CMFs ($\texttt{is\_urban}_b = 1$, $z_b = 0$): $w^u_{\texttt{is\_urban}}$ contributes $1 \times w^u_{\texttt{is\_urban}}$ to the linear predictor; $[\mathbf{X}_{ix}]_{i,\cdot} = \mathbf{0}$ so $\mathbf{w}_{ix}$ has no effect.
+  \item Non-urban CMFs ($\texttt{is\_urban}_b = 0$, $z_b = 1$): $w^u_{\texttt{is\_urban}}$ contributes $0 \times w^u_{\texttt{is\_urban}} = 0$; $[\mathbf{X}_{ix}]_{i,\cdot} = [\mathbf{Q}_{k^*}]_{i,\cdot}$ so $\mathbf{w}_{ix}$ is active.
+\end{itemize}
+Neither parameter appears in the other's observations. Their posterior covariance is therefore mediated only through shared global parameters ($\alpha$, $\mathbf{w}_{cb}$, $\mathbf{v}$, $\mathbf{s}$), not through direct competition for the same data points. In practice this means the urbanization main effect and the interaction surface are near-orthogonal in the design matrix, and their posterior correlation is typically small. Conceptually, $w^u_{\texttt{is\_urban}}$ captures a static level shift (constant log-odds offset for being in an urban CMF, regardless of the TRD value that month), whereas $\mathbf{w}_{ix}$ captures an exposure-modulated contrast (by how much the TRD surface of non-urban CMFs differs from urban CMFs as a function of rainfall and lag). These are different estimands that decompose the urban--non-urban difference along orthogonal dimensions.
+
+\paragraph{Example: \texttt{is\_urban} $\times$ \texttt{total\_precip}.}
+Consider \texttt{binary\_var = "is\_urban"} (coded $1 = \text{urban}$, $0 = \text{non-urban}$), \texttt{active\_level = 0}, and \texttt{dlnm\_var = "total\_precip"}:
+\begin{itemize}
+  \item The indicator is $z_b = \mathbf{1}[\texttt{is\_urban}_b = 0]$: active ($z_b = 1$) for non-urban CMFs, zero ($z_b = 0$) for urban CMFs.
+  \item \textbf{Urban CMFs (reference group)}: precipitation effect on logit scale $= \mathbf{Q}_{\text{precip}}\,\mathbf{w}_{cb,\text{precip}}$.
+  \item \textbf{Non-urban CMFs (modifier group)}: precipitation effect $= \mathbf{Q}_{\text{precip}}\,(\mathbf{w}_{cb,\text{precip}} + \mathbf{w}_{ix})$.
+\end{itemize}
+The scientific motivation is that non-urban areas may have more open terrain, unmaintained drainage, or natural containers, so heavy precipitation could create breeding sites more efficiently than in urban areas where storm drains are functional. A positive cumulative interaction effect $F_{ix}(x) = \sum_\ell f_{ix}(x,\ell) > 0$ at high precipitation values would support this hypothesis. After fitting, \texttt{dlnm::crosspred()} is called separately for each group: with coefficients $\mathbf{w}_{cb,\text{precip}}$ for the urban surface and with $\mathbf{w}_{cb,\text{precip}} + \mathbf{w}_{ix}$ for the non-urban surface, yielding side-by-side visualisations of the two exposure--lag--response surfaces.
+
+\subsection{Shrinkage Priors for Cross-Basis Weights}
+\label{sec:shrinkage}
+
+Each DLNM cross-basis sub-block contributes $d_x \cdot d_\ell$ coefficients to $\mathbf{w}_{cb}$. These columns are highly correlated: columns within the exposure basis are smooth transformations of the same variable, and columns within the lag basis are smooth functions of adjacent lags. Without regularization, the posterior can spread the same fitted surface across many combinations of large positive and negative coefficients that cancel, producing surface estimates with artificially narrow credible intervals and poor out-of-sample predictions.
+
+\paragraph{Student-$t$ prior as a sparse-regularising prior.}
+The main-effect cross-basis weights use:
+\begin{equation}
+  w_{cb,j} \;\sim\; \text{Student-$t$}(3,\; 0,\; 1.0), \qquad j = 1,\ldots,P_{cb}.
+\end{equation}
+Compared with a Normal$(0, \sigma)$ prior with the same scale, the Student-$t$ with $\nu = 3$ degrees of freedom has substantially heavier tails: both priors pull small coefficients toward zero with similar force, but the Normal applies an increasingly severe quadratic penalty as $|w|$ grows, whereas the Student-$t$ penalty grows only as $(\nu+1)/2 \cdot \log(1 + w^2/\nu\sigma^2)$. This means that a genuine large effect can escape shrinkage under the Student-$t$ prior much more easily than under the Normal, while noise-driven near-zero coefficients are regularised equally aggressively by both. In the scale-mixture representation,
+\begin{equation}
+  w_{cb,j} \mid \lambda_j \;\sim\; \text{Normal}(0,\; \lambda_j^2), \qquad
+  \lambda_j^2 \;\sim\; \text{InvGamma}\!\left(\tfrac{\nu}{2},\; \tfrac{\nu\sigma^2}{2}\right),
+\end{equation}
+the local scale $\lambda_j$ adapts to each coefficient: a truly large effect draws $\lambda_j$ upward, relaxing the constraint; a noise coefficient keeps $\lambda_j$ small and remains shrunk. Stan samples the augmented $(\mathbf{w}_{cb}, \boldsymbol{\lambda})$ system without the need for explicit spike-and-slab indicator variables.
+
+\paragraph{Different scales for different coefficient blocks.}
+Unlagged covariate weights use a tighter scale to reflect the prior expectation that static spatial predictors typically have smaller marginal effects on mosquito presence than temporally varying climatic drivers:
+\begin{equation}
+  w_k^u \;\sim\; \text{Student-$t$}(3,\; 0,\; 0.5).
+\end{equation}
+
+\paragraph{Interaction weights.}
+The differential surface coefficients $\mathbf{w}_{ix}$ use a Normal prior with a tighter scale than the main-effect cross-basis:
+\begin{equation}
+  w_{ix,j} \;\sim\; \text{Normal}(0,\; 0.5).
+\end{equation}
+A Normal (rather than Student-$t$) prior here provides more conservative, symmetric shrinkage of the differential surface --- appropriate when the existence of an interaction is uncertain and the null of no effect modification should be the default. The tighter scale ($\sigma = 0.5$ vs.\ $1.0$ for $\mathbf{w}_{cb}$) reflects the prior expectation that interaction effects are typically smaller than main effects.
+
 \subsection{Per-CMF AR(1) Temporal Effect}
 \label{sec:ar}
 
@@ -103,6 +235,40 @@ The AR(1) coefficient $\rho \in (-1,1)$ and innovation SD $\sigma_v > 0$ are \te
 all CMFs} (partial pooling), so each CMF trajectory is an independent realisation of the same
 stochastic process. This lets each CMF track its own seasonal rhythm while the global persistence
 and variability are informed by all CMFs jointly (see Table~\ref{tab:priors}).
+
+The AR(1) process acts on $v_{bt}$, which enters the linear predictor on the \textbf{logit scale} (Equation~\ref{eq:lp}), not on $p_{bt}$ directly. This is necessary because $p_{bt} \in [0,1]$ is bounded: a standard AR(1) defined on a bounded quantity would require constrained innovations and would behave non-linearly near 0 and 1. On the logit scale the support is $(-\infty, +\infty)$, making additive Gaussian innovations well-defined everywhere. Persistence in $v_{bt}$ corresponds to multiplicative persistence in the odds of mosquito presence, which is the natural scale for a logistic model.
+
+\subsubsection*{Posterior geometry and the $(\tau, \rho)$ reparameterisation}
+
+The $(\sigma_v, \rho)$ parameterisation above is conceptually natural but creates a
+difficult posterior geometry. The stationary initialisation requires the factor
+$1/\sqrt{1-\rho^2}$, which diverges as $|\rho| \to 1$. This couples $\sigma_v$ and $\rho$ in a
+sharp funnel that causes low E-BFMI (Emperical Bayesian Fraction of Missing Information) and poor ESS (Effective Sample Size) in HMC, particularly when the posterior
+favours high persistence.
+
+To improve MCMC efficiency the model is reparameterised in terms of
+$\tau$ --- the \textbf{marginal stationary SD} of the process --- with $\sigma_v$ derived:
+\begin{equation}
+  \sigma_v = \tau\sqrt{1 - \rho^2}.
+\end{equation}
+The stationary initialisation then simplifies to $v_{b,1} = \tau\,\varepsilon_{b,1}$
+(i.e.\ $v_{b,1} \sim \text{Normal}(0,\tau^2)$ exactly), with no $\rho$-dependent scaling.
+This decouples what the data actually identify:
+\begin{itemize}
+  \item $\tau$ is identified by the \emph{spread} of CMF trajectories --- well-behaved for all $\rho$.
+  \item $\rho$ is identified by the \emph{autocorrelation} within each trajectory.
+\end{itemize}
+The two parameterisations are mathematically equivalent; $\sigma_v$ is recovered in the
+\texttt{generated quantities} block. The prior on $\tau$ is $\text{Normal}^+(0, 1.0)$,
+wider than the old $\text{Normal}^+(0, 0.3)$ prior on $\sigma_v$ to account for the change
+of variables.
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=0.85\textwidth]{out.nosync/ar1_reparameterization_geometry.pdf}
+  \caption{Geometry of the AR(1) posterior under the original $(\sigma_v, \rho)$ parameterisation (left) versus the $(\tau, \rho)$ reparameterisation (right). The funnel structure near $|\rho| \to 1$ that causes low E-BFMI and poor ESS is resolved by sampling $\tau$ (marginal SD) directly.}
+  \label{fig:ar1_geometry}
+\end{figure}
 
 \section{Spatial Random Effects}
 \label{sec:spatial}
@@ -150,6 +316,27 @@ relative to the ecological probability $p_{bt}$. The reactive observation probab
 where $\delta_1 \geq 0$ scales the log-odds boost per additional dengue case. The total inspection count is $n_{bt} = N_b^{HH} + \kappa C_{bt}$ with $\kappa = 2$
 fixed, and the reactive fraction is $\omega_{bt} = \min(1,\, \kappa C_{bt} / n_{bt})$.
 
+The linear term $\delta_1 C_{bt}$ encodes a proportional boost: each additional dengue case adds a fixed increment of $\delta_1$ to the log-odds of a positive inspection. An alternative formulation replaces $C_{bt}$ with $\log(C_{bt})$, implying diminishing returns as case counts grow (a block already under intense surveillance gains little from one further case). Figure~\ref{fig:reactive_prob_icar} illustrates both formulations for a range of baseline probabilities $p_{bt}$ and $\delta_1 = 2.2$.
+
+\begin{figure}[ht]
+  \centering
+  \begin{subfigure}[t]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{out.nosync/reactive_larval_detection_probability_linear.pdf}
+    \caption{Linear term: $\delta_1 \cdot C_{bt}$.}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[t]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{out.nosync/reactive_larval_detection_log.pdf}
+    \caption{Log term: $\delta_1 \cdot \log(C_{bt})$.}
+  \end{subfigure}
+  \caption{Reactive larval detection probability $p_{bt}^R$ as a function of dengue case count $C_{bt}$
+           for two functional forms of the targeting-bias term ($\delta_0 = 0$, $\delta_1 = 2.2$).
+           Interactive versions with adjustable $\delta_1$ and $C_{bt}$ range:
+           \href{run:reactive_larval_detection_linear.html}{linear term} and
+           \href{run:reactive_larval_detection_log.html}{log term}.}
+  \label{fig:reactive_prob_icar}
+\end{figure}
+
 \subsection{Effective Observation Probability and Likelihood}
 
 The effective probability that a randomly selected inspection is positive mixes the two
@@ -189,7 +376,9 @@ $w_k^u$ & Unlagged covariate weight & Normal$(0,\; 0.5)$ & Tighter than lag weig
 \addlinespace
 $\rho$ & AR(1) coefficient (shared) & Normal$(0.35,\; 0.1)$, $\rho \in (-1,1)$ & Centred on moderate positive persistence, consistent with seasonal mosquito data; constrained to stationarity. \\
 \addlinespace
-$\sigma_v$ & AR(1) innovation SD (shared) & Normal$^+(0,\; 0.3)$ & Allows moderate month-to-month variability within each CMF trajectory; half-normal via lower bound. \\
+$\tau^*$ & Marginal stationary SD of AR(1) (\texttt{blockRE}) & Normal$^+(0,\; 1.0)$ & Primary AR(1) scale parameter after reparameterisation; $\sigma_v = \tau\sqrt{1-\rho^2}$ derived. Prior wider than old $\sigma_v$ prior to account for change of variables. \\
+\addlinespace
+$\sigma_v^*$ & AR(1) innovation SD (\texttt{ICAR}) & Normal$^+(0,\; 0.3)$ & Allows moderate month-to-month variability; \texttt{ICAR} model not yet reparameterised to $(\tau,\rho)$. \\
 \addlinespace
 $\sigma_{\text{block}}^*$ & SD of i.i.d.\ block offsets & Normal$^+(0,\; 0.5)$ & Mean $\approx 0.4$ log-odds; allows substantial between-CMF heterogeneity while shrinking toward zero. \\
 \addlinespace
@@ -200,7 +389,7 @@ $\delta_1$ & Reactive surveillance boost & Normal$^+(0,\; 0.5)$ & Constrained po
 $\phi$ & Beta-Binomial concentration & Gamma$(13,\; 0.1)$ or fixed & Centred on the empirically observed posterior (mean 130, mode 120, SD $\approx 36$); still weakly informative. Fixed to a data-driven estimate when \texttt{fix\_phi = TRUE}. \\
 \bottomrule
 \end{tabular}
-\caption{Prior distributions for all model parameters. $^*$Model-specific: $\sigma_{\text{block}}$ applies to \texttt{AR\_perCMF\_blockRE}; $\sigma_{\text{ICAR}}$ applies to \texttt{AR\_perCMF\_ICAR}. Normal$^+$ denotes a half-normal (lower bound 0 in Stan).}
+\caption{Prior distributions for all model parameters. $^*$Model-specific: $\tau$ and $\sigma_{\text{block}}$ apply to \texttt{AR\_perCMF\_blockRE}; $\sigma_v$ and $\sigma_{\text{ICAR}}$ apply to \texttt{AR\_perCMF\_ICAR}. The \texttt{blockRE} model has been reparameterised to $(\tau,\rho)$; the \texttt{ICAR} model still uses $(\sigma_v,\rho)$. Normal$^+$ denotes a half-normal (lower bound 0 in Stan).}
 \label{tab:priors}
 \end{table}
 
@@ -235,5 +424,97 @@ performance. Models with $|z_m| \leq 2$ are considered equivalent within the unc
 the PSIS-LOO estimates. In the variable sweep, each covariate combination is fitted with both
 spatial structures; the LOO comparison across all runs simultaneously identifies the better
 spatial component \emph{and} the better covariate set.
+
+\subsection{WAIC --- Widely Applicable Information Criterion}
+
+WAIC (Watanabe--Akaike IC) is the fully Bayesian generalisation of \textbf{AIC}: where AIC penalises the log-likelihood at the MLE by $2k$, WAIC uses the \textbf{entire posterior distribution} and replaces the fixed parameter count with a data-driven penalty, making it valid even for singular models where the likelihood is not asymptotically normal
+(\href{https://jmlr.org/papers/v11/watanabe10a.html}{Watanabe, \textit{J.\ Mach.\ Learn.\ Res.}, 2010};
+\href{https://doi.org/10.1007/s11222-016-9696-4}{Vehtari, Gelman \& Gabry, \textit{Stat.\ Comput.}, 2017}).
+WAIC and LOO-IC target the same estimand (elpd) and are on the same scale; LOO-IC is generally preferred in practice for its better diagnostics.
+It is computed from the pointwise log-likelihood matrix $\log p(y_i \mid \theta^s)$ (observations $\times$ posterior draws):
+\begin{equation}
+  \text{elpd\_waic} = \sum_i \bigl[\log \bar{p}(y_i) - V(y_i)\bigr],
+\end{equation}
+where $\log \bar{p}(y_i)$ is the log of the mean likelihood across draws (fit term) and $V(y_i)$ is the variance of the log-likelihoods across draws (penalty). The reported criterion is $\text{WAIC} = -2 \times \text{elpd\_waic}$ (lower = better).
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{p{2.5cm}p{4.5cm}p{4.5cm}p{2.5cm}}
+\toprule
+ & \textbf{WAIC} & \textbf{LOOIC} & \textbf{AIC} \\
+\midrule
+Framework & Bayesian & Bayesian & Frequentist \\
+Penalty & $2\sum_i \text{Var}(\log p_i)$ & Implicit via LOO & $2k$ \\
+Reliability signal & \texttt{p\_waic} $> 0.4$ per obs. & Pareto-$\hat{k} > 0.7$ per obs. & None \\
+Preferred for? & Bayesian, fast & Bayesian, recommended & Frequentist \\
+\bottomrule
+\end{tabular}
+\caption{Comparison of model selection criteria. All are on the deviance scale; lower = better.
+         \texttt{loo\_compare()} accepts both WAIC and LOOIC objects.}
+\end{table}
+
+In practice WAIC and LOOIC give very similar answers for well-behaved models; the \texttt{loo} authors recommend LOOIC because its Pareto-$\hat{k}$ diagnostics are more interpretable. Both are computed from the \texttt{log\_lik} vector in the Stan \texttt{generated quantities} block.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Model Complexity and Parameter Count}
+\label{sec:params}
+
+The total number of free parameters in the model varies between the standard DLM and the DLNM formulations only in the \emph{environmental effect} block; all other parameters are identical across formulations.
+
+\subsection*{Fixed parameters (all formulations)}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{p{3cm}p{7cm}r}
+\toprule
+\textbf{Block} & \textbf{Parameters} & \textbf{Count} \\
+\midrule
+Intercept & $\alpha$ & 1 \\
+Reactive bias & $\delta_1$ & 1 \\
+Overdispersion & $\phi$ (estimated) or fixed & 1 or 0 \\
+Unlagged covariates & $w_k^u$, one per unlagged variable & $K_u$ \\
+AR(1) & $\tau$ (blockRE) or $\sigma_v$ (ICAR), $\rho$ & 2 \\
+AR(1) states & $v_{bt}$ (non-centred: $\mathbf{v}\_\text{raw}$) & $B \times T$ \\
+Spatial (blockRE) & $\sigma_\text{block}$, $u^\text{block}_{b}$ & $1 + B$ \\
+Spatial (ICAR) & $\sigma_\text{ICAR}$, $\tilde{u}_b$ (sum-to-zero) & $1 + B$ \\
+\bottomrule
+\end{tabular}
+\caption{Parameters shared across all environmental-effect formulations. $B$ = number of CMFs, $T$ = number of time periods, $K_u$ = number of unlagged covariates.}
+\end{table}
+
+\subsection*{Environmental effect parameters: DLM vs DLNM}
+
+The environmental block has $K$ lagged predictors and lag basis with $d_\ell$ columns (natural spline, df\,=\,3 by default, so $d_\ell = 3$). The number of parameters per variable and in total depends on the exposure basis chosen.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{p{3.5cm}p{2cm}p{2cm}p{2.5cm}p{4.0cm}}
+\toprule
+\textbf{Formulation} & $d_x$ & $d_\ell$ & \textbf{Params/var} & \textbf{What it captures} \\
+\midrule
+No DLNM (free weights) & --- & --- & $L+1$ & Linear effect at each discrete lag; no smoothness across lags \\
+\addlinespace
+DLNM, \texttt{fun="lin"} & 1 & 3 & 3 & Linear in exposure; smooth lag profile via spline \\
+\addlinespace
+DLNM, \texttt{fun="thr"} (1 knot) & 1 & 3 & 3 & Step-change above one threshold; zero effect below \\
+\addlinespace
+DLNM, \texttt{fun="thr"} (2 knots) & 2 & 3 & 6 & Piecewise: two threshold levels, three segments \\
+\addlinespace
+DLNM, \texttt{fun="ns"} (df\,=\,3) & 3 & 3 & 9 & Smooth non-linear in exposure; smooth lag profile \\
+\bottomrule
+\end{tabular}
+\caption{Environmental effect parameter count per lagged predictor. $d_x$ = exposure basis columns, $d_\ell$ = lag basis columns ($d_\ell=3$ throughout with \texttt{ns(df=3)}). For $L=2$ (max lag 2 months) the no-DLNM model has $L+1=3$ free weights per variable, identical in count to \texttt{lin} and \texttt{thr(1 knot)} but without cross-basis structure.}
+\end{table}
+
+\subsection*{Current model configuration}
+
+The current sweep uses $K=3$ lagged predictors with mixed exposure bases (\texttt{total\_rainy\_days}: \texttt{lin}; \texttt{avg\_VPD}: \texttt{lin}; \texttt{precip\_max\_day}: \texttt{ns(df=3)}) and a shared \texttt{ns(df=3)} lag basis ($d_\ell = 3$):
+\begin{equation}
+  P_{cb} = 1\times3 + 1\times3 + 3\times3 = 15 \text{ cross-basis parameters.}
+\end{equation}
+The equivalent no-DLNM model would have $3 \times 3 = 9$ free lag weights. The spline term on precipitation thus adds $9 - 3 = 6$ parameters relative to a fully linear formulation, allowing the precipitation effect to be non-linear in exposure while keeping both rainfall and VPD effects parsimonious.
 
 \end{document}

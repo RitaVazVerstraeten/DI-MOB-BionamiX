@@ -10,6 +10,7 @@
 \usepackage{geometry}
 \usepackage{booktabs}
 \usepackage[normalem]{ulem} % adds \sout without changing \emph behavior
+\usepackage{subcaption}
 
 % Page layout
 \geometry{margin=1in}
@@ -89,7 +90,26 @@ Crucially, dengue cases do not enter this equation. This equation defines the qu
 \text{logit}(p_{bt}^R) = \text{logit}(p_{bt}) + \delta_0 + \delta_1 \log(C_{bt}) \quad \text{for } C_{bt} > 0,
 \end{equation}
 where $\delta_0$ represents baseline targeting bias (reactive vs systematic), and $\delta_1$ captures increased targeting as outbreak intensity increases. This affects only the observation process, not ecology.\\ 
-The log of cases is taken because a block going from 0→1 case triggers a surveillance response (teams are sent). Going from 50→51 cases adds almost nothing — the block is already under intense surveillance. log($C_{bt}$) captures this saturation: each doubling of cases adds a fixed increment to surveillance intensity, rather than a fixed absolute increase. Furthermore, $p^R$ is mapped on the logit scale, so we create a log-log relationship between cases and probability of positive inspection (typical in epi). 
+The log of cases is taken because a block going from 0→1 case triggers a surveillance response (teams are sent). Going from 50→51 cases adds almost nothing — the block is already under intense surveillance. log($C_{bt}$) captures this saturation: each doubling of cases adds a fixed increment to surveillance intensity, rather than a fixed absolute increase. Furthermore, $p^R$ is mapped on the logit scale, so we create a log-log relationship between cases and probability of positive inspection (typical in epi).
+
+\begin{figure}[ht]
+  \centering
+  \begin{subfigure}[t]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{out.nosync/reactive_larval_detection_probability_linear.pdf}
+    \caption{Linear term: $\delta_1 \cdot C_{bt}$.}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[t]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{out.nosync/reactive_larval_detection_log.pdf}
+    \caption{Log term: $\delta_1 \cdot \log(C_{bt})$.}
+  \end{subfigure}
+  \caption{Reactive larval detection probability $p_{bt}^R$ as a function of dengue case count $C_{bt}$
+           for two functional forms of the targeting-bias term ($\delta_0 = 0$, $\delta_1 = 2.2$).
+           Interactive versions with adjustable $\delta_1$ and $C_{bt}$ range:
+           \href{run:reactive_larval_detection_linear.html}{linear term} and
+           \href{run:reactive_larval_detection_log.html}{log term}.}
+  \label{fig:reactive_prob}
+\end{figure}
 
 \subsection{Combining Systematic and Reactive Surveillance}
 
@@ -138,6 +158,42 @@ This prior encourages neighboring lag weights to be similar, resulting in smooth
 \text{logit}(p_{bt}) = \alpha + \underbrace{\sum_{k=1}^{K_L} \sum_{\ell=0}^{L} w_{k,\ell} X_{k,b,t-\ell}}_{\text{lagged covariates}} +  \underbrace{\sum_{k=1}^{K_U} w_{k} X_{k,b}}_{\text{static spatial covariates}} + s_b + u_t,
 \end{equation}
 where $k$ indexes the predictor, and $K_L$ represents the predictors that require lagging, $K_U$ represent the static spatial predictors without lagging, $w_{k,\ell}$ are lag weights following the random walk prior, $s_b$ are spatial random effects, and $u_t$ are temporal random effects (AR).
+
+\subsection{Distributed Lag Non-linear Model (DLNM)}
+
+The DLM above constrains the effect of exposure $X_{k,b,t}$ to be \textbf{linear} at every lag: the weight $w_{k,\ell}$ is a scalar that scales the raw value. The simplest way of removing this constraint is to create an \textit{unconstrained} DLM, where the effect of each environmental variable at each lag is independently estimated. A Distributed Lag Non-linear Model (DLNM) removes this restriction by allowing the effect to vary non-linearly with the exposure value while retaining the distributed lag structure. This yields a \textbf{bi-dimensional exposure--lag--response surface} that describes how the effect of covariate $k$ depends jointly on both its value $x$ and the lag $\ell$ at which it was experienced (\href{https://pubmed.ncbi.nlm.nih.gov/20812303/}{Gasparrini, Armstrong \& Kenward, \textit{Stat Med}, 2010}; \href{http://www.ag-myresearch.com/package-dlnm.html}{\texttt{dlnm} R package}).
+
+\subsubsection*{Cross-basis}
+
+The key construct is the \textbf{cross-basis}: a tensor-product basis that simultaneously spans the exposure and lag dimensions. Let $\mathbf{b}_x(x) \in \mathbb{R}^{d_x}$ be a basis in the \emph{exposure} space (e.g.\ a natural spline in $x$) and $\mathbf{b}_\ell(\ell) \in \mathbb{R}^{d_\ell}$ a basis in the \emph{lag} space (e.g.\ a natural spline or polynomial over $\ell = 0,\ldots,L$). The surface is parameterised as:
+\begin{equation}
+  f_k(x,\,\ell) = \mathbf{b}_x(x)^\top\,\mathbf{W}_k\,\mathbf{b}_\ell(\ell),
+\end{equation}
+where $\mathbf{W}_k \in \mathbb{R}^{d_x \times d_\ell}$ is a coefficient matrix. The total contribution of covariate $k$ to the linear predictor at block $b$, time $t$ is:
+\begin{equation}
+  S_k(b,t) = \sum_{\ell=0}^{L} f_k\!\left(X_{k,b,t-\ell},\,\ell\right)
+           = \sum_{\ell=0}^{L} \mathbf{b}_x\!\left(X_{k,b,t-\ell}\right)^\top \mathbf{W}_k\,\mathbf{b}_\ell(\ell).
+\end{equation}
+In practice the $d_x \cdot d_\ell$ free parameters $\mathrm{vec}(\mathbf{W}_k)$ enter as a linear predictor via a pre-computed \emph{cross-basis matrix} $\mathbf{Q}_k \in \mathbb{R}^{N \times (d_x d_\ell)}$, whose row for observation $(b,t)$ is $\sum_\ell \mathbf{b}_x(X_{k,b,t-\ell}) \otimes \mathbf{b}_\ell(\ell)$, so that $S_k(b,t) = \mathbf{Q}_k[b,t,\cdot]\,\mathrm{vec}(\mathbf{W}_k)$. This matrix is computed once in R and passed directly to Stan.
+
+\subsubsection*{Relation to the DLM}
+
+The DLM mentioned above is the special case $d_x = 1$, $\mathbf{b}_x(x) = x$: the surface collapses to $f_k(x,\ell) = x \cdot w_{k,\ell}$, recovering the scalar lag weights of Section~5.1. The DLNM replaces each scalar with a smooth function of $x$, so the effect at a given lag can saturate, reverse sign, or exhibit a threshold --- for example, rainfall may only increase mosquito abundance above a minimum level, with a lag of one to two months.
+
+\subsubsection*{Parameters estimated in Stan and interpretation}
+
+The cross-basis matrix \texttt{X\_cb} $\in \mathbb{R}^{N \times P_{cb}}$ is pre-computed in R via \texttt{dlnm::crossbasis()} using natural cubic splines (df\,=\,3) for both the exposure and lag dimensions, and passed as data to Stan. Stan estimates a single flat coefficient vector
+\begin{equation}
+  \mathbf{w}_{cb} \in \mathbb{R}^{P_{cb}}, \qquad \mathbf{w}_{cb} \sim \text{Normal}(0,\,1),
+\end{equation}
+where $P_{cb} = \sum_k d_{x,k} \cdot d_{\ell,k}$ is the total number of cross-basis columns across all DLNM predictors (e.g.\ $3 \times 3 = 9$ columns per variable with default df\,=\,3 for both dimensions). The environmental contribution to the linear predictor is the inner product $\mathbf{X}_{cb}\,\mathbf{w}_{cb}$, which Stan computes as a standard matrix--vector product.
+
+The coefficients $\mathbf{w}_{cb}$ are \textbf{not directly interpretable}: they are regression weights on abstract spline-basis columns with no individual meaning. To recover the exposure--lag--response surface for predictor $k$, the relevant slice of $\mathbf{w}_{cb}$ (of length $d_{x,k} \cdot d_{\ell,k}$) is reshaped into $\widehat{\mathbf{W}}_k$ and evaluated via \texttt{dlnm::crosspred()} in R. This yields:
+\begin{itemize}
+  \item \textbf{Cumulative effect} $\hat{f}_k^{\mathrm{cum}}(x) = \sum_{\ell=0}^{L} \hat{f}_k(x, \ell)$: the total log-odds change associated with sustained exposure at level $x$ relative to a chosen reference value $x_0$, summed over all lags.
+  \item \textbf{Lag-specific slice} $\hat{f}_k(x, \ell)$: the contribution at a single lag $\ell$, as a function of $x$ (exposure--response curve at that lag) or as a function of $\ell$ at a fixed $x$ (lag--response curve).
+\end{itemize}
+All effects are on the \textbf{logit (log-odds) scale}. An estimated value $\hat{f}_k^{\mathrm{cum}}(x) = c$ means that sustained exposure at level $x$ (versus reference $x_0$) is associated with a change of $c$ log-odds in $p_{bt}$, corresponding to an odds ratio of $e^c$. Posterior uncertainty is propagated by repeating the \texttt{crosspred()} evaluation across posterior draws of $\mathbf{w}_{cb}$ and summarising with credible intervals.
 
 \subsection{Temporal Autocorrelation}
 
@@ -424,6 +480,122 @@ Prior to modeling, we compute correlations between each variable and mosquito da
 \subsection{Model Fitting}
 
 The Bayesian model is implemented in Stan and fitted via the \texttt{cmdstanr} R interface using MCMC (NUTS sampler). In the current implementation, $\delta_0$ and $\delta_1$ are estimated jointly with all other parameters, so no fixing is required. MCMC settings: 2 chains, 1000 warmup iterations, 1000 sampling iterations, \texttt{adapt\_delta = 0.95}, \texttt{max\_treedepth = 12}. Two model variants are available: with or without the temporal random effect $v_t$ (\texttt{use\_temporal\_re}); the current default omits it.
+
+\subsection{Model Selection Criteria: WAIC, LOOIC, and Log-Likelihood}
+
+\subsubsection{WAIC --- Widely Applicable Information Criterion}
+
+WAIC (Widely Applicable Information Criterion, also called the Watanabe--Akaike IC) is a fully Bayesian measure of predictive accuracy. Unlike AIC, it uses the \textbf{entire posterior distribution} rather than a point estimate. It was developed by Sumio Watanabe and is ``widely applicable'' because it works even for singular models (where the likelihood is not asymptotically normal --- something AIC assumes).
+
+In the \texttt{loo} package, \texttt{waic()} computes it from the matrix of \textbf{log-likelihood values evaluated at each posterior draw}, giving:
+\begin{itemize}
+  \item \texttt{elpd\_waic} --- expected log pointwise predictive density (higher = better fit)
+  \item \texttt{p\_waic} --- effective number of parameters (the penalty term)
+  \item \texttt{waic} --- the actual criterion, equal to $-2 \times \text{elpd\_waic}$ (lower = better, on the deviance scale)
+\end{itemize}
+
+The formula is:
+\begin{equation}
+  \text{elpd\_waic} = \sum_i \bigl[ \log \bar{p}(y_i) - V(y_i) \bigr],
+\end{equation}
+where $\log \bar{p}(y_i)$ is the log of the mean likelihood across posterior draws (fit term), and $V(y_i)$ is the variance of the log-likelihoods across draws (penalty for overfitting/uncertainty).
+
+\subsubsection{Relation to AIC}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{p{2.5cm}p{5.5cm}p{6.5cm}}
+\toprule
+\textbf{Aspect} & \textbf{AIC} & \textbf{WAIC} \\
+\midrule
+Foundation & Frequentist; uses MLE point estimate & Bayesian; uses full posterior \\
+\addlinespace
+Penalty & Fixed: $2k$ (number of parameters) & Data-driven: $p_\text{waic} = \sum_i \text{Var}(\log p(y_i \mid \theta))$ \\
+\addlinespace
+Asymptotics & Requires regular models (posterior $\approx$ Normal) & Works for singular/non-regular models too \\
+\addlinespace
+Convergence & WAIC $\to$ AIC under flat priors $+$ large $N$ & --- \\
+\bottomrule
+\end{tabular}
+\caption{Comparison of AIC and WAIC.}
+\end{table}
+
+The key conceptual parallel is that both penalise a fit term by an \textbf{effective parameter count}, and both target out-of-sample predictive accuracy. But AIC's penalty is a crude count; WAIC's penalty is computed empirically from how much the likelihood \emph{varies} across the posterior --- parameters that are well-constrained by the data contribute little to the penalty.
+
+\subsubsection{Relation to LOOIC}
+
+WAIC and LOOIC (Leave-One-Out IC) are the two main outputs of the \texttt{loo} package and both target the same estimand --- the expected log pointwise predictive density (elpd) for a new dataset of the same size. They are on identical scales and interpreted identically:
+\begin{itemize}
+  \item Both report \texttt{elpd}, \texttt{p\_eff}, and $\text{IC} = -2 \times \text{elpd}$
+  \item \textbf{Lower IC / higher elpd = better predictive model}
+  \item \texttt{loo\_compare()} works the same way with both
+\end{itemize}
+
+The difference is \emph{how} they estimate that quantity:
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{p{3cm}p{5.5cm}p{5.5cm}}
+\toprule
+ & \textbf{WAIC} & \textbf{LOOIC} \\
+\midrule
+Method & Analytical approximation using posterior variance & Pareto-smoothed importance sampling (PSIS) of LOO \\
+\addlinespace
+Reliability signal & \texttt{p\_waic} per obs.; flag if any $> 0.4$ & Pareto-$\hat{k}$ diagnostic per obs.; flag if $\hat{k} > 0.7$ \\
+\addlinespace
+When it breaks down & Influential observations (high-variance likelihoods) & Same --- flagged by high $\hat{k}$ values \\
+\addlinespace
+Practical preference & Slightly faster & Generally preferred; better diagnostics \\
+\bottomrule
+\end{tabular}
+\caption{Comparison of WAIC and LOOIC.}
+\end{table}
+
+In practice, WAIC and LOOIC give \textbf{very similar answers} for well-behaved models. The \texttt{loo} package authors (Vehtari, Gelman, Gabry) generally recommend LOOIC because its Pareto-$\hat{k}$ diagnostics are more interpretable for detecting problematic observations.
+
+\subsubsection{Relation to the Log-Likelihood}
+
+Everything flows from the \textbf{pointwise log-likelihood matrix} $\log p(y_i \mid \theta^s)$ (observations $\times$ posterior draws):
+\begin{itemize}
+  \item Mean over draws $\;\to\;$ $\log \bar{p}(y_i)$ \quad (fit term)
+  \item Variance over draws $\;\to\;$ $V(y_i)$ \quad (penalty term)
+\end{itemize}
+\begin{equation}
+  \text{elpd\_waic} = \sum_i \log \bar{p}(y_i) - \sum_i V(y_i)
+\end{equation}
+\begin{itemize}
+  \item The fit term is a Bayesian analogue of the log-likelihood at the MLE
+  \item The penalty replaces $2k$ (AIC) with a posterior-variance-based quantity
+  \item For LOOIC, the same matrix is used but via importance-sampling weights instead
+\end{itemize}
+
+\subsubsection{Summary}
+
+\begin{table}[ht]
+\centering
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+\textbf{Property} & \textbf{AIC} & \textbf{WAIC} & \textbf{LOOIC} \\
+\midrule
+Framework & Frequentist & Bayesian & Bayesian \\
+Estimand & KL divergence & elpd (out-of-sample) & elpd (out-of-sample) \\
+Input & Log-lik at MLE & Full log-lik matrix & Full log-lik matrix \\
+Fit term & $-2\log p(y\mid\hat{\theta})$ & $2\sum_i\log\bar{p}(y_i)$ & PSIS-LOO elpd \\
+Penalty & $2k$ (param.\ count) & $2\sum_i\text{Var}(\log p_i)$ & Implicit via LOO \\
+Scale & Deviance & Deviance & Deviance \\
+Lower = better? & \checkmark & \checkmark & \checkmark \\
+Requires regularity? & \checkmark & $\times$ & $\times$ \\
+Diagnostic & None & \texttt{p\_waic} $> 0.4$ per obs. & Pareto-$\hat{k} > 0.7$ per obs. \\
+Preferred for? & Quick freq.\ comparison & Bayesian, fast computation & Bayesian, recommended default \\
+\bottomrule
+\end{tabular}}
+\caption{Summary comparison of AIC, WAIC, and LOOIC.}
+\label{tab:model_criteria}
+\end{table}
 
 \subsection{Additional Considerations}
 
