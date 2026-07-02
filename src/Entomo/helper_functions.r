@@ -471,6 +471,26 @@ build_stan_data <- function(cfg) {
   if (!is.null(lag$lag_vars_expanded)) {
     cat("Lag variables expanded:", paste(lag$lag_vars_expanded, collapse = ", "), "\n")
   }
+
+  # Extended-lag mode: dataset may contain pre-response rows (e.g. 2015) with NA
+  # ento data (y_bt) — those rows already provided lag history in build_lag_design()
+  # above but are not Stan observations. Mirrors the equivalent filter in
+  # build_dlnm_stan_data(); without it, NA y_bt rows reach Stan and error out with
+  # "Variable 'y' has NA values."
+  if (!is.null(cfg$response_start)) {
+    response_date <- as.Date(paste0(cfg$response_start, "_01"), "%Y_%m_%d")
+    keep <- !is.na(lag$df$y_bt) & lag$df$year_month_date >= response_date
+    n_pre <- sum(lag$df$year_month_date < response_date)
+    cat(sprintf(
+      "Extended-lag mode: response from %s — %d response rows, %d pre-response rows used for lag history\n",
+      cfg$response_start, sum(keep), n_pre
+    ))
+  } else {
+    keep <- !is.na(lag$df$y_bt)
+  }
+  lag$df         <- lag$df[keep, ]
+  lag$X_lag_flat <- lag$X_lag_flat[keep, , drop = FALSE]
+
   binary_unlagged_vars <- setdiff(cfg$unlagged_vars, cfg$numeric_vars)
   unl <- prepare_unlagged(lag$df, cfg$unlagged_vars, binary_unlagged_vars)
 
