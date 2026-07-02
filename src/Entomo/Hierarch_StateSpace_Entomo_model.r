@@ -59,7 +59,7 @@ cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data",
   # Extended-lag dataset: env 2015-2019 (NDVI only for 2016-2019), ento-epi 2016-2019.
   # 2015 rows serve as lag lead-in; response_start below marks the observation period.
-  data_file_name = "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv",
+  data_file_name = if (spatial_level == "CMF")"env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv" else "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv",
   output_dir = if (hostname == "frietjes") "/home/rita/data/Entomo/fitting/stan" else "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
@@ -95,9 +95,10 @@ cfg <- list(
   max_lag = 6,
   kappa = 4,
 
-  unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
+  # unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
+  unlagged_vars = c("urban_pct", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
 
-  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers"),
+  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "urban_pct"),
 
   # DLNM settings (only used when use_dlnm = TRUE)
   dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp"),

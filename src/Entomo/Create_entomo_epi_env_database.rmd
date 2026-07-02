@@ -32,6 +32,7 @@ Observations table (one row per block-time combination):
 |wui | Integer | TRUE/FALSE value for wild-land urban interface for that manzana |
 |wi | Integer | TRUE/FALSE value for water interface for that manzana (or within 100m of manzana) |
 |urban | Integer | TRUE/FALSE value for whether/not urban for that manzana |
+|urban_pct | Numeric | Percentage of pixels within the manzana/CMF classified as urban according to the WSF classification |
 |has_aljibes | Binary | TRUE/FALSE value for whether/not there are underground cisternas within a 20m radius of the manzana |
 |nr_aljibes | Numeric | Number of underground water cisternas within 20m of the manzana |
 |water_shortage | Binary | TRUE/FALSE value for whether/not manzanas have reduced water provision (more days between water provision cycles) |
@@ -254,11 +255,13 @@ This step also removes the CMF VIII-19 because that's where the mz A8APSMMzFcSAM
 # dimob_manzanas <- dimob_manzanas %>%
 #   filter(CODIGO_ != "A8APSMMzFcSAMA")
 
-nrow(dimob_manzanas) # 1414
+nrow(dimob_manzanas) # 1409
+# MANZANA TRACKING [step 1/3]: remove shapefile rows with empty CODIGO_.
+# 1409 → 1409 unique manzana codes (0 rows dropped; CODIGO_ cleaned by Sylke).
 dimob_manzanas <- dimob_manzanas %>%
   filter(CODIGO_ != "")
 
-nrow(dimob_manzanas) # 1409 (5 removed)
+nrow(dimob_manzanas) # 1409 unique manzana codes remain
 
 
 # ento_epi_data <- ento_epi_data %>%
@@ -317,8 +320,10 @@ length(unique(setdiff(data_mz_names, shapefile_mz_names)))  # should be 0 -> is 
 ```
 
 Let's filter out the data-points in the 2 manzanas that are not in the shapefile.
+In addition, the A8APSMMzFcSAMA is a farm, where household count was set to 203 which is impossible, the second is a manzana without households which would eventually also have been filtered out. 
+
 ```{r filter out datapoint that do not have a valid location}
-cat("Number of rows before filtering: ", nrow(ento_epi_data), "\n") #50760 -> 84600 
+cat("Number of rows before filtering: ", nrow(ento_epi_data), "\n") #84600 
 ento_epi_data <- ento_epi_data %>%
   filter(!CODIGO_DIMOB %in% c("A8APGuMzFcPSOL", "A8APSMMzFcSAMA", "DD" ))
 cat("Number of rows after filtering: ", nrow(ento_epi_data), "\n") # 50688 -> 84420 
@@ -484,15 +489,19 @@ dimob_manzanas_nohouses <- dimob_manzanas_nohouses %>%
   filter(!CODIGO_ %in% c("A7CNAMzPPESC", "DD", "A8APSMMzFcSAMA", ""))
 
 cat("Number of unique manzanas in entomo data where Inspected_houses is zero: ",
-  length(unique(manzanas_without_houses$CODIGO_DIMOB)), "\n")
+  length(unique(manzanas_without_houses$CODIGO_DIMOB)), "\n") # 71
 cat("Number of rows that will be removed from entomological data due to zero household count: ", nrow(manzanas_without_houses), "\n")
 ```
 
 ### Remove zero-household manzanas
 
 ```{r remove manzanas without households}
+# MANZANA TRACKING [step 2/3]: drop all survey records where no houses were inspected.
+# Manzanas that have ONLY zero-household visits are entirely removed from ento_epi_data
+# and will therefore not appear in the final dataset. This is the main source of the
+# 1410 → 1336 reduction (~70 manzanas are affected; see manzanas_without_houses above).
 ento_epi_data <- ento_epi_data %>%
-  filter(Inspected_houses != 0)
+  filter(Inspected_houses != 0) # 1336
 ```
 
 ## Exploratory maps
@@ -925,9 +934,10 @@ wi <- wi %>%
 wui <- wui %>%
   rename(manzana_id = ID) %>%
   select(manzana_id, is_WUI)
-urban <- urban %>% 
+urban <- urban %>%
   rename(manzana_id = ID) %>%
-  select(manzana_id, is_urban)
+  mutate(urban_pct = mean_WSF * 100) %>%
+  select(manzana_id, is_urban, urban_pct)
 aljibes <- aljibes %>% 
   rename(manzana_id = CODIGO_) %>%
   select(manzana_id, has_aljibes, nr_aljibes)
@@ -1011,9 +1021,9 @@ wi_cmf <- wi_cmf %>%
 wui_cmf <- wui_cmf %>%
   rename(cmf_id = AS_CMF) %>%
   select(cmf_id, is_WUI)
-urban_cmf <- urban_cmf %>% 
-  rename(cmf_id = AS_CMF, is_urban = is_WSF) %>%
-  select(cmf_id, is_urban)
+urban_cmf <- urban_cmf %>%
+  rename(cmf_id = AS_CMF, is_urban = is_WSF, urban_pct = pct_WSF_pixels) %>%
+  select(cmf_id, is_urban, urban_pct)
 aljibes_cmf <- aljibes_cmf %>% 
   rename(cmf_id = AS_CMF) %>%
   select(cmf_id, has_aljibes, nr_aljibes)
@@ -1787,7 +1797,10 @@ env_all_2015 <- complete_grid_2015 %>%
   left_join(environmental_temp, by = "year_month") %>%          # meteo (2015–2019)
   left_join(environmental_spatial, by = "manzana_id") %>%       # spatial (no NDVI/NDMI/NDWI)
   rename(manzana = manzana_id, landcover = dominant_landcover) %>%
-  arrange(year_month, manzana)
+  arrange(year_month, manzana) %>%
+  mutate(year = as.integer(substr(year_month, 1, 4))) %>%
+  left_join(pop_density_mz, by = c("manzana" = "CODIGO_DIMOB", "year")) %>%
+  select(-year)
 
 cat("2015–2019 manzana dataset:", nrow(env_all_2015), "rows x", ncol(env_all_2015), "cols\n")
 cat("Missing values per column:\n")
@@ -2562,13 +2575,20 @@ cat("ento_epi_data structure:\n")
 str(ento_epi_data[1:5, ])
 
 # Convert ento_epi_data year_month to character format matching env_all (YYYY_MM)
-ento_epi_join <- ento_epi_data %>% 
+# MANZANA TRACKING [step 3/3]: restrict to the model period 2016–2019.
+# No manzanas are lost at this step (none were surveyed exclusively in 2015).
+# The full 1409 → 1336 reduction is explained by exactly two causes:
+#   - 71 manzanas removed at step 2 (Inspected_houses == 0 across all visits)
+#   - 2 manzanas in the shapefile that never appear in the ento data at all:
+#       A4CPBVMzAERO and A4CPSLMzTaller
+#   → 1409 − 71 − 2 = 1336
+ento_epi_join <- ento_epi_data %>%
   mutate(
     year_month = format(year_month, "%Y_%m"),  # convert Date to "YYYY_MM" format
     manzana = CODIGO_DIMOB  # rename to match env_all
   ) %>%
   filter(year_month >= "2016_01" & year_month <= "2019_12") %>%
-  select(manzana, year_month, Inspected_houses, Houses_pos_IS, cases, CMF, CP, AREA) 
+  select(manzana, year_month, Inspected_houses, Houses_pos_IS, cases, CMF, CP, AREA)
 head(ento_epi_join)
 
 
@@ -2876,8 +2896,16 @@ resid_fit_2015 <- lm(precip_max_day ~ total_rainy_days,
 cat(sprintf("precip_max_day = %.3f + %.3f * total_rainy_days\n",
             coef(resid_fit_2015)[1], coef(resid_fit_2015)[2]))
 
+resid_fit_2015_tp <- lm(precip_max_day ~ total_precip,
+                        data = final_dataset_cmf_2015, na.action = na.exclude)
+cat(sprintf("precip_max_day = %.3f + %.3f * total_precip\n",
+            coef(resid_fit_2015_tp)[1], coef(resid_fit_2015_tp)[2]))
+
 final_dataset_cmf_2015 <- final_dataset_cmf_2015 %>%
-  mutate(precip_max_day_resid_on_trd = resid(resid_fit_2015))
+  mutate(
+    precip_max_day_resid_on_trd = resid(resid_fit_2015),
+    precip_max_day_resid_on_tp  = resid(resid_fit_2015_tp)
+  )
 ```
 
 ```{r missing data heatmap 2015-2019 CMF}
@@ -2932,6 +2960,73 @@ write_csv(final_dataset_cmf_2015,
 cat("Extended-lag dataset saved.\n")
 ```
 
+## Build extended-lag manzana dataset (env 2015–2019, ento-epi 2016–2019)
+
+`env_all_2015` (2015–2019, no NDVI/NDMI/NDWI) is used as the base.
+The 2016–2019 ento-epi data is left-joined onto it. Rows for 2015 have `NA`
+for `Inspected_houses`, `Houses_pos_IS`, and `cases` — they provide lag history
+for the DLNM model without contributing to the likelihood.
+
+```{r build extended-lag manzana dataset}
+# Restrict env_all_2015 to manzanas that have valid entomological data (Inspected_houses > 0).
+# Without this filter the left join would include the ~73 zero-household manzanas that were
+# removed from ento_epi_data, giving them NA for all entomological columns but still adding
+# them to the final dataset as ghost rows with no response variable.
+valid_manzanas <- unique(ento_epi_join$manzana)
+cat("Manzanas with valid entomological data:", length(valid_manzanas), "\n")
+
+final_dataset_mz_2015 <- env_all_2015 %>%
+  filter(manzana %in% valid_manzanas) %>%
+  left_join(ento_epi_join, by = c("manzana", "year_month")) %>%
+  left_join(
+    env_all %>% select(manzana, year_month, mean_ndvi, mean_ndmi, mean_ndwi),
+    by = c("manzana", "year_month")
+  )
+
+cat("Extended-lag manzana dataset:", nrow(final_dataset_mz_2015),
+    "rows x", ncol(final_dataset_mz_2015), "cols\n")
+cat("2015 rows (lag history, no NDVI):",
+    sum(final_dataset_mz_2015$year_month < "2016_01"), "\n")
+cat("2016-2019 rows (response + NDVI available):",
+    sum(final_dataset_mz_2015$year_month >= "2016_01"), "\n")
+cat("Response rows with ento data:",
+    sum(!is.na(final_dataset_mz_2015$Inspected_houses)), "\n")
+cat("NDVI NAs (expected only in 2015 rows):",
+    sum(is.na(final_dataset_mz_2015$mean_ndvi)), "\n")
+```
+
+```{r collinearity correction for extended-lag manzana dataset}
+# Fit on ALL rows (2015–2019) so 2015 residuals are on the same scale as 2016+.
+resid_fit_mz_2015 <- lm(precip_max_day ~ total_rainy_days,
+                         data = final_dataset_mz_2015, na.action = na.exclude)
+cat(sprintf("precip_max_day = %.3f + %.3f * total_rainy_days\n",
+            coef(resid_fit_mz_2015)[1], coef(resid_fit_mz_2015)[2]))
+
+resid_fit_mz_2015_tp <- lm(precip_max_day ~ total_precip,
+                            data = final_dataset_mz_2015, na.action = na.exclude)
+cat(sprintf("precip_max_day = %.3f + %.3f * total_precip\n",
+            coef(resid_fit_mz_2015_tp)[1], coef(resid_fit_mz_2015_tp)[2]))
+
+final_dataset_mz_2015 <- final_dataset_mz_2015 %>%
+  mutate(
+    precip_max_day_resid_on_trd = resid(resid_fit_mz_2015),
+    precip_max_day_resid_on_tp  = resid(resid_fit_mz_2015_tp)
+  )
+```
+
+```{r save extended-lag manzana dataset}
+write_csv(final_dataset_mz_2015,
+  file.path(final_epi_entomo_env_data_path,
+    "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv"))
+write_csv(final_dataset_mz_2015,
+  file.path(final_epi_entomo_env_data_path_1,
+    "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv"))
+write_csv(final_dataset_mz_2015,
+  file.path(final_epi_entomo_env_data_path_2,
+    "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv"))
+cat("Extended-lag manzana dataset saved.\n")
+```
+
 # Correcting for colinnearity (check Descriptive Statistics for measures of colinnearity)
   geom_ribbon(aes(ymin = avg_temp - 1.96 * se_temp, ymax = avg_temp + 1.96 * se_temp), fill = "blue", alpha = 0.2) +
 
@@ -2942,7 +3037,7 @@ env_epi_ento <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Munic
 resid_fit <- lm(precip_max_day ~ precip_cat, data = env_epi_ento, na.action = na.exclude)
 
 env_epi_ento <- env_epi_ento %>%
-  mutate(precip_max_day_resid = resid(resid_fit))
+  mutate(precip_max_day_resid_on_top = resid(resid_fit))
 
 resid_fit <- lm(precip_max_day ~ total_rainy_days, data = env_epi_ento)
 
@@ -2951,13 +3046,20 @@ env_epi_ento <- env_epi_ento %>%
     precip_max_day_resid_on_trd = resid(resid_fit)
   )
 
+resid_fit <- lm(precip_max_day ~ total_precip, data = env_epi_ento)
+
+env_epi_ento <- env_epi_ento %>%
+  mutate(
+    precip_max_day_resid_on_tp = resid(resid_fit)
+  )
+
 env_epi_ento_cmf <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_CMF_2016_01_to_2019_12.csv")
 
 # na.exclude pads residuals with NA for missing rows so lengths match the dataframe
 resid_fit <- lm(precip_max_day ~ precip_cat, data = env_epi_ento_cmf, na.action = na.exclude)
 
 env_epi_ento_cmf <- env_epi_ento_cmf %>%
-  mutate(precip_max_day_resid = resid(resid_fit))
+  mutate(precip_max_day_resid_on_top = resid(resid_fit))
 
 resid_fit <- lm(precip_max_day ~ total_rainy_days, data = env_epi_ento_cmf)
 
@@ -3097,5 +3199,82 @@ p_trd_vs_sd <- ggplot(monthly_trd_sd, aes(x = year_month_date)) +
   theme_minimal() +
   theme(legend.position = "top", legend.justification = c(1, 1))
 
+ggsave(
+  filename = file.path(save_images_to, "precip_SD_with_TRD.png"),
+  plot = p_trd_vs_sd,
+  width = 12, height = 6, dpi = 300, bg = "white"
+)
 print(p_trd_vs_sd)
+```
+
+```{r correlation checks precipitation variables}
+cat("Correlation between total precip and precip max day: ",cor(env_epi_ento$total_precip, env_epi_ento$precip_max_day), "\n")
+cat("Correlation between total precip and residual precip max day on total_precip: ",cor(env_epi_ento$total_precip, env_epi_ento$precip_max_day_resid_on_tp), "\n")
+
+cat("Correlation between TRD and resid of precip max day on TRD: ",cor(env_epi_ento$precip_max_day_resid_on_trd, env_epi_ento$total_rainy_days), "\n")
+cat("Correlation between rain SD and TRD: ",cor(env_epi_ento$rain_sd, env_epi_ento$total_rainy_days), "\n")
+cat("Correlation between rain SD and total precipitation (mm): ",cor(env_epi_ento$rain_sd, env_epi_ento$total_precip), "\n")
+cat("Correlation between rain SD and max daily precip: ",cor(env_epi_ento$rain_sd, env_epi_ento$precip_max_day), "\n")
+
+```
+
+```{r precip_components_temporal, fig.width=12, fig.height=8}
+# Two-panel temporal overview: top panel shows total precip (left axis) and max daily
+# precip (right axis) on a dual y-axis; bottom panel shows the residual of max daily
+# precip on total rainy days (intensity independent of rain frequency).
+# Meteo variables are the same within a month across manzanas, so first() is used.
+monthly_precip_components <- env_epi_ento %>%
+  group_by(year_month) %>%
+  summarise(
+    total_precip                = first(total_precip),
+    precip_max_day              = first(precip_max_day),
+    precip_max_day_resid_on_tp = first(precip_max_day_resid_on_tp),
+    .groups = "drop"
+  ) %>%
+  mutate(year_month_date = as.Date(paste0(gsub("_", "-", year_month), "-01")))
+
+scale_tp_md <- max(monthly_precip_components$total_precip, na.rm = TRUE) /
+               max(monthly_precip_components$precip_max_day,  na.rm = TRUE)
+
+cor_tp_md  <- round(cor(monthly_precip_components$total_precip,
+                        monthly_precip_components$precip_max_day,
+                        use = "complete.obs"), 2)
+cor_tp_rd  <- round(cor(monthly_precip_components$total_precip,
+                        monthly_precip_components$precip_max_day_resid_on_tp,
+                        use = "complete.obs"), 2)
+
+p_tp_md <- ggplot(monthly_precip_components, aes(x = year_month_date)) +
+  geom_line(aes(y = total_precip, color = "Total precip"), size = 1) +
+  geom_point(aes(y = total_precip, color = "Total precip")) +
+  geom_line(aes(y = precip_max_day * scale_tp_md, color = "Max daily precip"), size = 1) +
+  geom_point(aes(y = precip_max_day * scale_tp_md, color = "Max daily precip")) +
+  scale_y_continuous(
+    name     = "Total precip (mm)",
+    sec.axis = sec_axis(~ . / scale_tp_md, name = "Max daily precip (mm)")
+  ) +
+  scale_color_manual(
+    name   = NULL,
+    values = c("Total precip" = "steelblue", "Max daily precip" = "darkblue")
+  ) +
+  labs(title    = "Total monthly precipitation and max daily precipitation",
+       subtitle = paste0("r(total precip, max daily precip) = ", cor_tp_md),
+       x = NULL) +
+  theme_minimal() +
+  theme(legend.position = "top", legend.justification = c(1, 1))
+
+p_rd <- ggplot(monthly_precip_components, aes(x = year_month_date, y = precip_max_day_resid_on_tp)) +
+  geom_hline(yintercept = 0, linetype = "dotted", color = "grey50") +
+  geom_line(color = "coral3", size = 1) +
+  geom_point(color = "coral3") +
+  labs(title = "Max daily precip — residual on total precipitation",
+       subtitle = paste0("r(total precip, residual) = ", cor_tp_rd),
+       x = "Month", y = "Residual (mm)") +
+  theme_minimal()
+
+print(p_tp_md / p_rd)
+ggsave(
+  filename = file.path(save_images_to, "precip_components_total_maxday_resid_temporal.png"),
+  plot     = p_tp_md / p_rd,
+  width = 12, height = 4, dpi = 300, bg = "white"
+)
 ```
