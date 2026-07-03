@@ -74,7 +74,7 @@ get_numeric_vars <- function(lag_vars, unlag_vars) {
 # Dropped: has_aljibes, nr_aljibes (both below RF noise floor).
 # Climate variants: avg_temp (RF dominant but correlated with precip, r=0.65),
 #   WS2M (collinear with temp r=-0.61 and precip r=-0.48 — test without temp).
-# mean_ndvi goes in lag so get_combo_vars() moves it to unlag (numeric forced).
+# mean_ndvi in unlag — no lagged effect expected; treated as static vegetation index.
 #
 # Run the sweep twice (toggle use_icar below) to compare blockRE vs ICAR;
 # LOO-IC then selects the better spatial structure per variable configuration.
@@ -84,34 +84,34 @@ combinations <- list(
   # ── Group 1: Precipitation core — no temperature or wind ──────────────────
   # Establishes the baseline signal from total_precip + VPD alone.
   # Incrementally adds optional static predictors to test their contribution.
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "mean_ndvi"),
-       unlag = c("is_urban", "is_WUI", "water_containers")),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "mean_ndvi"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage")),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage", "mean_ndvi")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "mean_ndvi"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "is_WI")),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("is_urban", "is_WUI", "water_containers", "is_WI", "mean_ndvi")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "mean_ndvi"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage", "is_WI")),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage", "is_WI", "mean_ndvi")),
 
   # ── Group 2: Add avg_temp ─────────────────────────────────────────────────
   # avg_temp is the dominant RF predictor (importance 0.307) but correlated
   # with total_precip (Spearman r = 0.65) and total_rainy_days (r = 0.70)
   # because the warm and wet seasons coincide in Cienfuegos. LOO-IC will
   # reveal whether temp adds independent predictive value on top of precip.
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp", "mean_ndvi"),
-       unlag = c("is_urban", "is_WUI", "water_containers")),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp", "mean_ndvi"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage")),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+       unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage", "mean_ndvi")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp", "mean_ndvi"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "is_WI")),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+       unlag = c("is_urban", "is_WUI", "water_containers", "is_WI", "mean_ndvi")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp", "mean_ndvi"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage", "is_WI")),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+       unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage", "is_WI", "mean_ndvi")),
 
   # ── Group 3: WS2M instead of avg_temp ────────────────────────────────────
   # WS2M tracks the dry/cool season (r = -0.48 with total_precip, r = -0.61
@@ -119,33 +119,33 @@ combinations <- list(
   # VPD don't capture, without the temp-precip collinearity. Only the core and
   # core+water_shortage variants are included here; if WS2M adds nothing in
   # these, it will not help in the larger models either.
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "WS2M", "mean_ndvi"),
-       unlag = c("is_urban", "is_WUI", "water_containers")),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "WS2M"),
+       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "WS2M", "mean_ndvi"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage")),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "WS2M"),
+       unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage", "mean_ndvi")),
 
   # Group 4: DLNM interaction combos — uses build_dlnm_stan_data() + blockRE_DLNM_ix.stan.
-  # Exposure basis: lin for all variables (comparable to simple lag model).
+  # Exposure and lag bases: ns(df=3) for all variables.
   # Interactions chosen from RF H-statistics:
   #   water_containers × total_precip  (active_level=1, H > 0.45 at lags 0,1,5 — strongest)
   #   is_urban × total_precip          (active_level=0, H ~ 0.17–0.27 at lags 0–2)
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "mean_ndvi"),
-       unlag = c("is_urban", "is_WUI", "water_containers"),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi"),
        ix    = list(
          list(binary_var = "is_urban",        active_level = 0,
               dlnm_var   = "total_precip",     label = "nonurban_x_tp")
        )),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "mean_ndvi"),
-       unlag = c("is_urban", "is_WUI", "water_containers"),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi"),
        ix    = list(
          list(binary_var = "water_containers", active_level = 1,
               dlnm_var   = "total_precip",     label = "wc_x_tp")
        )),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "mean_ndvi"),
-       unlag = c("is_urban", "is_WUI", "water_containers"),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi"),
        ix    = list(
          list(binary_var = "is_urban",        active_level = 0,
               dlnm_var   = "total_precip",     label = "nonurban_x_tp"),
@@ -153,15 +153,15 @@ combinations <- list(
               dlnm_var   = "total_precip",     label = "wc_x_tp")
        )),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp", "mean_ndvi"),
-       unlag = c("is_urban", "is_WUI", "water_containers"),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi"),
        ix    = list(
          list(binary_var = "water_containers", active_level = 1,
               dlnm_var   = "total_precip",     label = "wc_x_tp")
        )),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp", "mean_ndvi"),
-       unlag = c("is_urban", "is_WUI", "water_containers"),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi"),
        ix    = list(
          list(binary_var = "is_urban",        active_level = 0,
               dlnm_var   = "total_precip",     label = "nonurban_x_tp"),
@@ -391,7 +391,7 @@ for (combo_i in seq_along(combinations)) {
     if (is_dlnm_ix) {
       cfg$dlnm_vars    <- combo_vars$lag
       cfg$dlnm_argvar  <- setNames(
-        lapply(combo_vars$lag, function(v) list(fun = "lin")),
+        lapply(combo_vars$lag, function(v) list(fun = "ns", df = 3)),
         combo_vars$lag
       )
       cfg$dlnm_arglag  <- list(fun = "ns", df = 3)
