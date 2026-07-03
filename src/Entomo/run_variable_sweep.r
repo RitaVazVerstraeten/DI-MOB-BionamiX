@@ -181,9 +181,9 @@ cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo"
              else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/",
   data_file_name = if (spatial_level == "CMF")
-    "env_epi_entomo_data_per_CMF_2016_01_to_2019_12_noColinnearity.csv"
+    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
   else
-    "env_epi_entomo_data_per_manzana_2016_01_to_2019_12_noColinnearity.csv",
+    "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv",
   output_dir = if (hostname == "frietjes")
     "/home/rita/data/Entomo/fitting/stan"
   else
