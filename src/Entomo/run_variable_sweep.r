@@ -184,6 +184,7 @@ cfg <- list(
     "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
   else
     "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv",
+  response_start = "2016_01",   # 2015 rows used as lag lead-in only, not passed to Stan
   output_dir = if (hostname == "frietjes")
     "/home/rita/data/Entomo/fitting/stan"
   else
