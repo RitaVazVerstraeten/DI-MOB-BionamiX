@@ -471,6 +471,21 @@ build_stan_data <- function(cfg) {
   if (!is.null(lag$lag_vars_expanded)) {
     cat("Lag variables expanded:", paste(lag$lag_vars_expanded, collapse = ", "), "\n")
   }
+
+  # Extended-lag mode: drop pre-response rows (e.g. 2015) that provided lag
+  # history but have no entomological observations (y_bt = NA).
+  if (!is.null(cfg$response_start)) {
+    response_date <- as.Date(paste0(cfg$response_start, "_01"), "%Y_%m_%d")
+    keep_resp <- !is.na(lag$df$y_bt) & lag$df$year_month_date >= response_date
+    n_pre <- sum(!keep_resp)
+    lag$df        <- lag$df[keep_resp, ]
+    lag$X_lag_flat <- lag$X_lag_flat[keep_resp, ]
+    cat(sprintf(
+      "Extended-lag mode: response from %s — %d response rows, %d pre-response rows used for lag history\n",
+      cfg$response_start, nrow(lag$df), n_pre
+    ))
+  }
+
   binary_unlagged_vars <- setdiff(cfg$unlagged_vars, cfg$numeric_vars)
   unl <- prepare_unlagged(lag$df, cfg$unlagged_vars, binary_unlagged_vars)
 
