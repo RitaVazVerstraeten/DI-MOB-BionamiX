@@ -1393,9 +1393,14 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     lines(at_std, pred_active$allhigh, col = active_col, lwd = 1, lty = 2)
     axis(1, at = at_std, labels = round(at_orig, 2))
     abline(h = 0, lty = 2, col = "grey50")
-    legend("topright",
-           legend = c(sprintf("Reference  (active_level ≠ %s)", ix$active_level),
-                      sprintf("Active group  (%s == %s)", ix$binary_var, ix$active_level)),
+    legend_labels <- if (!is.null(ix$modifier_var)) {
+      c("Reference  (mean level)",
+        sprintf("Active group  (%s: +1 SD)", ix$modifier_var))
+    } else {
+      c(sprintf("Reference  (active_level ≠ %s)", ix$active_level),
+        sprintf("Active group  (%s == %s)", ix$binary_var, ix$active_level))
+    }
+    legend("topright", legend = legend_labels,
            col = c(ref_col, active_col), lwd = 2, bty = "n")
     dev.off()
 

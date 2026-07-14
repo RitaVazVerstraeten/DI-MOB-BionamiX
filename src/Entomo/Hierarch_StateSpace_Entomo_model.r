@@ -57,9 +57,9 @@ spatial_level <- "CMF"
 # ========== Output structure and config =============
 cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data",
-  # Extended-lag dataset: env 2015-2019 (NDVI only for 2016-2019), ento-epi 2016-2019.
+  # Extended-lag dataset: env 2015-2019 (NDVI/NDMI/NDWI observed 2016-2019, climatology-backfilled for 2015), ento-epi 2016-2019.
   # 2015 rows serve as lag lead-in; response_start below marks the observation period.
-  data_file_name = if (spatial_level == "CMF")"env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv" else "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv",
+  data_file_name = if (spatial_level == "CMF")"env_epi_entomo_data_per_CMF_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv" else "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv",
   output_dir = if (hostname == "frietjes") "/home/rita/data/Entomo/fitting/stan" else "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
@@ -89,35 +89,39 @@ cfg <- list(
   response_start = "2016_01",
   n_blocks = NULL, # set NULL for all blocks/CMFs
 
-  lag_vars = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp"),
+  lag_vars = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp", "avg_temp"),
   # lag_vars = c("total_rainy_days", "avg_VPD"),
 
   max_lag = 6,
   kappa = 4,
 
   # unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
-  unlagged_vars = c("urban_pct", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
+  unlagged_vars = c("is_urban", "is_WUI", "is_WI", "water_containers", "mean_ndvi"),
 
-  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "urban_pct"),
+  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "mean_ndvi"),
 
   # DLNM settings (only used when use_dlnm = TRUE)
-  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp"),
+  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "avg_temp"),
 
   dlnm_argvar = list(
     total_precip                = list(fun = "ns", df = 3),
     avg_VPD                     = list(fun = "ns", df = 3),
-    precip_max_day_resid_on_tp = list(fun = "ns", df = 3)
+    precip_max_day_resid_on_tp = list(fun = "ns", df = 3),
+    avg_temp                     = list(fun = "ns", df = 3)
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
 
-  # Interaction cross-bases: each entry is a (binary_var, active_level, dlnm_var, label) tuple.
-  # active_level: the value of binary_var for which the modifier is active.
-  #   is_urban coded 1=urban (reference), 0=non-urban -> active_level=0 for non-urban modifier
-  #   water_shortage logical (TRUE=1)             -> active_level=1 for water-shortage modifier
+  # Interaction cross-bases: each entry is either
+  #   (binary_var, active_level, dlnm_var, label) - 0/1 indicator modifier, active
+  #     where binary_var == active_level (e.g. is_urban coded 1=urban (reference),
+  #     0=non-urban -> active_level=0 for the non-urban modifier), or
+  #   (modifier_var, dlnm_var, label) - continuous modifier, standardized then
+  #     multiplied into the cross-basis (for vars that aren't naturally binary,
+  #     e.g. water_containers).
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
   dlnm_ix_vars = list(
-    list(binary_var = "is_urban",       active_level = 0, dlnm_var = "total_precip", label = "nonurban_x_tp")
-    # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "ws_x_tp")
+    list(binary_var = "is_urban",       active_level = 0, dlnm_var = "total_precip", label = "nonurban_x_tp"),
+    list(modifier_var = "water_containers", dlnm_var = "total_precip", label = "wc_x_tp")
   ),
   # dlnm_ix_vars = NULL,
 

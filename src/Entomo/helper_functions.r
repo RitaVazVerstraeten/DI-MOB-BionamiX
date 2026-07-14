@@ -276,7 +276,16 @@ build_dlnm_stan_data <- function(cfg) {
   block_col  <- if (!is.null(cfg$block_col)) cfg$block_col else "manzana"
   idx        <- index_and_subset(input_data, cfg$n_blocks, block_col = block_col)
 
-  vars_to_std <- intersect(cfg$numeric_vars, names(idx$df))
+  # Scoped to dlnm_vars only (not cfg$numeric_vars as a whole): dlnm_vars need
+  # to be standardized here, on the full pre-filter population, because the
+  # cross-basis is built from the full time series (lag windows reach back
+  # into pre-response rows). Unlagged numeric vars (e.g. mean_ndvi) are
+  # standardized once, later, by prepare_unlagged() on the response-period
+  # population — standardizing them here too would silently double-apply:
+  # prepare_unlagged() re-derives mean/sd from the already-transformed column,
+  # which produces a *different* final value than either pass alone, and
+  # diverges from what's saved in dlnm_var_stats/returned in `df`.
+  vars_to_std <- intersect(cfg$dlnm_vars, names(idx$df))
 
   # Save mean/SD for DLNM vars BEFORE standardizing (needed for back-transformation in plots)
   dlnm_var_stats <- setNames(lapply(cfg$dlnm_vars, function(v) {
@@ -386,40 +395,66 @@ build_dlnm_stan_data <- function(cfg) {
   cb_ncols      <- sapply(cfg$dlnm_vars, function(v) ncol(cb_mats[[v]]))
   col_starts_cb <- cumsum(c(1L, cb_ncols[-length(cb_ncols)]))
 
-  # Build interaction cross-basis X_ix: for each (binary_var, dlnm_var) pair,
-  # multiply the 0/1 indicator into the corresponding DLNM sub-block of X_cb.
-  # active_level: value of binary_var for which the modifier is active (e.g. 0 for
-  # non-urban when is_urban is coded 1 = urban; 1 for water_shortage TRUE).
+  # Build interaction cross-basis X_ix: for each interaction spec, multiply a
+  # per-row modifier into the corresponding DLNM sub-block of X_cb. Two kinds
+  # of modifier are supported:
+  #   - binary_var + active_level: 0/1 indicator, 1 where binary_var equals
+  #     active_level (e.g. 0 for non-urban when is_urban is coded 1 = urban;
+  #     1 for water_shortage TRUE). w_ix is then "effect when the indicator
+  #     switches on" relative to the w_cb baseline.
+  #   - modifier_var (no active_level): a continuous variable, standardized
+  #     to mean 0 / sd 1 before multiplying, for modifiers that aren't
+  #     naturally binary (e.g. water_containers). Because the modifier is
+  #     standardized, w_cb is the effect at the modifier's mean and w_ix is
+  #     the added effect per +1 SD of the modifier — same downstream math as
+  #     the binary case, just reinterpreted continuously (see
+  #     save_dlnm_interaction_response_plots()).
   if (!is.null(cfg$dlnm_ix_vars) && length(cfg$dlnm_ix_vars) > 0) {
     ix_mats <- lapply(cfg$dlnm_ix_vars, function(ix) {
-      binary_var   <- ix$binary_var
-      active_level <- ix$active_level
-      dlnm_var     <- ix$dlnm_var
-
-      if (!binary_var %in% names(df_filt))
-        stop(sprintf("dlnm_ix_vars: binary variable '%s' not found in data", binary_var))
+      dlnm_var <- ix$dlnm_var
       if (!dlnm_var %in% cfg$dlnm_vars)
         stop(sprintf("dlnm_ix_vars: DLNM variable '%s' not in cfg$dlnm_vars", dlnm_var))
 
-      raw_num   <- suppressWarnings(as.numeric(df_filt[[binary_var]]))
-      indicator <- as.numeric(raw_num == active_level)
-      if (any(is.na(indicator)))
-        stop(sprintf("dlnm_ix_vars: NA in indicator for '%s' at active_level = %s",
-                     binary_var, active_level))
+      if (!is.null(ix$modifier_var)) {
+        modifier_var <- ix$modifier_var
+        if (!modifier_var %in% names(df_filt))
+          stop(sprintf("dlnm_ix_vars: modifier variable '%s' not found in data", modifier_var))
+        raw_num  <- suppressWarnings(as.numeric(df_filt[[modifier_var]]))
+        modifier <- as.numeric(scale(raw_num))
+        if (any(is.na(modifier)))
+          stop(sprintf("dlnm_ix_vars: NA in standardized modifier for '%s'", modifier_var))
+      } else {
+        binary_var   <- ix$binary_var
+        active_level <- ix$active_level
+        if (!binary_var %in% names(df_filt))
+          stop(sprintf("dlnm_ix_vars: binary variable '%s' not found in data", binary_var))
+        raw_num  <- suppressWarnings(as.numeric(df_filt[[binary_var]]))
+        modifier <- as.numeric(raw_num == active_level)
+        if (any(is.na(modifier)))
+          stop(sprintf("dlnm_ix_vars: NA in indicator for '%s' at active_level = %s",
+                       binary_var, active_level))
+      }
 
       var_idx   <- which(cfg$dlnm_vars == dlnm_var)
       col_start <- col_starts_cb[var_idx]
       col_end   <- col_start + cb_ncols[var_idx] - 1L
-      X_cb[, col_start:col_end, drop = FALSE] * indicator
+      X_cb[, col_start:col_end, drop = FALSE] * modifier
     })
     X_ix <- do.call(cbind, ix_mats)
     P_ix <- ncol(X_ix)
     cat(sprintf("Interaction cross-basis: %d pair(s), P_ix = %d columns\n",
                 length(cfg$dlnm_ix_vars), P_ix))
-    for (ix in cfg$dlnm_ix_vars)
-      cat(sprintf("  %s (level=%s) x %s  [%d cols]\n",
-                  ix$binary_var, ix$active_level, ix$dlnm_var,
-                  cb_ncols[which(cfg$dlnm_vars == ix$dlnm_var)]))
+    for (ix in cfg$dlnm_ix_vars) {
+      if (!is.null(ix$modifier_var)) {
+        cat(sprintf("  %s (continuous, standardized) x %s  [%d cols]\n",
+                    ix$modifier_var, ix$dlnm_var,
+                    cb_ncols[which(cfg$dlnm_vars == ix$dlnm_var)]))
+      } else {
+        cat(sprintf("  %s (level=%s) x %s  [%d cols]\n",
+                    ix$binary_var, ix$active_level, ix$dlnm_var,
+                    cb_ncols[which(cfg$dlnm_vars == ix$dlnm_var)]))
+      }
+    }
   } else {
     X_ix <- matrix(0.0, nrow = nrow(X_cb), ncol = 0L)
     P_ix <- 0L
@@ -461,9 +496,12 @@ build_stan_data <- function(cfg) {
   block_col <- if (!is.null(cfg$block_col)) cfg$block_col else "manzana"
   idx <- index_and_subset(input_data, cfg$n_blocks, block_col = block_col)
 
-  # Standardize numeric vars on the raw time series before lagging,
-  # so all lags of the same variable share the same mean/sd
-  vars_to_std <- intersect(cfg$numeric_vars, names(idx$df))
+  # Standardize lag vars on the raw time series before lagging, so all lags of
+  # the same variable share the same mean/sd. Scoped to cfg$lag_vars only (not
+  # cfg$numeric_vars as a whole) — unlagged numeric vars are standardized once,
+  # later, by prepare_unlagged() on the response-period population; including
+  # them here too would double-standardize them (see build_dlnm_stan_data()).
+  vars_to_std <- intersect(cfg$lag_vars, names(idx$df))
   idx$df[, vars_to_std] <- standardize_matrix(as.matrix(idx$df[, vars_to_std]))
 
   lag <- build_lag_design(idx$df, cfg$lag_vars, idx$B, cfg$max_lag)
@@ -645,7 +683,7 @@ extract_means <- function(fit, n_rows) {
     p_bt = extract("^p_bt_out\\[", n_rows),
     p_R = extract("^p_R_out\\[", n_rows),
     u = extract("^u_block_out\\[", 1),
-    v = extract("^v_time_out\\[", 1),
+    v = extract("^v_cmf_out\\[", 1),
     y_pred = extract("^y_pred\\[", n_rows)
   )
 }
