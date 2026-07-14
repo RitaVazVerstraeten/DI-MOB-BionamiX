@@ -96,9 +96,9 @@ cfg <- list(
   kappa = 4,
 
   # unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
-  unlagged_vars = c("is_urban", "is_WUI", "is_WI", "water_containers", "mean_ndvi"),
+  unlagged_vars = c("HFP_urbanization", "is_WUI", "is_WI", "water_containers", "mean_ndvi"),
 
-  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "mean_ndvi"),
+  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "mean_ndvi", "HFP_urbanization"),
 
   # DLNM settings (only used when use_dlnm = TRUE)
   dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "avg_temp"),
@@ -108,6 +108,7 @@ cfg <- list(
     avg_VPD                     = list(fun = "ns", df = 3),
     precip_max_day_resid_on_tp = list(fun = "ns", df = 3),
     avg_temp                     = list(fun = "ns", df = 3)
+  
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
 
@@ -119,11 +120,11 @@ cfg <- list(
   #     multiplied into the cross-basis (for vars that aren't naturally binary,
   #     e.g. water_containers).
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
-  dlnm_ix_vars = list(
-    list(binary_var = "is_urban",       active_level = 0, dlnm_var = "total_precip", label = "nonurban_x_tp"),
-    list(modifier_var = "water_containers", dlnm_var = "total_precip", label = "wc_x_tp")
-  ),
-  # dlnm_ix_vars = NULL,
+  # dlnm_ix_vars = list(
+  #   list(binary_var = "is_urban",       active_level = 0, dlnm_var = "total_precip", label = "nonurban_x_tp"),
+  #   list(modifier_var = "water_containers", dlnm_var = "total_precip", label = "wc_x_tp")
+  # ),
+  dlnm_ix_vars = NULL,
 
   # MCMC
   chains = 4,

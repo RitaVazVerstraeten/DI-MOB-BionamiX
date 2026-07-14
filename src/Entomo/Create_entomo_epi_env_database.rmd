@@ -36,6 +36,7 @@ Observations table (one row per block-time combination):
 |wi | Integer | TRUE/FALSE value for water interface for that manzana (or within 100m of manzana) |
 |urban | Integer | TRUE/FALSE value for whether/not urban for that manzana |
 |urban_pct | Numeric | Percentage of pixels within the manzana/CMF classified as urban according to the WSF classification |
+|HFP_urbanization | Numeric | Mean Human Footprint Print (HFP100) index for that manzana/CMF, averaged over 2017-2021; continuous measure of urbanization/human pressure |
 |has_aljibes | Binary | TRUE/FALSE value for whether/not there are underground cisternas within a 20m radius of the manzana |
 |nr_aljibes | Numeric | Number of underground water cisternas within 20m of the manzana |
 |water_shortage | Binary | TRUE/FALSE value for whether/not manzanas have reduced water provision (more days between water provision cycles) |
@@ -896,6 +897,7 @@ landcover <- read_csv(file.path(env_data_path, "LandCover", "LandCover_per_manza
 wi <- read_csv(file.path(env_data_path, "WI", "WI_per_manzana_100mBuffer_classification.csv"), show_col_types = FALSE)
 wui <- read_csv(file.path(env_data_path, "WUI", "WUI_per_manzana_NoBuffer_classification.csv"), show_col_types = FALSE)
 urban <- read_csv(file.path(env_data_path, "WUI", "WSF_per_manzana_noBuffer_classification.csv"), show_col_types = FALSE)
+hfp <- read_csv(file.path(env_data_path, "HFP", "HFP100_per_manzana_2017_2021_combined.csv"), show_col_types = FALSE)
 meteo_daily <- read_xlsx("/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx")
 aljibes <- read_csv(file.path(env_data_path, "aljibes", "20m_buffer_manzanas_aljibes.csv"), show_col_types=FALSE)
 water_shortage <- read_csv(file.path(env_data_path, "abasto", "no_buffer_manzanas_water_shortage.csv"), show_col_types=FALSE)
@@ -941,7 +943,10 @@ urban <- urban %>%
   rename(manzana_id = ID) %>%
   mutate(urban_pct = mean_WSF * 100) %>%
   select(manzana_id, is_urban, urban_pct)
-aljibes <- aljibes %>% 
+hfp <- hfp %>%
+  rename(HFP_urbanization = mean_hfp100) %>%
+  select(manzana_id, HFP_urbanization)
+aljibes <- aljibes %>%
   rename(manzana_id = CODIGO_) %>%
   select(manzana_id, has_aljibes, nr_aljibes)
 
@@ -986,6 +991,7 @@ landcover_cmf <- read_csv(file.path(env_data_path, "LandCover", "LandCover_per_C
 wi_cmf <- read_csv(file.path(env_data_path, "WI", "WI_per_cmf_100mBuffer_classification.csv"), show_col_types = FALSE)
 wui_cmf <- read_csv(file.path(env_data_path, "WUI", "WUI_per_CMF_NoBuffer_classification.csv"), show_col_types = FALSE)
 urban_cmf <- read_csv(file.path(env_data_path, "WUI", "WSF_per_CMF_NoBuffer_classification.csv"), show_col_types = FALSE)
+hfp_cmf <- read_csv(file.path(env_data_path, "HFP", "HFP100_per_cmf_2017_2021_combined.csv"), show_col_types = FALSE)
 meteo_daily <- read_xlsx("/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx")
 aljibes_cmf <- read_csv(file.path(env_data_path, "aljibes", "20m_buffer_cmfs_aljibes.csv"), show_col_types=FALSE)
 water_shortage_cmf <- read_csv(file.path(env_data_path, "abasto", "no_buffer_cmfs_water_shortage.csv"), show_col_types=FALSE)
@@ -1027,7 +1033,10 @@ wui_cmf <- wui_cmf %>%
 urban_cmf <- urban_cmf %>%
   rename(cmf_id = AS_CMF, is_urban = is_WSF, urban_pct = pct_WSF_pixels) %>%
   select(cmf_id, is_urban, urban_pct)
-aljibes_cmf <- aljibes_cmf %>% 
+hfp_cmf <- hfp_cmf %>%
+  rename(HFP_urbanization = mean_hfp100) %>%
+  select(cmf_id, HFP_urbanization)
+aljibes_cmf <- aljibes_cmf %>%
   rename(cmf_id = AS_CMF) %>%
   select(cmf_id, has_aljibes, nr_aljibes)
 
@@ -1634,6 +1643,7 @@ environmental_spatial <- landcover %>%
   left_join(wi, by = "manzana_id") %>%
   left_join(wui, by = "manzana_id") %>%
   left_join(urban, by = "manzana_id") %>%
+  left_join(hfp, by = "manzana_id") %>%
   left_join(aljibes, by = "manzana_id") %>%
   left_join(water_shortage, by = "manzana_id") %>%
   left_join(water_containers, by = "manzana_id")
@@ -1647,6 +1657,7 @@ environmental_spatial_cmf <- landcover_cmf %>%
   left_join(wi_cmf, by = "cmf_id") %>%
   left_join(wui_cmf, by = "cmf_id") %>%
   left_join(urban_cmf, by = "cmf_id") %>%
+  left_join(hfp_cmf, by = "cmf_id") %>%
   left_join(aljibes_cmf, by = "cmf_id") %>%
   left_join(water_shortage_cmf, by = "cmf_id") %>%
   left_join(water_containers_cmf, by = "cmf_id")
@@ -2296,6 +2307,7 @@ print(head(complete_by_month, 10))
 cat("\n\nMonths with most missing data:\n")
 print(tail(complete_by_month, 10))
 ```
+
 ## Impute missing data for NDVI, NDMI, and NDWI
 
 This section implements a hierarchical imputation strategy for the vegetation and moisture indices (NDVI, NDMI, NDWI). The strategy prioritizes:
@@ -2862,17 +2874,72 @@ write_csv(final_dataset_cmf, file.path(final_epi_entomo_env_data_path_1, "env_ep
 write_csv(final_dataset_cmf, file.path(final_epi_entomo_env_data_path_2, "env_epi_entomo_data_per_CMF_2016_01_to_2019_12.csv"))
 ```
 
+## Backfill NDVI/NDMI/NDWI for the pre-2016 lag history (monthly climatology)
+
+The NDVI/NDMI/NDWI source has no usable satellite coverage before ~April 2016 (see missingness checks above), but the DLNM lag window needs environmental history back to January 2015. Gaps *within* 2016–2019 are already handled by `impute_NDXI_index()` above (temporal interpolation, falling back to unit-specific climatology computed across 2016–2019). That approach cannot reach the pre-2016 rows because there is no observed value in *any* year of
+the modeled period for those rows — there is nothing local to interpolate from or fall back on.
+
+Instead, for the 2015 lag-history rows we backfill every (CMF/manzana, calendar month) with the mean of that calendar month computed across the **full observed 2016–2025 record** (not just 2016–2019) — the raw NDVI/NDMI/NDWI
+extracts already cover that whole span, so using all of it gives a more robust, less circular climatology estimate than reusing the already-imputed 2016–2019 series would. Every (CMF/manzana, month) combination has
+at least one observed year in the 2016–2025 record, so this fill is unconditional: no CV or minimum-observation gate — every 2015 cell gets filled. Each row is tagged with `climatology_backfilled_<index> = TRUE`, so the
+provenance of every 2015 NDVI/NDMI/NDWI value is traceable in the saved CSVs.
+
+```{r function to backfill NDVI NDMI NDWI pre-2016 rows using monthly climatology}
+
+backfill_ndxi_pre_period <- function(df, index_name, clim_source, id_col = "cmf",
+                                      cutoff_year_month = "2016_01") {
+
+  mean_col <- paste0("mean_", tolower(index_name))
+  flag_col <- paste0("climatology_backfilled_", tolower(index_name))
+
+  # Monthly climatology per unit from the full observed record (2016-2025)
+  climatology <- clim_source %>%
+    mutate(month = as.integer(substr(year_month, 6, 7))) %>%
+    group_by(.data[[id_col]], month) %>%
+    summarise(
+      clim_mean = mean(.data[[mean_col]], na.rm = TRUE),
+      n_obs     = sum(!is.na(.data[[mean_col]])),
+      .groups = "drop"
+    )
+
+  df_out <- df %>%
+    mutate(
+      month    = as.integer(substr(year_month, 6, 7)),
+      eligible = year_month < cutoff_year_month & is.na(!!sym(mean_col))
+    ) %>%
+    left_join(
+      climatology %>% select(all_of(id_col), month, clim_mean, n_obs),
+      by = c(id_col, "month")
+    ) %>%
+    mutate(
+      !!flag_col := eligible & !is.na(clim_mean),
+      !!mean_col := ifelse(!!sym(flag_col), clim_mean, !!sym(mean_col))
+    ) %>%
+    select(-month, -clim_mean, -n_obs, -eligible)
+
+  n_filled      <- sum(df_out[[flag_col]], na.rm = TRUE)
+  n_still_na    <- sum(is.na(df_out[[mean_col]]) & df_out$year_month < cutoff_year_month)
+  filled_months <- sort(unique(df_out$year_month[df_out[[flag_col]]]))
+
+  cat(sprintf("\n%s (%s level) pre-%s climatology backfill:\n", index_name, id_col, cutoff_year_month))
+  cat(sprintf("  Filled %d cells across timepoints: %s\n",
+              n_filled,
+              if (length(filled_months) > 0) paste(filled_months, collapse = ", ") else "none"))
+  cat(sprintf("  Still NA after backfill (no climatology available in any year): %d\n", n_still_na))
+
+  return(df_out)
+}
+```
+
 ## Build extended-lag CMF dataset (env 2015–2019, ento-epi 2016–2019)
 
-`env_all_cmf_2015` (2015–2019, no NDVI/NDMI/NDWI) is used as the base.
-The 2016–2019 ento-epi data is left-joined onto it. Rows for 2015 have `NA`
-for `Inspected_houses`, `Houses_pos_IS`, and `cases` — they provide lag history
-for the DLNM model without contributing to the likelihood.
+`env_all_cmf_2015` (2015–2019, no NDVI/NDMI/NDWI) is used as the base. The 2016–2019 ento-epi data is left-joined onto it. Rows for 2015 have `NA` for `Inspected_houses`, `Houses_pos_IS`, and `cases` — they provide lag history
+for the DLNM model without contributing to the likelihood. The 2015 NDVI/NDMI/NDWI gap is then backfilled with monthly climatology (see previous section).
 
 ```{r build extended-lag cmf dataset}
 # Join ento-epi (2016-2019 only) onto the 2015-2019 env base.
 # Then add NDVI/NDMI/NDWI for 2016-2019 rows from the imputed env_all_cmf:
-# the 2015 rows have no satellite data and will remain NA for those columns.
+# the 2015 rows have no satellite data and start out NA for those columns.
 final_dataset_cmf_2015 <- env_all_cmf_2015 %>%
   left_join(ento_epi_join_cmf, by = c("cmf", "year_month")) %>%
   left_join(
@@ -2880,15 +2947,33 @@ final_dataset_cmf_2015 <- env_all_cmf_2015 %>%
     by = c("cmf", "year_month")
   )
 
+# Backfill the 2015 NDVI/NDMI/NDWI gap using monthly climatology
+# computed from the full observed 2016-2025 record for each CMF.
+final_dataset_cmf_2015 <- backfill_ndxi_pre_period(
+  final_dataset_cmf_2015, "NDVI",
+  clim_source = ndvi_cmf %>% rename(cmf = cmf_id) %>% filter(year_month >= "2016_01"),
+  id_col = "cmf"
+)
+final_dataset_cmf_2015 <- backfill_ndxi_pre_period(
+  final_dataset_cmf_2015, "NDMI",
+  clim_source = ndmi_cmf %>% rename(cmf = cmf_id) %>% filter(year_month >= "2016_01"),
+  id_col = "cmf"
+)
+final_dataset_cmf_2015 <- backfill_ndxi_pre_period(
+  final_dataset_cmf_2015, "NDWI",
+  clim_source = ndwi_cmf %>% rename(cmf = cmf_id) %>% filter(year_month >= "2016_01"),
+  id_col = "cmf"
+)
+
 cat("Extended-lag CMF dataset:", nrow(final_dataset_cmf_2015),
     "rows x", ncol(final_dataset_cmf_2015), "cols\n")
-cat("2015 rows (lag history, no NDVI):",
+cat("2015 rows (lag history):",
     sum(final_dataset_cmf_2015$year_month < "2016_01"), "\n")
 cat("2016-2019 rows (response + NDVI available):",
     sum(final_dataset_cmf_2015$year_month >= "2016_01"), "\n")
 cat("Response rows with ento data:",
     sum(!is.na(final_dataset_cmf_2015$Inspected_houses)), "\n")
-cat("NDVI NAs (expected only in 2015 rows):",
+cat("NDVI NAs remaining after climatology backfill (expected 0 - every CMF-month has climatology):",
     sum(is.na(final_dataset_cmf_2015$mean_ndvi)), "\n")
 ```
 
@@ -2935,7 +3020,8 @@ ggplot(missing_by_var_month_2015,
   labs(
     title = "Missing Data Heatmap: Extended-lag CMF dataset (2015–2019)",
     subtitle = paste0("Each cell shows % of ", n_cmfs_2015,
-                      " CMFs missing — 2015 rows have no NDVI/NDMI/NDWI or ento data"),
+                      " CMFs missing — 2015 rows have no ento data; NDVI/NDMI/NDWI ",
+                      "are fully climatology-backfilled (see above)"),
     x = "Year-Month", y = "Variable"
   ) +
   theme_minimal() +
@@ -2953,13 +3039,13 @@ ggsave(
 ```{r save extended-lag cmf dataset}
 write_csv(final_dataset_cmf_2015,
   file.path(final_epi_entomo_env_data_path,
-    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"))
+    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv"))
 write_csv(final_dataset_cmf_2015,
   file.path(final_epi_entomo_env_data_path_1,
-    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"))
+    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv"))
 write_csv(final_dataset_cmf_2015,
   file.path(final_epi_entomo_env_data_path_2,
-    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"))
+    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv"))
 cat("Extended-lag dataset saved.\n")
 ```
 
@@ -2968,7 +3054,9 @@ cat("Extended-lag dataset saved.\n")
 `env_all_2015` (2015–2019, no NDVI/NDMI/NDWI) is used as the base.
 The 2016–2019 ento-epi data is left-joined onto it. Rows for 2015 have `NA`
 for `Inspected_houses`, `Houses_pos_IS`, and `cases` — they provide lag history
-for the DLNM model without contributing to the likelihood.
+for the DLNM model without contributing to the likelihood. The 2015 NDVI/NDMI/NDWI
+gap is then backfilled with monthly climatology (see "Backfill NDVI/NDMI/NDWI
+for the pre-2016 lag history" section above).
 
 ```{r build extended-lag manzana dataset}
 # Restrict env_all_2015 to manzanas that have valid entomological data (Inspected_houses > 0).
@@ -2986,15 +3074,33 @@ final_dataset_mz_2015 <- env_all_2015 %>%
     by = c("manzana", "year_month")
   )
 
+# Backfill the 2015 NDVI/NDMI/NDWI gap using monthly climatology
+# computed from the full observed 2016-2025 record for each manzana.
+final_dataset_mz_2015 <- backfill_ndxi_pre_period(
+  final_dataset_mz_2015, "NDVI",
+  clim_source = ndvi %>% rename(manzana = manzana_id) %>% filter(year_month >= "2016_01"),
+  id_col = "manzana"
+)
+final_dataset_mz_2015 <- backfill_ndxi_pre_period(
+  final_dataset_mz_2015, "NDMI",
+  clim_source = ndmi %>% rename(manzana = manzana_id) %>% filter(year_month >= "2016_01"),
+  id_col = "manzana"
+)
+final_dataset_mz_2015 <- backfill_ndxi_pre_period(
+  final_dataset_mz_2015, "NDWI",
+  clim_source = ndwi %>% rename(manzana = manzana_id) %>% filter(year_month >= "2016_01"),
+  id_col = "manzana"
+)
+
 cat("Extended-lag manzana dataset:", nrow(final_dataset_mz_2015),
     "rows x", ncol(final_dataset_mz_2015), "cols\n")
-cat("2015 rows (lag history, no NDVI):",
+cat("2015 rows (lag history):",
     sum(final_dataset_mz_2015$year_month < "2016_01"), "\n")
 cat("2016-2019 rows (response + NDVI available):",
     sum(final_dataset_mz_2015$year_month >= "2016_01"), "\n")
 cat("Response rows with ento data:",
     sum(!is.na(final_dataset_mz_2015$Inspected_houses)), "\n")
-cat("NDVI NAs (expected only in 2015 rows):",
+cat("NDVI NAs remaining after climatology backfill (expected 0 - every manzana-month has climatology):",
     sum(is.na(final_dataset_mz_2015$mean_ndvi)), "\n")
 ```
 
@@ -3020,14 +3126,52 @@ final_dataset_mz_2015 <- final_dataset_mz_2015 %>%
 ```{r save extended-lag manzana dataset}
 write_csv(final_dataset_mz_2015,
   file.path(final_epi_entomo_env_data_path,
-    "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv"))
+    "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv"))
 write_csv(final_dataset_mz_2015,
   file.path(final_epi_entomo_env_data_path_1,
-    "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv"))
+    "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv"))
 write_csv(final_dataset_mz_2015,
   file.path(final_epi_entomo_env_data_path_2,
-    "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv"))
+    "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv"))
 cat("Extended-lag manzana dataset saved.\n")
+```
+
+### NDVI/NDMI/NDWI pre-2016 climatology backfill — timepoints affected
+
+```{r summarize climatology backfill for markdown report, results='asis'}
+
+summarize_backfill_flags <- function(df, level_name) {
+  indices <- c("NDVI", "NDMI", "NDWI")
+  rows <- lapply(indices, function(idx) {
+    flag_col <- paste0("climatology_backfilled_", tolower(idx))
+    mean_col <- paste0("mean_", tolower(idx))
+    filled_months    <- sort(unique(df$year_month[df[[flag_col]]]))
+    still_na_months  <- sort(unique(df$year_month[is.na(df[[mean_col]]) & df$year_month < "2016_01"]))
+    data.frame(
+      Level = level_name,
+      Index = idx,
+      `Timepoints filled (climatology)` = if (length(filled_months) > 0) paste(filled_months, collapse = ", ") else "none",
+      `Timepoints still NA`             = if (length(still_na_months) > 0) paste(still_na_months, collapse = ", ") else "none",
+      check.names = FALSE,
+      stringsAsFactors = FALSE
+    )
+  })
+  do.call(rbind, rows)
+}
+
+backfill_summary_table <- rbind(
+  summarize_backfill_flags(final_dataset_cmf_2015, "CMF"),
+  summarize_backfill_flags(final_dataset_mz_2015, "Manzana")
+)
+
+cat("The table below lists, for each spatial level and index, the exact `year_month`\n")
+cat("timepoints in the 2015 lag-history period that were filled using monthly\n")
+cat("climatology (flagged `climatology_backfilled_<index> == TRUE` in the saved CSVs),\n")
+cat("computed from the full observed 2016-2025 NDVI/NDMI/NDWI record per CMF/manzana.\n")
+cat("Every (CMF/manzana, month) combination has climatology available, so all 2015\n")
+cat("timepoints are expected to be filled with none remaining `NA`.\n\n")
+
+print(knitr::kable(backfill_summary_table, row.names = FALSE))
 ```
 
 # Correcting for colinnearity (check Descriptive Statistics for measures of colinnearity)

@@ -39,6 +39,7 @@ This document provides descriptive statistics for environmental variables used i
 |wi | Integer | TRUE/FALSE value for water interface for that manzana (or within 100m of manzana) |
 |urban | Integer | TRUE/FALSE value for whether/not urban for that manzana |
 |urban_pct | Numeric | Percentage of pixels within the manzana/CMF classified as urban according to the WSF classification |
+|HFP_urbanization | Numeric | Mean Human Footprint Print (HFP100) index for that manzana/CMF, averaged over 2017-2021; continuous measure of urbanization/human pressure |
 |has_aljibes | Binary | TRUE/FALSE value for whether/not there are underground cisternas within a 20m radius of the manzana |
 |nr_aljibes | Numeric | Number of underground water cisternas within 20m of the manzana |
 |water_shortage | Binary | TRUE/FALSE value for whether/not manzanas have reduced water provision (more days between water provision cycles) |
@@ -126,7 +127,7 @@ Temporal variables that vary over time and are measured consistently across all 
 # temporal_vars <- c("WS2M", "avg_temp", "total_precip", "precip_max_day", "consec_rainy_days", "rel_hum")
 temporal_vars        <- c("WS2M", "avg_temp", "total_precip", "precip_max_day", "consec_rainy_days", "total_rainy_days", "rel_hum", "avg_VPD")
 spatiotemporal_vars  <- c("mean_ndvi", "mean_ndmi", "mean_ndwi")
-continuous_spatial   <- c("nr_aljibes", "water_containers", "pop_density", "urban_pct")
+continuous_spatial   <- c("nr_aljibes", "water_containers", "pop_density", "urban_pct", "HFP_urbanization")
 
 temporal_data <- env_all %>%
   select(all_of(temporal_vars)) %>%
@@ -765,6 +766,23 @@ print(p_urban_pct_mz)
 ggsave(file.path(output_dir, "mz_env_spatial_urban_pct_map.png"), p_urban_pct_mz, width = 10, height = 8, dpi = 300)
 ```
 
+```{r spatial_map_hfp_urbanization_manzana, fig.cap="Human Footprint (HFP100) urbanization index per manzana", fig.width=10, fig.height=8}
+p_hfp_mz <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = manzanas_spatial %>% filter(!is.na(HFP_urbanization)),
+          aes(fill = HFP_urbanization), color = "gray30", size = 0.1) +
+  scale_fill_viridis_c(option = "viridis", na.value = "white") +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = "Human Footprint (HFP100) Urbanization Index per Manzana",
+       fill = "HFP100")
+
+print(p_hfp_mz)
+ggsave(file.path(output_dir, "mz_env_spatial_HFP_urbanization_map.png"), p_hfp_mz, width = 10, height = 8, dpi = 300)
+```
+
 ```{r spatial_maps_categorical, fig.cap="Spatial distribution of landcover types across manzanas", fig.width=10, fig.height=8}
 # Map for categorical variable (landcover)
 p <- ggplot(manzanas_spatial) +
@@ -932,6 +950,21 @@ p_urban_pct_cmf <- ggplot() +
   labs(title = "Urban Pixel Percentage (WSF) per CMF", fill = "Urban %")
 print(p_urban_pct_cmf)
 ggsave(file.path(output_dir, "cmf_env_spatial_urban_pct_map.png"), p_urban_pct_cmf, width = 10, height = 8, dpi = 300)
+```
+
+```{r cmf_spatial_map_hfp_urbanization, fig.cap="Human Footprint (HFP100) urbanization index per CMF", fig.width=10, fig.height=8}
+p_hfp_cmf <- ggplot() +
+  geom_sf(data = municipality, fill = NA, color = "black", size = 0.8) +
+  geom_sf(data = cmfs_spatial %>% filter(!is.na(HFP_urbanization)),
+          aes(fill = HFP_urbanization), color = "gray30", size = 0.2) +
+  scale_fill_viridis_c(option = "viridis", na.value = "white") +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 12)) +
+  labs(title = "Human Footprint (HFP100) Urbanization Index per CMF", fill = "HFP100")
+print(p_hfp_cmf)
+ggsave(file.path(output_dir, "cmf_env_spatial_HFP_urbanization_map.png"), p_hfp_cmf, width = 10, height = 8, dpi = 300)
 ```
 
 ```{r cmf_spatial_map_landcover, fig.cap="Spatial distribution of landcover types across CMFs", fig.width=10, fig.height=8}
@@ -1349,7 +1382,7 @@ all_numeric <- c(all_numeric, "precip_max_day_resid_on_tp", "precip_max_day_resi
 temporal_vars_nc <- c("avg_temp", "avg_VPD", "total_precip", "total_rainy_days",
                        "consec_rainy_days", "WS2M", "hurricane_within_120km",
                        "precip_max_day_resid_on_tp", "precip_max_day_resid_on_trd")
-spatial_cont_nc  <- c("nr_aljibes", "water_containers", "pop_density", "urban_pct")
+spatial_cont_nc  <- c("nr_aljibes", "water_containers", "pop_density", "urban_pct", "HFP_urbanization")
 
 # Helper: Spearman p-value matrix
 cor_pval_spearman <- function(df) {
@@ -1620,7 +1653,7 @@ spatial_unit_summary <- function(dat, id_col, binary_vars, continuous_vars,
 }
 
 spatial_binary_vars     <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage")
-spatial_continuous_vars <- c("pop_density", "urban_pct")
+spatial_continuous_vars <- c("pop_density", "urban_pct", "HFP_urbanization")
 ```
 
 landcover is nominal categorical, so its association with each spatial variable
@@ -1628,7 +1661,7 @@ needs a test that matches that variable's own type:
   binary spatial vars (is_WI, is_WUI, is_urban, has_aljibes, water_shortage)
     → Cramér's V (chi-squared based effect size). V ranges 0-1; for a 2-column
       table (binary outcome) V = |phi|.
-  continuous spatial vars (pop_density, urban_pct)
+  continuous spatial vars (pop_density, urban_pct, HFP_urbanization)
     → Kruskal-Wallis (landcover groups vs. a continuous variable is not a
       contingency-table problem; Cramér's V on a landcover x continuous table
       would be meaningless/inflated because almost every value is its own column).
@@ -1680,11 +1713,12 @@ Binary variables don't seem to have any issues with collinearity.
 > (`spatial_unit_summary()`, defined above) to give unbiased association estimates, without
 > the arbitrariness of picking a single snapshot month.
 > For binary–binary pairs the appropriate statistic is the **phi coefficient**, which equals
-> Pearson r on two binary variables. For binary–continuous (pop_density, urban_pct) it is the
-> **point-biserial correlation**, also equal to Pearson r. The continuous–continuous pair
-> (pop_density vs. urban_pct) is intentionally left blank here — it's already reported with
-> the correct per-unit-mean N in "Spatial continuous × Spatial continuous" above, so we don't
-> duplicate it. `mixed_cor_matrix()` (defined above) picks the right statistic per pair.
+> Pearson r on two binary variables. For binary–continuous (pop_density, urban_pct,
+> HFP_urbanization) it is the **point-biserial correlation**, also equal to Pearson r. The
+> continuous–continuous pairs (pop_density, urban_pct, HFP_urbanization, taken two at a time)
+> are intentionally left blank here — they're already reported with the correct per-unit-mean N
+> in "Spatial continuous × Spatial continuous" above, so we don't duplicate them.
+> `mixed_cor_matrix()` (defined above) picks the right statistic per pair.
 
 ```{r binary_spatial_correlation}
 for (lvl in c("manzana", "CMF")) {
@@ -1701,13 +1735,16 @@ for (lvl in c("manzana", "CMF")) {
   corr_mat <- mixed_res$cor
   pval_mat <- mixed_res$pval
 
-  # Continuous-continuous pair already covered in "Spatial continuous × Spatial
-  # continuous" above (per-unit mean, Spearman) — blank it out here to avoid
-  # reporting the same association twice.
-  corr_mat["pop_density", "urban_pct"] <- NA
-  corr_mat["urban_pct", "pop_density"] <- NA
-  pval_mat["pop_density", "urban_pct"] <- NA
-  pval_mat["urban_pct", "pop_density"] <- NA
+  # Continuous-continuous pairs already covered in "Spatial continuous × Spatial
+  # continuous" above (per-unit mean, Spearman) — blank them out here to avoid
+  # reporting the same associations twice.
+  cont_pairs <- combn(spatial_continuous_vars, 2, simplify = FALSE)
+  for (pr in cont_pairs) {
+    corr_mat[pr[1], pr[2]] <- NA
+    corr_mat[pr[2], pr[1]] <- NA
+    pval_mat[pr[1], pr[2]] <- NA
+    pval_mat[pr[2], pr[1]] <- NA
+  }
 
   cat("Phi / point-biserial matrix:\n")
   print(round(corr_mat, 3))
@@ -4181,7 +4218,7 @@ manzana_outcome <- env_epi_ento %>%
   )
 
 # 2) One row per manzana for spatial predictors
-spatial_vars <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage","landcover", "nr_aljibes", "water_containers", "pop_density", "urban_pct")
+spatial_vars <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage","landcover", "nr_aljibes", "water_containers", "pop_density", "urban_pct", "HFP_urbanization")
 
 manzana_spatial <- env_all %>%
   select(manzana, all_of(spatial_vars)) %>%
@@ -4354,11 +4391,26 @@ ggsave(file.path(output_dir, "mz_env_ento_spatial_urban_pct_vs_positivity_scatte
 
 cor(up_df$urban_pct, up_df$Positivity_Rate, method = "spearman")
 
-# Combine into a 1x4 grid
+hfp_df <- spatial_df %>%
+  filter(!is.na(HFP_urbanization), !is.na(Positivity_Rate))
+
+p_hfp <- ggplot(hfp_df, aes(x = HFP_urbanization, y = Positivity_Rate)) +
+  geom_point(alpha = 0.6, color = "darkred") +
+  theme_minimal() +
+  labs(title = "Positivity vs HFP urbanization index - manzanas",
+       x = "HFP100 (mean, 2017-2021)",
+       y = "Positivity rate (%)")
+
+print(p_hfp)
+ggsave(file.path(output_dir, "mz_env_ento_spatial_HFP_urbanization_vs_positivity_scatter.png"), p_hfp, width = 10, height = 6, dpi = 300)
+
+cor(hfp_df$HFP_urbanization, hfp_df$Positivity_Rate, method = "spearman")
+
+# Combine into a 1x5 grid
 library(cowplot)
-combined_numeric_spatial <- cowplot::plot_grid(p_alj, p_wc, p_pd, p_up, nrow = 1, ncol = 4, labels = c("A", "B", "C", "D"))
+combined_numeric_spatial <- cowplot::plot_grid(p_alj, p_wc, p_pd, p_up, p_hfp, nrow = 1, ncol = 5, labels = c("A", "B", "C", "D", "E"))
 print(combined_numeric_spatial)
-ggsave(file.path(output_dir, "mz_env_ento_spatial_numeric_vars_vs_positivity_scatter.png"), combined_numeric_spatial, width = 32, height = 7, dpi = 300)
+ggsave(file.path(output_dir, "mz_env_ento_spatial_numeric_vars_vs_positivity_scatter.png"), combined_numeric_spatial, width = 38, height = 7, dpi = 300)
 ```
 Again, the Kruskal-wallis test shows that my ordinal 
 
@@ -4606,7 +4658,7 @@ cmf_outcome <- env_epi_ento_CMF %>%
   )
 
 # 2) One row per CMF for spatial predictors
-spatial_vars_cmf <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage", "landcover", "nr_aljibes", "water_containers", "pop_density", "urban_pct")
+spatial_vars_cmf <- c("is_WI", "is_WUI", "is_urban", "has_aljibes", "water_shortage", "landcover", "nr_aljibes", "water_containers", "pop_density", "urban_pct", "HFP_urbanization")
 
 spatial_source_cmf <- if (exists("env_all_CMF")) env_all_CMF else env_epi_ento_CMF
 
@@ -4775,9 +4827,24 @@ ggsave(file.path(output_dir, "cmf_env_ento_spatial_urban_pct_vs_positivity_scatt
 
 cor(up_df_cmf$urban_pct, up_df_cmf$Positivity_Rate, method = "spearman")
 
-combined_numeric_spatial_cmf <- cowplot::plot_grid(p_alj_cmf, p_wc_cmf, p_pd_cmf, p_up_cmf, nrow = 1, ncol = 4, labels = c("A", "B", "C", "D"))
+hfp_df_cmf <- spatial_df_cmf %>%
+  filter(!is.na(HFP_urbanization), !is.na(Positivity_Rate))
+
+p_hfp_cmf <- ggplot(hfp_df_cmf, aes(x = HFP_urbanization, y = Positivity_Rate)) +
+  geom_point(alpha = 0.6, color = "darkred") +
+  theme_minimal() +
+  labs(title = "Positivity vs HFP urbanization index - CMFs",
+       x = "HFP100 (mean, 2017-2021)",
+       y = "Positivity rate (%)")
+
+print(p_hfp_cmf)
+ggsave(file.path(output_dir, "cmf_env_ento_spatial_HFP_urbanization_vs_positivity_scatter.png"), p_hfp_cmf, width = 10, height = 6, dpi = 300)
+
+cor(hfp_df_cmf$HFP_urbanization, hfp_df_cmf$Positivity_Rate, method = "spearman")
+
+combined_numeric_spatial_cmf <- cowplot::plot_grid(p_alj_cmf, p_wc_cmf, p_pd_cmf, p_up_cmf, p_hfp_cmf, nrow = 1, ncol = 5, labels = c("A", "B", "C", "D", "E"))
 print(combined_numeric_spatial_cmf)
-ggsave(file.path(output_dir, "cmf_env_ento_spatial_numeric_vars_vs_positivity_scatter.png"), combined_numeric_spatial_cmf, width = 32, height = 7, dpi = 300)
+ggsave(file.path(output_dir, "cmf_env_ento_spatial_numeric_vars_vs_positivity_scatter.png"), combined_numeric_spatial_cmf, width = 38, height = 7, dpi = 300)
 ```
 
 #### Spatio-temporal variables (NDXI's, CMF)
