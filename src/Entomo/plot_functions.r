@@ -1288,6 +1288,141 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
   }
 }
 
+#' Save DLNM Lag-Response Plots at Fixed Exposure Percentiles
+#'
+#' save_dlnm_response_plots() slices the DLNM surface by lag (exposure-response
+#' curve at each fixed lag), via dlnm's plot(cp, "slices", lag = l). This is
+#' the transpose view: lag-response curve (effect vs. lag) at each of a chosen
+#' set of fixed exposure percentiles — what identifies *which lags* have a
+#' credible interval excluding zero at a given exposure level, i.e. the
+#' empirical basis for a "critical window" claim (e.g. "precip effect peaks
+#' at lag 2, CI excludes 0 from lag 1-3").
+#'
+#' Uses dlnm::crossreduce(basis, type="var", value=X) rather than crosspred()
+#' + plot(,"slices",var=X): crosspred's var= slicing requires an exact match
+#' against its `at` prediction grid (no interpolation), so it would need the
+#' target percentile folded into that grid first. crossreduce() computes the
+#' reduced 1-D (lag-only) association directly at any value, with no grid
+#' required — see the dlnm package's own "dlnmTS" vignette (Figure 5b) for
+#' this exact use case (predictor-specific lag-response at a chosen value).
+#'
+#' @param fit     CmdStanR fit object (must have w_cb parameter)
+#' @param prep    Return value of build_dlnm_stan_data()
+#' @param output_dir   Directory to write PNGs/CSV into
+#' @param run_suffix   String appended to each filename
+#' @param percentiles  Numeric vector in (0,1): exposure percentiles to slice at
+#' @return Invisibly, a data frame (variable, percentile, exposure_value, lag,
+#'   estimate, ci_low, ci_high, significant) — significant = CI excludes 0.
+#'   Also written to <output_dir>/dlnm_lagresponse_critical_windows_<run_suffix>.csv
+save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
+                                         percentiles = c(0.10, 0.50, 0.90)) {
+  if (!requireNamespace("dlnm", quietly = TRUE)) {
+    cat("dlnm not installed; skipping DLNM lag-response plots.\n")
+    return(invisible(NULL))
+  }
+
+  cb_mats        <- prep$cb_mats
+  dlnm_vars      <- prep$dlnm_vars
+  df             <- prep$df
+  dlnm_var_stats <- prep$dlnm_var_stats
+
+  cb_ncols   <- sapply(dlnm_vars, function(v) ncol(cb_mats[[v]]))
+  col_starts <- cumsum(c(1L, cb_ncols[-length(cb_ncols)]))
+
+  w_cb_draws <- fit$draws("w_cb", format = "matrix")
+
+  summary_rows <- list()
+
+  for (i in seq_along(dlnm_vars)) {
+    var  <- dlnm_vars[i]
+    cols <- col_starts[i] + seq_len(cb_ncols[i]) - 1L
+
+    if (!var %in% names(df)) {
+      cat(sprintf("  Skipping %s: column not found in prep$df\n", var))
+      next
+    }
+
+    stats_i <- if (!is.null(dlnm_var_stats) && var %in% names(dlnm_var_stats))
+      dlnm_var_stats[[var]] else list(mean = 0, sd = 1)
+    v_mean <- stats_i$mean
+    v_sd   <- stats_i$sd
+
+    # Target percentiles, computed on the original (back-transformed) scale,
+    # then converted to the standardized scale the cross-basis was built on
+    # (crossreduce's value= must be given in the basis's own coding).
+    x_orig_obs <- df[[var]][is.finite(df[[var]])] * v_sd + v_mean
+    perc_orig  <- as.numeric(quantile(x_orig_obs, probs = percentiles, na.rm = TRUE))
+    perc_std   <- (perc_orig - v_mean) / v_sd
+
+    draws_i     <- w_cb_draws[, cols, drop = FALSE]
+    cb_colnames <- colnames(cb_mats[[var]])
+    coef_i      <- setNames(colMeans(draws_i), cb_colnames)
+    vcov_i      <- cov(draws_i)
+    dimnames(vcov_i) <- list(cb_colnames, cb_colnames)
+
+    L_val   <- as.integer(attr(cb_mats[[var]], "lag")[2])
+    lag_seq <- 0:L_val
+
+    for (p_idx in seq_along(percentiles)) {
+      p_val   <- percentiles[p_idx]
+      std_val <- perc_std[p_idx]
+      orig_val <- perc_orig[p_idx]
+
+      red_i <- tryCatch(
+        dlnm::crossreduce(cb_mats[[var]], coef = coef_i, vcov = vcov_i,
+                          type = "var", value = std_val,
+                          lag = c(0, L_val), bylag = 1, cen = 0),
+        error = function(e) {
+          cat(sprintf("  crossreduce failed for %s at p%d: %s\n",
+                      var, round(p_val * 100), conditionMessage(e)))
+          NULL
+        }
+      )
+      if (is.null(red_i)) next
+
+      est <- as.numeric(red_i$fit)
+      lo  <- as.numeric(red_i$low)
+      hi  <- as.numeric(red_i$high)
+      sig <- (lo > 0 & hi > 0) | (lo < 0 & hi < 0)
+
+      summary_rows[[length(summary_rows) + 1]] <- data.frame(
+        variable = var, percentile = p_val, exposure_value = orig_val,
+        lag = lag_seq, estimate = est, ci_low = lo, ci_high = hi, significant = sig
+      )
+
+      png(file.path(output_dir,
+            sprintf("dlnm_lagresponse_p%02d_%s_%s.png", round(p_val * 100), var, run_suffix)),
+          width = 800, height = 500)
+      plot(red_i,
+           main = sprintf("Lag-response - %s at %dth pct (%s = %.2f)",
+                          var, round(p_val * 100), var, orig_val),
+           xlab = "Lag (months)",
+           ylab = "Effect on log-odds of p_bt",
+           col    = "steelblue",
+           ci.arg = list(col = adjustcolor("steelblue", 0.25), border = NA))
+      abline(h = 0, lty = 2, col = "grey50")
+      dev.off()
+
+      cat(sprintf("  [%s] p%d (%s=%.2f): significant lags = %s\n",
+                  var, round(p_val * 100), var, orig_val,
+                  if (any(sig)) paste(lag_seq[sig], collapse = ", ") else "none"))
+    }
+
+    cat(sprintf("  DLNM lag-response plots saved: %s\n", var))
+  }
+
+  result <- if (length(summary_rows) > 0) do.call(rbind, summary_rows) else
+    data.frame(variable = character(), percentile = numeric(), exposure_value = numeric(),
+               lag = integer(), estimate = numeric(), ci_low = numeric(), ci_high = numeric(),
+               significant = logical())
+
+  csv_path <- file.path(output_dir, paste0("dlnm_lagresponse_critical_windows_", run_suffix, ".csv"))
+  write_csv(result, csv_path)
+  cat(sprintf("  Critical-window summary saved: %s\n", csv_path))
+
+  invisible(result)
+}
+
 #' Save DLNM Interaction Response Plots
 #'
 #' For each interaction specified in prep$dlnm_ix_vars, plots:

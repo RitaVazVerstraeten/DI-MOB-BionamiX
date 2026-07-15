@@ -112,23 +112,22 @@ cfg <- list(
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
 
-  # Interaction cross-bases: each entry is either
-  #   (binary_var, active_level, dlnm_var, label) - 0/1 indicator modifier, active
-  #     where binary_var == active_level (e.g. is_urban coded 1=urban (reference),
-  #     0=non-urban -> active_level=0 for the non-urban modifier), or
-  #   (modifier_var, dlnm_var, label) - continuous modifier, standardized then
-  #     multiplied into the cross-basis (for vars that aren't naturally binary,
-  #     e.g. water_containers).
+  # Interaction cross-bases: each entry is (binary_var, active_level, dlnm_var,
+  # label) - a 0/1 indicator modifier, active where binary_var == active_level
+  # (e.g. is_urban coded 1=urban (reference), 0=non-urban -> active_level=0
+  # for the non-urban modifier). Continuous modifiers are not supported (see
+  # helper_functions.r::build_dlnm_stan_data() - a linear-in-modifier tilt
+  # evaluated only at mean/+1 SD is hard to interpret as anything but an
+  # arbitrary two-point probe of a continuous effect-modification surface).
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
   # dlnm_ix_vars = list(
-  #   list(binary_var = "is_urban",       active_level = 0, dlnm_var = "total_precip", label = "nonurban_x_tp"),
-  #   list(modifier_var = "water_containers", dlnm_var = "total_precip", label = "wc_x_tp")
+  #   list(binary_var = "is_urban", active_level = 0, dlnm_var = "total_precip", label = "nonurban_x_tp")
   # ),
   dlnm_ix_vars = NULL,
 
   # MCMC
-  chains = 4,
-  iter_warmup = 1000,
+  chains = 3,
+  iter_warmup = 500,
   iter_sampling = 1000,
   adapt_delta = 0.97, # target average acceptance probability for the NUTS sampler in stan
   max_treedepth = 10, # caps how many steps the NUTS sampler can take in a single iteration.
@@ -909,6 +908,8 @@ if ("u_block_out" %in% model_vars) {
 if (isTRUE(cfg$use_dlnm)) {
   cat("Generating DLNM exposure-response and lag-response plots...\n")
   save_dlnm_response_plots(fit, prep, plots_output_dir, model_spec)
+  cat("Generating DLNM lag-response plots at fixed exposure percentiles...\n")
+  save_dlnm_lagresponse_plots(fit, prep, plots_output_dir, model_spec)
   if (length(prep$dlnm_ix_vars) > 0) {
     cat("Generating DLNM interaction surface plots...\n")
     save_dlnm_interaction_response_plots(fit, prep, plots_output_dir, model_spec)

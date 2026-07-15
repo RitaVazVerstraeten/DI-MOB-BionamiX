@@ -569,6 +569,7 @@ for (combo_i in seq_along(combinations)) {
     # DLNM response plots (Groups 4+): 2D/3D exposure-response and lag-response surfaces
     if (is_dlnm_ix) {
       save_dlnm_response_plots(fit, prep, plots_output_dir, model_spec)
+      save_dlnm_lagresponse_plots(fit, prep, plots_output_dir, model_spec)
       save_dlnm_interaction_response_plots(fit, prep, plots_output_dir, model_spec)
     }
 
