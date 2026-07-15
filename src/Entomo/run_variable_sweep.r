@@ -3,8 +3,18 @@
 # =============================================================
 # Edit the `combinations` list below to define which variable sets to fit.
 # All other settings are shared across runs (same model structure, same MCMC).
-# Two Stan models are compiled once: the base blockRE model (Groups 1–3) and
-# the DLNM-ix model (Group 4, combinations with an `ix` key).
+# cfg$use_dlnm (below) controls the whole sweep: when TRUE, every combo's lag
+# vars go through the DLNM spline cross-basis (build_dlnm_stan_data() +
+# hierarchical_state_space_AR_perCMF_blockRE_DLNM_ix.stan), not just the
+# Group 4 combos that specify an `ix` interaction. That single compiled model
+# handles both cases: P_ix/X_ix/w_ix are all data/parameters of size 0 when a
+# combo has no `ix` (see the Stan file's own data-block comments), so no
+# separate model or init function is needed for "DLNM without interaction".
+# `has_ix` (set per-combo inside the loop) is the *only* thing that still
+# gates interaction-specific output (w_ix summaries/traceplots, the
+# save_dlnm_interaction_response_plots() call, the "_ix-" spec suffix).
+# Set cfg$use_dlnm <- FALSE to fall back to the flat/binned lag design
+# (build_stan_data() + the base blockRE model) for the whole sweep instead.
 # =============================================================
 
 if (!require("cmdstanr", quietly = TRUE)) {
@@ -143,8 +153,9 @@ combinations <- list(
   # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "WS2M"),
   #      unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage", "mean_ndvi")),
 
-  # Group 4: DLNM interaction combos — uses build_dlnm_stan_data() + blockRE_DLNM_ix.stan.
-  # Exposure and lag bases: ns(df=3) for all variables.
+  # Group 4: adds the is_urban × total_precip interaction on top of the same
+  # DLNM cross-basis every other combo already uses (cfg$use_dlnm = TRUE
+  # above). Exposure and lag bases: ns(df=3) for all variables.
   # Interaction chosen from RF H-statistics:
   #   is_urban × total_precip  (binary, active_level=0, H ~ 0.17–0.27 at lags 0–2)
   # Continuous modifiers (e.g. water_containers × total_precip, RF H > 0.45 at
@@ -205,6 +216,11 @@ cfg <- list(
   hsgp_m          = 20,
   hsgp_c          = 1.5,
   use_block_dev   = TRUE,
+  use_dlnm        = TRUE,  # TRUE: every combo's lag_vars go through the DLNM
+                            # spline cross-basis, whether or not it has `ix`
+                            # (P_ix/X_ix/w_ix are size 0 when it doesn't).
+                            # FALSE: whole sweep falls back to the flat/binned
+                            # lag design instead.
 
   shapefile_path = if (hostname == "frietjes")
     "/home/rita/data/Entomo"
@@ -214,8 +230,8 @@ cfg <- list(
   block_col    = if (spatial_level == "CMF") "cmf"      else "manzana",
 
   n_blocks  = NULL,
-  max_lag   = 2,
-  kappa     = 2,
+  max_lag   = 6,
+  kappa     = 4,
 
   chains          = 4,
   iter_warmup     = 1000,
@@ -339,17 +355,20 @@ cat(sprintf("ICAR: %d blocks, %d unique edges\n", length(block_ids), icar_edges$
 
 # ── Compile Stan models ───────────────────────────────────────────────────────
 # K and Ku are passed as data, not hard-coded in the Stan file, so the same
-# compiled binary is valid for all variable combinations.
-mod <- cmdstan_model(cfg$stan_file, force_recompile = hostname == "frietjes")
-cat("Stan model compiled.\n")
-
-# DLNM-ix model: used for Group 4 combinations that specify `ix`. P_cb/P_ix
-# are data, so this one binary handles all interaction configurations.
-dlnm_ix_stan_file <- file.path(stan_dir,
-  "hierarchical_state_space_AR_perCMF_blockRE_DLNM_ix.stan")
-mod_dlnm_ix <- cmdstan_model(dlnm_ix_stan_file,
-                              force_recompile = hostname == "frietjes")
-cat("DLNM-ix Stan model compiled.\n")
+# compiled binary is valid for all variable combinations. Only compile the
+# model(s) this sweep will actually use.
+if (isTRUE(cfg$use_dlnm)) {
+  # DLNM-ix model: P_cb/P_ix are data, so this one binary handles every combo,
+  # whether or not it specifies `ix` (P_ix/X_ix/w_ix = 0 when it doesn't).
+  dlnm_ix_stan_file <- file.path(stan_dir,
+    "hierarchical_state_space_AR_perCMF_blockRE_DLNM_ix.stan")
+  mod_dlnm_ix <- cmdstan_model(dlnm_ix_stan_file,
+                                force_recompile = hostname == "frietjes")
+  cat("DLNM-ix Stan model compiled.\n")
+} else {
+  mod <- cmdstan_model(cfg$stan_file, force_recompile = hostname == "frietjes")
+  cat("Stan model compiled.\n")
+}
 
 # ── Sweep log initialisation ──────────────────────────────────────────────────
 sweep_log <- vector("list", length(combinations))
@@ -358,8 +377,8 @@ loo_list  <- list()   # named by predictor_spec; populated inside loop
 # ── Main sweep loop ───────────────────────────────────────────────────────────
 for (combo_i in seq_along(combinations)) {
   combo <- combinations[[combo_i]]
-  is_dlnm_ix <- !is.null(combo$ix)
-  ix_labels  <- if (is_dlnm_ix)
+  has_ix <- !is.null(combo$ix)
+  ix_labels  <- if (has_ix)
     paste(sapply(combo$ix, `[[`, "label"), collapse = "+")
   else ""
   cat(sprintf(
@@ -367,7 +386,7 @@ for (combo_i in seq_along(combinations)) {
     combo_i, length(combinations),
     paste(combo$lag, collapse = ", "),
     if (length(combo$unlag) == 0) "(none)" else paste(combo$unlag, collapse = ", "),
-    if (is_dlnm_ix) paste0("\n  ix:    ", ix_labels) else ""
+    if (has_ix) paste0("\n  ix:    ", ix_labels) else ""
   ))
 
   cfg$lag_vars      <- combo$lag
@@ -381,7 +400,7 @@ for (combo_i in seq_along(combinations)) {
   predictor_spec <- paste0(
     "lag-",    paste(cfg$lag_vars,      collapse = "-"),
     "_unlag-", paste(cfg$unlagged_vars, collapse = "-"),
-    if (is_dlnm_ix) paste0("_ix-", gsub("\\+", "-", ix_labels)) else ""
+    if (has_ix) paste0("_ix-", gsub("\\+", "-", ix_labels)) else ""
   )
   run_output_dir   <- file.path(sweep_dir, predictor_spec)
   plots_output_dir <- file.path(run_output_dir, "plots")
@@ -393,14 +412,14 @@ for (combo_i in seq_along(combinations)) {
   result <- tryCatch({
 
     # Rebuild design matrices for this combo (fast; spatial setup already done)
-    if (is_dlnm_ix) {
+    if (isTRUE(cfg$use_dlnm)) {
       cfg$dlnm_vars    <- combo_vars$lag
       cfg$dlnm_argvar  <- setNames(
         lapply(combo_vars$lag, function(v) list(fun = "ns", df = 3)),
         combo_vars$lag
       )
       cfg$dlnm_arglag  <- list(fun = "ns", df = 3)
-      cfg$dlnm_ix_vars <- combo$ix
+      cfg$dlnm_ix_vars <- combo$ix   # NULL when !has_ix -> P_ix = 0, handled by the Stan model
       prep <- build_dlnm_stan_data(cfg)
     } else {
       prep <- build_stan_data(cfg)
@@ -450,8 +469,8 @@ for (combo_i in seq_along(combinations)) {
     }
 
     # MCMC
-    mod_use <- if (is_dlnm_ix) mod_dlnm_ix else mod
-    init_fn <- if (is_dlnm_ix) {
+    mod_use <- if (isTRUE(cfg$use_dlnm)) mod_dlnm_ix else mod
+    init_fn <- if (isTRUE(cfg$use_dlnm)) {
       local({
         sd <- stan_data
         fix_phi_flag <- isTRUE(cfg$fix_phi)
@@ -498,8 +517,8 @@ for (combo_i in seq_along(combinations)) {
                                      full.names = TRUE)))
 
     # Model summary
-    w_vars <- if (is_dlnm_ix) {
-      c("w_cb", "w_unlagged", if (length(combo$ix) > 0) "w_ix")
+    w_vars <- if (isTRUE(cfg$use_dlnm)) {
+      c("w_cb", "w_unlagged", if (has_ix) "w_ix")
     } else {
       c("w", "w_unlagged")
     }
@@ -521,7 +540,7 @@ for (combo_i in seq_along(combinations)) {
       }
     }
     if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
-    model_sum <- if (is_dlnm_ix) {
+    model_sum <- if (isTRUE(cfg$use_dlnm)) {
       fit$summary(variables = summary_vars)
     } else {
       rename_w_in_summary(fit$summary(variables = summary_vars), prep$lag_vars_expanded, prep$unlagged_vars)
@@ -566,11 +585,14 @@ for (combo_i in seq_along(combinations)) {
     if (cfg$plot_timeseries) save_timeseries_plots(df, plots_output_dir, model_spec,
                                                     cfg$n_blocks_facet)
 
-    # DLNM response plots (Groups 4+): 2D/3D exposure-response and lag-response surfaces
-    if (is_dlnm_ix) {
+    # DLNM response plots: 2D/3D exposure-response and lag-response surfaces,
+    # for every combo now that cfg$use_dlnm applies sweep-wide. The
+    # interaction-comparison plots stay gated on has_ix (nothing to compare
+    # against a reference group when P_ix = 0).
+    if (isTRUE(cfg$use_dlnm)) {
       save_dlnm_response_plots(fit, prep, plots_output_dir, model_spec)
       save_dlnm_lagresponse_plots(fit, prep, plots_output_dir, model_spec)
-      save_dlnm_interaction_response_plots(fit, prep, plots_output_dir, model_spec)
+      if (has_ix) save_dlnm_interaction_response_plots(fit, prep, plots_output_dir, model_spec)
     }
 
     # Per-CMF AR(1) trajectory plot (all runs)
@@ -599,13 +621,13 @@ for (combo_i in seq_along(combinations)) {
         scalar_params <- dimnames(draws_scalar)[[3]]
         save_trace_chunks(scalar_params, draws_scalar, "traceplot_params", w = 10, h = 8)
       }
-      if (is_dlnm_ix) {
+      if (isTRUE(cfg$use_dlnm)) {
         if ("w_cb" %in% model_vars) {
           draws_wcb <- fit$draws(variables = "w_cb", format = "array")
           save_trace_chunks(dimnames(draws_wcb)[[3]], draws_wcb,
                             "traceplot_weights_wcb", w = 12, h = 10)
         }
-        if ("w_ix" %in% model_vars) {
+        if (has_ix && "w_ix" %in% model_vars) {
           draws_wix <- fit$draws(variables = "w_ix", format = "array")
           save_trace_chunks(dimnames(draws_wix)[[3]], draws_wix,
                             "traceplot_weights_wix", w = 12, h = 8)
@@ -653,7 +675,7 @@ for (combo_i in seq_along(combinations)) {
     run         = combo_i,
     lag_vars    = paste(combo$lag,   collapse = "|"),
     unlag_vars  = paste(combo$unlag, collapse = "|"),
-    ix_vars     = if (is_dlnm_ix) ix_labels else "",
+    ix_vars     = if (has_ix) ix_labels else "",
     n_lag       = length(combo$lag),
     n_unlag     = length(combo$unlag),
     status      = result,
