@@ -47,8 +47,8 @@ source(file.path(script_dir, "plot_functions.r"))
 # numeric_vars = lag_vars minus any ending in _cat, plus continuous unlagged
 # variables that should be standardized.
 forced_unlagged_vars <- list(
-  numeric = c("mean_ndvi"),
-  binary  = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_shortage", "water_containers")
+  numeric = c("mean_ndvi", "water_containers"),
+  binary  = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_shortage")
 )
 get_combo_vars <- function(lag_vars, unlag_vars) {
   all_forced <- c(forced_unlagged_vars$numeric, forced_unlagged_vars$binary)
@@ -85,16 +85,22 @@ combinations <- list(
   # Establishes the baseline signal from total_precip + VPD alone.
   # Incrementally adds optional static predictors to test their contribution.
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi")),
+       unlag = c("HFP_urbanization", "mean_ndvi")),
 
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage", "mean_ndvi")),
+       unlag = c("HFP_urbanization","water_containers")),
 
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "is_WI", "mean_ndvi")),
+       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi")),
 
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage", "is_WI", "mean_ndvi")),
+       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "water_shortage", "mean_ndvi")),
+
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "is_WUI", "is_WI", "water_containers", "mean_ndvi")),
+
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "is_WUI", "is_WI", "water_containers", "water_shortage", "mean_ndvi")),
 
   # ── Group 2: Add avg_temp ─────────────────────────────────────────────────
   # avg_temp is the dominant RF predictor (importance 0.307) but correlated
@@ -102,71 +108,70 @@ combinations <- list(
   # because the warm and wet seasons coincide in Cienfuegos. LOO-IC will
   # reveal whether temp adds independent predictive value on top of precip.
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi")),
+       unlag = c("HFP_urbanization")),
+  
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+       unlag = c("HFP_urbanization", "mean_ndvi")),
 
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage", "mean_ndvi")),
+       unlag = c("HFP_urbanization", "water_containers")),
 
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "is_WI", "mean_ndvi")),
+       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi")),
+  
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi", "WS2M")),
 
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage", "is_WI", "mean_ndvi")),
+       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "water_shortage", "mean_ndvi")),
 
-  # ── Group 3: WS2M instead of avg_temp ────────────────────────────────────
-  # WS2M tracks the dry/cool season (r = -0.48 with total_precip, r = -0.61
-  # with avg_temp). Tests whether wind carries residual signal that precip and
-  # VPD don't capture, without the temp-precip collinearity. Only the core and
-  # core+water_shortage variants are included here; if WS2M adds nothing in
-  # these, it will not help in the larger models either.
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "WS2M"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi")),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "is_WI", "mean_ndvi")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "WS2M"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage", "mean_ndvi")),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "water_shortage", "is_WI", "mean_ndvi")),
+
+  # # ── Group 3: WS2M instead of avg_temp ────────────────────────────────────
+  # # WS2M tracks the dry/cool season (r = -0.48 with total_precip, r = -0.61
+  # # with avg_temp). Tests whether wind carries residual signal that precip and
+  # # VPD don't capture, without the temp-precip collinearity. Only the core and
+  # # core+water_shortage variants are included here; if WS2M adds nothing in
+  # # these, it will not help in the larger models either.
+  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "WS2M"),
+  #      unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi")),
+
+  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "WS2M"),
+  #      unlag = c("is_urban", "is_WUI", "water_containers", "water_shortage", "mean_ndvi")),
 
   # Group 4: DLNM interaction combos — uses build_dlnm_stan_data() + blockRE_DLNM_ix.stan.
   # Exposure and lag bases: ns(df=3) for all variables.
-  # Interactions chosen from RF H-statistics:
-  #   water_containers × total_precip  (active_level=1, H > 0.45 at lags 0,1,5 — strongest)
-  #   is_urban × total_precip          (active_level=0, H ~ 0.17–0.27 at lags 0–2)
+  # Interaction chosen from RF H-statistics:
+  #   is_urban × total_precip  (binary, active_level=0, H ~ 0.17–0.27 at lags 0–2)
+  # Continuous modifiers (e.g. water_containers × total_precip, RF H > 0.45 at
+  # lags 0,1,5) are not modeled as DLNM interactions here: a linear-in-modifier
+  # tilt of the cross-basis, evaluated only at the modifier's mean and +1 SD,
+  # is hard to interpret as anything other than an arbitrary two-point probe
+  # of what is actually a continuous effect-modification surface. See
+  # build_dlnm_stan_data() in helper_functions.r.
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi"),
+       unlag = c("HFP_urbanization", "water_containers", "mean_ndvi"),
+       ix    = list(
+         list(binary_var = "is_urban",        active_level = 0,
+              dlnm_var   = "total_precip",     label = "nonurban_x_tp")
+       )),
+  
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi"),
        ix    = list(
          list(binary_var = "is_urban",        active_level = 0,
               dlnm_var   = "total_precip",     label = "nonurban_x_tp")
        )),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi"),
-       ix    = list(
-         list(binary_var = "water_containers", active_level = 1,
-              dlnm_var   = "total_precip",     label = "wc_x_tp")
-       )),
-
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi"),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi"),
        ix    = list(
          list(binary_var = "is_urban",        active_level = 0,
-              dlnm_var   = "total_precip",     label = "nonurban_x_tp"),
-         list(binary_var = "water_containers", active_level = 1,
-              dlnm_var   = "total_precip",     label = "wc_x_tp")
-       )),
-
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi"),
-       ix    = list(
-         list(binary_var = "water_containers", active_level = 1,
-              dlnm_var   = "total_precip",     label = "wc_x_tp")
-       )),
-
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
-       unlag = c("is_urban", "is_WUI", "water_containers", "mean_ndvi"),
-       ix    = list(
-         list(binary_var = "is_urban",        active_level = 0,
-              dlnm_var   = "total_precip",     label = "nonurban_x_tp"),
-         list(binary_var = "water_containers", active_level = 1,
-              dlnm_var   = "total_precip",     label = "wc_x_tp")
+              dlnm_var   = "total_precip",     label = "nonurban_x_tp")
        ))
 )
 # ─────────────────────────────────────────────────────────────────────────────
@@ -181,9 +186,9 @@ cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo"
              else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/",
   data_file_name = if (spatial_level == "CMF")
-    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv"
+    "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv"
   else
-    "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv",
+    "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv",
   response_start = "2016_01",   # 2015 rows used as lag lead-in only, not passed to Stan
   output_dir = if (hostname == "frietjes")
     "/home/rita/data/Entomo/fitting/stan"
@@ -507,7 +512,7 @@ for (combo_i in seq_along(combinations)) {
         else if (isTRUE(cfg$use_icar)) summary_vars <- c(summary_vars, "sigma_icar")
         else                            summary_vars <- c(summary_vars, "sigma_gp", "rho_gp")
       }
-      if (isTRUE(cfg$use_temporal_AR)) summary_vars <- c(summary_vars, "sigma_v", "rho")
+      if (isTRUE(cfg$use_temporal_AR)) summary_vars <- c(summary_vars, "tau", "sigma_v", "rho")
       if (!isTRUE(cfg$use_bym2) && isTRUE(cfg$use_block_dev)) {
         if (isTRUE(cfg$use_temporal_AR_perCMF))
           summary_vars <- c(summary_vars, "sigma_block")
@@ -561,13 +566,22 @@ for (combo_i in seq_along(combinations)) {
     if (cfg$plot_timeseries) save_timeseries_plots(df, plots_output_dir, model_spec,
                                                     cfg$n_blocks_facet)
 
+    # DLNM response plots (Groups 4+): 2D/3D exposure-response and lag-response surfaces
+    if (is_dlnm_ix) {
+      save_dlnm_response_plots(fit, prep, plots_output_dir, model_spec)
+      save_dlnm_interaction_response_plots(fit, prep, plots_output_dir, model_spec)
+    }
+
+    # Per-CMF AR(1) trajectory plot (all runs)
+    save_v_bt_plot(fit, df, stan_data, plots_output_dir, model_spec)
+
     # Traceplots
     if (cfg$plot_traceplots && requireNamespace("bayesplot", quietly = TRUE)) {
       library(bayesplot)
       model_vars     <- fit$metadata()$stan_variables
       scalar_include <- c("alpha", "sigma_gp", "rho_gp", "sigma_icar",
                           "sigma_spatial", "phi_mix", "delta1",
-                          "sigma_v", "rho", "sigma_block_dev",
+                          "tau", "sigma_v", "rho", "sigma_block_dev",
                           "sigma_time", "sigma_block", "phi")
       scalar_vars    <- intersect(scalar_include, model_vars)
       save_trace_chunks <- function(vars, draws_arr, file_prefix, chunk_size = 12, w, h) {

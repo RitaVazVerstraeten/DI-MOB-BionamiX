@@ -1756,14 +1756,14 @@ for (lvl in c("manzana", "CMF")) {
       width = 900, height = 800, res = 150)
   corrplot(corr_mat,
            method = "color", type = "lower", addCoef.col = "black",
-           p.mat = pval_mat, sig.level = 0.05, insig = "label_sig", na.label = " ",
+           na.label = " ",
            diag = FALSE, tl.col = "black", tl.cex = 0.9,
            title = plot_title, mar = c(0, 0, 2, 0))
   dev.off()
 
   corrplot(corr_mat,
            method = "color", type = "lower", addCoef.col = "black",
-           p.mat = pval_mat, sig.level = 0.05, insig = "label_sig", na.label = " ",
+           na.label = " ",
            diag = FALSE, tl.col = "black", tl.cex = 0.9,
            title = plot_title, mar = c(0, 0, 2, 0))
 }

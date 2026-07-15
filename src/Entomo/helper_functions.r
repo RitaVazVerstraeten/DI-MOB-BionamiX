@@ -396,44 +396,32 @@ build_dlnm_stan_data <- function(cfg) {
   col_starts_cb <- cumsum(c(1L, cb_ncols[-length(cb_ncols)]))
 
   # Build interaction cross-basis X_ix: for each interaction spec, multiply a
-  # per-row modifier into the corresponding DLNM sub-block of X_cb. Two kinds
-  # of modifier are supported:
-  #   - binary_var + active_level: 0/1 indicator, 1 where binary_var equals
+  # per-row binary indicator into the corresponding DLNM sub-block of X_cb.
+  #   binary_var + active_level: 0/1 indicator, 1 where binary_var equals
   #     active_level (e.g. 0 for non-urban when is_urban is coded 1 = urban;
   #     1 for water_shortage TRUE). w_ix is then "effect when the indicator
   #     switches on" relative to the w_cb baseline.
-  #   - modifier_var (no active_level): a continuous variable, standardized
-  #     to mean 0 / sd 1 before multiplying, for modifiers that aren't
-  #     naturally binary (e.g. water_containers). Because the modifier is
-  #     standardized, w_cb is the effect at the modifier's mean and w_ix is
-  #     the added effect per +1 SD of the modifier — same downstream math as
-  #     the binary case, just reinterpreted continuously (see
-  #     save_dlnm_interaction_response_plots()).
+  # Continuous modifiers are not supported: a linear-in-modifier tilt of the
+  # whole cross-basis, evaluated only at the modifier's mean and +1 SD, is
+  # hard to interpret as anything other than an arbitrary two-point probe of
+  # what is actually a continuous effect-modification surface. Use a binary
+  # split (e.g. above/below median) if a continuous variable's effect
+  # modification needs to be tested.
   if (!is.null(cfg$dlnm_ix_vars) && length(cfg$dlnm_ix_vars) > 0) {
     ix_mats <- lapply(cfg$dlnm_ix_vars, function(ix) {
       dlnm_var <- ix$dlnm_var
       if (!dlnm_var %in% cfg$dlnm_vars)
         stop(sprintf("dlnm_ix_vars: DLNM variable '%s' not in cfg$dlnm_vars", dlnm_var))
 
-      if (!is.null(ix$modifier_var)) {
-        modifier_var <- ix$modifier_var
-        if (!modifier_var %in% names(df_filt))
-          stop(sprintf("dlnm_ix_vars: modifier variable '%s' not found in data", modifier_var))
-        raw_num  <- suppressWarnings(as.numeric(df_filt[[modifier_var]]))
-        modifier <- as.numeric(scale(raw_num))
-        if (any(is.na(modifier)))
-          stop(sprintf("dlnm_ix_vars: NA in standardized modifier for '%s'", modifier_var))
-      } else {
-        binary_var   <- ix$binary_var
-        active_level <- ix$active_level
-        if (!binary_var %in% names(df_filt))
-          stop(sprintf("dlnm_ix_vars: binary variable '%s' not found in data", binary_var))
-        raw_num  <- suppressWarnings(as.numeric(df_filt[[binary_var]]))
-        modifier <- as.numeric(raw_num == active_level)
-        if (any(is.na(modifier)))
-          stop(sprintf("dlnm_ix_vars: NA in indicator for '%s' at active_level = %s",
-                       binary_var, active_level))
-      }
+      binary_var   <- ix$binary_var
+      active_level <- ix$active_level
+      if (!binary_var %in% names(df_filt))
+        stop(sprintf("dlnm_ix_vars: binary variable '%s' not found in data", binary_var))
+      raw_num  <- suppressWarnings(as.numeric(df_filt[[binary_var]]))
+      modifier <- as.numeric(raw_num == active_level)
+      if (any(is.na(modifier)))
+        stop(sprintf("dlnm_ix_vars: NA in indicator for '%s' at active_level = %s",
+                     binary_var, active_level))
 
       var_idx   <- which(cfg$dlnm_vars == dlnm_var)
       col_start <- col_starts_cb[var_idx]
@@ -445,15 +433,9 @@ build_dlnm_stan_data <- function(cfg) {
     cat(sprintf("Interaction cross-basis: %d pair(s), P_ix = %d columns\n",
                 length(cfg$dlnm_ix_vars), P_ix))
     for (ix in cfg$dlnm_ix_vars) {
-      if (!is.null(ix$modifier_var)) {
-        cat(sprintf("  %s (continuous, standardized) x %s  [%d cols]\n",
-                    ix$modifier_var, ix$dlnm_var,
-                    cb_ncols[which(cfg$dlnm_vars == ix$dlnm_var)]))
-      } else {
-        cat(sprintf("  %s (level=%s) x %s  [%d cols]\n",
-                    ix$binary_var, ix$active_level, ix$dlnm_var,
-                    cb_ncols[which(cfg$dlnm_vars == ix$dlnm_var)]))
-      }
+      cat(sprintf("  %s (level=%s) x %s  [%d cols]\n",
+                  ix$binary_var, ix$active_level, ix$dlnm_var,
+                  cb_ncols[which(cfg$dlnm_vars == ix$dlnm_var)]))
     }
   } else {
     X_ix <- matrix(0.0, nrow = nrow(X_cb), ncol = 0L)
