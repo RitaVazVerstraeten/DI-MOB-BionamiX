@@ -1153,6 +1153,13 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     return(invisible(NULL))
   }
 
+  # Output categories: 2D cumulative + 3D surface together ("overall"), vs.
+  # the per-lag exposure-response slices in their own folder.
+  dir_overall <- file.path(output_dir, "overall_exposure_response")
+  dir_perlag  <- file.path(output_dir, "exposure_response_per_lag")
+  dir.create(dir_overall, recursive = TRUE, showWarnings = FALSE)
+  dir.create(dir_perlag,  recursive = TRUE, showWarnings = FALSE)
+
   cb_mats        <- prep$cb_mats
   dlnm_vars      <- prep$dlnm_vars
   df             <- prep$df
@@ -1231,7 +1238,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     lag_seq <- 0:L_val
 
     # ── Overall cumulative effect (original x-axis) ───────────────────────────
-    png(file.path(output_dir, paste0("dlnm_overall_", var, "_", run_suffix, ".png")),
+    png(file.path(dir_overall, paste0("dlnm_overall_", var, "_", run_suffix, ".png")),
         width = 800, height = 500)
     plot(pred_i, "overall",
          xaxt   = "n",
@@ -1250,7 +1257,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
                z_mat[-nrow(z_mat), -1] + z_mat[-nrow(z_mat), -ncol(z_mat)]) / 4
     facet_col <- pal[cut(z_mid, breaks = z_breaks_global, include.lowest = TRUE)]
 
-    png(file.path(output_dir, paste0("dlnm_3d_", var, "_", run_suffix, ".png")),
+    png(file.path(dir_overall, paste0("dlnm_3d_", var, "_", run_suffix, ".png")),
         width = 800, height = 700)
     persp(x        = at_orig,
           y        = lag_seq,
@@ -1268,7 +1275,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
 
     # ── Per-lag slice plots (one per lag, same style as cumulative) ──────────
     for (l in lag_seq) {
-      png(file.path(output_dir,
+      png(file.path(dir_perlag,
                     paste0("dlnm_lag", l, "_", var, "_", run_suffix, ".png")),
           width = 800, height = 500)
       plot(pred_i, "slices",
@@ -1321,6 +1328,11 @@ save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
     return(invisible(NULL))
   }
 
+  # Output category: lag-response curves at fixed exposure percentiles,
+  # plus their numeric critical-window companion CSV.
+  dir_lagresp <- file.path(output_dir, "lag_response_per_exposure")
+  dir.create(dir_lagresp, recursive = TRUE, showWarnings = FALSE)
+
   cb_mats        <- prep$cb_mats
   dlnm_vars      <- prep$dlnm_vars
   df             <- prep$df
@@ -1369,7 +1381,14 @@ save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
       orig_val <- perc_orig[p_idx]
 
       red_i <- tryCatch(
+        # model.link must be an explicit non-NULL string here: crossreduce()'s
+        # source does `if (model.link %in% c("log","logit"))` with no NULL
+        # guard, and since we pass coef/vcov directly (no `model` object),
+        # model.link stays NULL by default -> NULL %in% c(...) is logical(0)
+        # -> "argument is of length zero". "identity" routes to the untransformed
+        # fit/low/high branch, which is what we want (log-odds scale, no exp()).
         dlnm::crossreduce(cb_mats[[var]], coef = coef_i, vcov = vcov_i,
+                          model.link = "identity",
                           type = "var", value = std_val,
                           lag = c(0, L_val), bylag = 1, cen = 0),
         error = function(e) {
@@ -1390,7 +1409,7 @@ save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
         lag = lag_seq, estimate = est, ci_low = lo, ci_high = hi, significant = sig
       )
 
-      png(file.path(output_dir,
+      png(file.path(dir_lagresp,
             sprintf("dlnm_lagresponse_p%02d_%s_%s.png", round(p_val * 100), var, run_suffix)),
           width = 800, height = 500)
       plot(red_i,
@@ -1416,7 +1435,7 @@ save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
                lag = integer(), estimate = numeric(), ci_low = numeric(), ci_high = numeric(),
                significant = logical())
 
-  csv_path <- file.path(output_dir, paste0("dlnm_lagresponse_critical_windows_", run_suffix, ".csv"))
+  csv_path <- file.path(dir_lagresp, paste0("dlnm_lagresponse_critical_windows_", run_suffix, ".csv"))
   write_csv(result, csv_path)
   cat(sprintf("  Critical-window summary saved: %s\n", csv_path))
 
