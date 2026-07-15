@@ -89,7 +89,7 @@ cfg <- list(
   response_start = "2016_01",
   n_blocks = NULL, # set NULL for all blocks/CMFs
 
-  lag_vars = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp", "avg_temp"),
+  lag_vars = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp"),
   # lag_vars = c("total_rainy_days", "avg_VPD"),
 
   max_lag = 6,
@@ -101,13 +101,13 @@ cfg <- list(
   numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "mean_ndvi", "HFP_urbanization"),
 
   # DLNM settings (only used when use_dlnm = TRUE)
-  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "avg_temp"),
+  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp"),
 
   dlnm_argvar = list(
     total_precip                = list(fun = "ns", df = 3),
     avg_VPD                     = list(fun = "ns", df = 3),
-    precip_max_day_resid_on_tp = list(fun = "ns", df = 3),
-    avg_temp                     = list(fun = "ns", df = 3)
+    precip_max_day_resid_on_tp = list(fun = "ns", df = 3)
+    # avg_temp                     = list(fun = "ns", df = 3)
   
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
@@ -120,10 +120,10 @@ cfg <- list(
   # evaluated only at mean/+1 SD is hard to interpret as anything but an
   # arbitrary two-point probe of a continuous effect-modification surface).
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
-  # dlnm_ix_vars = list(
-  #   list(binary_var = "is_urban", active_level = 0, dlnm_var = "total_precip", label = "nonurban_x_tp")
-  # ),
-  dlnm_ix_vars = NULL,
+  dlnm_ix_vars = list(
+    list(binary_var = "is_urban", active_level = 0, dlnm_var = "total_precip", label = "nonurban_x_tp")
+  ),
+  # dlnm_ix_vars = NULL,
 
   # MCMC
   chains = 3,
