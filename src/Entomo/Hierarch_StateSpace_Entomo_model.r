@@ -126,8 +126,8 @@ cfg <- list(
   # dlnm_ix_vars = NULL,
 
   # MCMC
-  chains = 3,
-  iter_warmup = 500,
+  chains = 4,
+  iter_warmup = 1000,
   iter_sampling = 1000,
   adapt_delta = 0.97, # target average acceptance probability for the NUTS sampler in stan
   max_treedepth = 10, # caps how many steps the NUTS sampler can take in a single iteration.
