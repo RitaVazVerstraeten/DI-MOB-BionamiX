@@ -1322,7 +1322,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
 #'   estimate, ci_low, ci_high, significant) — significant = CI excludes 0.
 #'   Also written to <output_dir>/dlnm_lagresponse_critical_windows_<run_suffix>.csv
 save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
-                                         percentiles = c(0.10, 0.50, 0.90)) {
+                                         percentiles = c(0.10, 0.25, 0.50, 0.75, 0.90)) {
   if (!requireNamespace("dlnm", quietly = TRUE)) {
     cat("dlnm not installed; skipping DLNM lag-response plots.\n")
     return(invisible(NULL))
