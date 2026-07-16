@@ -128,7 +128,7 @@ cfg <- list(
   # MCMC
   chains = 4,
   iter_warmup = 1000,
-  iter_sampling = 1000,
+  iter_sampling = 1500,
   adapt_delta = 0.97, # target average acceptance probability for the NUTS sampler in stan
   max_treedepth = 10, # caps how many steps the NUTS sampler can take in a single iteration.
   parallel_chains = if (hostname == "frietjes") 4 else 1,
@@ -1086,12 +1086,15 @@ if (cfg$plot_traceplots) {
                         "phi")
     scalar_vars <- intersect(scalar_include, model_vars)
 
+    trace_dir <- file.path(plots_output_dir, "traceplots")
+    dir.create(trace_dir, recursive = TRUE, showWarnings = FALSE)
+
     # Helper: save chunked traceplots (avoids huge single ggplot)
     save_trace_chunks <- function(vars, draws_arr, file_prefix, chunk_size = 12, w, h) {
       chunks <- split(vars, ceiling(seq_along(vars) / chunk_size))
       for (i in seq_along(chunks)) {
         ggsave(
-          file.path(plots_output_dir, paste0(file_prefix, "_part", i, "_", model_spec, ".png")),
+          file.path(trace_dir, paste0(file_prefix, "_part", i, "_", model_spec, ".png")),
           mcmc_trace(draws_arr, pars = chunks[[i]]), width = w, height = h
         )
       }

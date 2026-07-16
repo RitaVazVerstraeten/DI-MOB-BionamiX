@@ -607,11 +607,13 @@ for (combo_i in seq_along(combinations)) {
                           "tau", "sigma_v", "rho", "sigma_block_dev",
                           "sigma_time", "sigma_block", "phi")
       scalar_vars    <- intersect(scalar_include, model_vars)
+      trace_dir <- file.path(plots_output_dir, "traceplots")
+      dir.create(trace_dir, recursive = TRUE, showWarnings = FALSE)
       save_trace_chunks <- function(vars, draws_arr, file_prefix, chunk_size = 12, w, h) {
         chunks <- split(vars, ceiling(seq_along(vars) / chunk_size))
         for (i in seq_along(chunks))
           ggsave(
-            file.path(plots_output_dir,
+            file.path(trace_dir,
                       paste0(file_prefix, "_part", i, "_", model_spec, ".png")),
             mcmc_trace(draws_arr, pars = chunks[[i]]), width = w, height = h
           )

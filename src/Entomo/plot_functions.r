@@ -751,18 +751,21 @@ save_trace_plots <- function(fit, output_dir, run_suffix, use_temporal_re) {
   library(bayesplot)
   draws_array <- fit$draws(format = "array")
 
+  trace_dir <- file.path(output_dir, "traceplots")
+  dir.create(trace_dir, recursive = TRUE, showWarnings = FALSE)
+
   params_main <- c("alpha", "sigma_u", "delta0", "delta1")
   if (use_temporal_re) params_main <- c(params_main, "sigma_v", "rho")
 
   ggsave(
-    file.path(output_dir, paste0("traceplot_params_", run_suffix, ".png")),
+    file.path(trace_dir, paste0("traceplot_params_", run_suffix, ".png")),
     mcmc_trace(draws_array, pars = params_main), width = 10, height = 8
   )
 
   w_params <- grep("^w\\[", dimnames(draws_array)[[3]], value = TRUE)
   if (length(w_params) > 0) {
     ggsave(
-      file.path(output_dir, paste0("traceplot_weights_w_", run_suffix, ".png")),
+      file.path(trace_dir, paste0("traceplot_weights_w_", run_suffix, ".png")),
       mcmc_trace(draws_array, pars = w_params), width = 12, height = 10
     )
   }
@@ -770,7 +773,7 @@ save_trace_plots <- function(fit, output_dir, run_suffix, use_temporal_re) {
   wu_params <- grep("^w_unlagged\\[", dimnames(draws_array)[[3]], value = TRUE)
   if (length(wu_params) > 0) {
     ggsave(
-      file.path(output_dir, paste0("traceplot_weights_unlagged_", run_suffix, ".png")),
+      file.path(trace_dir, paste0("traceplot_weights_unlagged_", run_suffix, ".png")),
       mcmc_trace(draws_array, pars = wu_params), width = 12, height = 8
     )
   }
