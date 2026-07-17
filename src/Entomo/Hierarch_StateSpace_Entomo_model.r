@@ -76,7 +76,18 @@ cfg <- list(
   # the AR(1) innovation at each time slice is itself spatially smoothed via ICAR, so
   # spatial clustering and temporal persistence are one process, not two. Overrides
   # use_icar/use_block_dev for the DLNM+ix stan file selection below.
-  use_icar_ar1_innov = TRUE,
+  use_icar_ar1_innov = FALSE,
+  # ICAR-structured AR(1) *anchor* (only if use_dlnm=TRUE, use_temporal_AR_perCMF=TRUE).
+  # Structural fix for the same non-identifiability use_icar_ar1_innov targets:
+  # rather than smoothing the innovations (which removes any permanent spatial
+  # level) or adding a second free per-block term alongside the AR(1) (which is
+  # what actually caused the ridge -- confirmed by the plain-ICAR run showing the
+  # same non-identifiability as the iid block RE), the AR(1) reverts to a single
+  # spatially-structured anchor u_block[b]:
+  #   v[b,t] = u_block[b] + rho*(v[b,t-1] - u_block[b]) + sigma_v*innovation
+  # u_block carries the ICAR prior; the AR(1) only explains deviations from it.
+  # Overrides use_icar_ar1_innov/use_icar/use_block_dev for stan file selection below.
+  use_icar_anchor = TRUE,
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
   use_block_dev   = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
@@ -170,11 +181,13 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
   ar1_suffix     <- if (isTRUE(cfg$use_temporal_AR_perCMF)) "AR1perCMF"
                     else if (isTRUE(cfg$use_temporal_AR))   "AR1global"
                     else                                     "noAR1"
-  sp_suffix      <- if (isTRUE(cfg$use_icar_ar1_innov)) "ICARinnov"
+  sp_suffix      <- if (isTRUE(cfg$use_icar_anchor)) "ICARanchor"
+                    else if (isTRUE(cfg$use_icar_ar1_innov)) "ICARinnov"
                     else if (isTRUE(cfg$use_icar)) "ICAR"
                     else if (isTRUE(cfg$use_bym2)) "BYM2"
                     else "noGP"
-  re_suffix      <- if (isTRUE(cfg$use_icar_ar1_innov)) "ICARinnov"
+  re_suffix      <- if (isTRUE(cfg$use_icar_anchor)) "ICARanchor"
+                    else if (isTRUE(cfg$use_icar_ar1_innov)) "ICARinnov"
                     else if (isTRUE(cfg$use_icar)) "ICAR"
                     else if (isTRUE(cfg$use_block_dev)) "blockRE"
                     else "noBlockRE"
@@ -185,13 +198,15 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
   ar1_suffix <- if (isTRUE(cfg$use_temporal_AR_perCMF)) "AR1perCMF"
                else if (isTRUE(cfg$use_temporal_AR))      "AR1global"
                else                                        "noAR1"
-  gp_suffix  <- if (isTRUE(cfg$use_icar_ar1_innov)) "ICARinnov"
+  gp_suffix  <- if (isTRUE(cfg$use_icar_anchor))   "ICARanchor"
+                else if (isTRUE(cfg$use_icar_ar1_innov)) "ICARinnov"
                 else if (!isTRUE(cfg$use_spatial_AC))  "noGP"
                 else if (isTRUE(cfg$use_bym2))    "BYM2"
                 else if (isTRUE(cfg$use_icar))    "ICAR"
                 else if (isTRUE(cfg$use_hsgp))    "HSGP"
                 else                              "GP"
-  re_suffix  <- if (isTRUE(cfg$use_icar_ar1_innov)) "ICARinnov"
+  re_suffix  <- if (isTRUE(cfg$use_icar_anchor))   "ICARanchor"
+               else if (isTRUE(cfg$use_icar_ar1_innov)) "ICARinnov"
                else if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_block_dev)) "blockRE"
                else if (isTRUE(cfg$use_temporal_AR_perCMF)) "noBlockRE"
                else ifelse(isTRUE(cfg$use_block_dev), "blockRE", "noBlockRE")
@@ -235,7 +250,11 @@ cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   file.path(stan_dir, "hierarchical_state_space_timeRE_blockRE.stan")
 } else if (isTRUE(cfg$use_dlnm)) {
   # DLNM cross-basis: per-CMF AR(1) variants
-  if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_icar_ar1_innov)) {
+  if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_icar_anchor)) {
+    # AR(1) reverts to a single ICAR-structured anchor u_block[b], instead of
+    # a separately-additive block/ICAR term or ICAR-smoothed innovations.
+    file.path(stan_dir, "hierarchical_state_space_AR_perCMF_ICARanchor_DLNM_ix.stan")
+  } else if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_icar_ar1_innov)) {
     # ICAR-structured AR(1) innovations, replacing the separate block/ICAR term.
     file.path(stan_dir, "hierarchical_state_space_AR_perCMF_ICARinnov_DLNM_ix.stan")
   } else if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_icar)) {
@@ -259,7 +278,12 @@ cfg$stan_file <- if (isTRUE(cfg$use_time_RE)) {
   }
 } else if (!isTRUE(cfg$use_spatial_AC)) {
   # AR only variants (no GP)
-  if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_icar_ar1_innov)) {
+  if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_icar_anchor)) {
+    # Reduced (non-DLNM) prototype: AR(1) reverts to a single ICAR-structured
+    # anchor u_block[b]. Use this to sanity-check sampling (rho/tau/sigma_icar
+    # separate cleanly, no funnels) before paying for the full DLNM+ix fit.
+    file.path(stan_dir, "hierarchical_state_space_AR_perCMF_ICARanchor.stan")
+  } else if (isTRUE(cfg$use_temporal_AR_perCMF) && isTRUE(cfg$use_icar_ar1_innov)) {
     # Reduced (non-DLNM) prototype: ICAR-structured AR(1) innovations, no separate
     # block/ICAR term. Use this to sanity-check sampling before the full DLNM+ix fit.
     file.path(stan_dir, "hierarchical_state_space_AR_perCMF_ICARinnov.stan")
@@ -350,20 +374,23 @@ coords_sf  <- sf_blocks %>%
   distinct(block_chr, .keep_all = TRUE)
 
 # ======================== spatial data prep ====================================
-# use_icar / use_icar_ar1_innov can also be set without use_spatial_AC when combined with use_dlnm
-if (isTRUE(cfg$use_spatial_AC) || isTRUE(cfg$use_icar) || isTRUE(cfg$use_icar_ar1_innov)) {
-  if (isTRUE(cfg$use_bym2) || isTRUE(cfg$use_icar) || isTRUE(cfg$use_icar_ar1_innov)) {
+# use_icar / use_icar_ar1_innov / use_icar_anchor can also be set without
+# use_spatial_AC when combined with use_dlnm
+if (isTRUE(cfg$use_spatial_AC) || isTRUE(cfg$use_icar) || isTRUE(cfg$use_icar_ar1_innov) || isTRUE(cfg$use_icar_anchor)) {
+  if (isTRUE(cfg$use_bym2) || isTRUE(cfg$use_icar) || isTRUE(cfg$use_icar_ar1_innov) || isTRUE(cfg$use_icar_anchor)) {
     icar_edges <- build_icar_edges(sf_blocks, block_ids, cfg$sf_block_col, snap_m = 100)
     stan_data$N_edges <- icar_edges$N_edges
     stan_data$node1   <- icar_edges$node1
     stan_data$node2   <- icar_edges$node2
     cat(sprintf("%s: %d blocks, %d unique edges\n",
                 ifelse(isTRUE(cfg$use_bym2), "BYM2",
-                       ifelse(isTRUE(cfg$use_icar_ar1_innov), "ICAR-on-AR1-innovations", "ICAR")),
+                       ifelse(isTRUE(cfg$use_icar_anchor), "ICAR-anchored-AR1",
+                              ifelse(isTRUE(cfg$use_icar_ar1_innov), "ICAR-on-AR1-innovations", "ICAR"))),
                 length(block_ids), stan_data$N_edges))
-    # BYM2 and ICAR-on-AR1-innovations both rescale a raw ICAR field to unit
-    # marginal variance via the same scaling factor (Riebler et al. 2016).
-    if (isTRUE(cfg$use_bym2) || isTRUE(cfg$use_icar_ar1_innov)) {
+    # BYM2, ICAR-on-AR1-innovations and the ICAR-anchored-AR1 all rescale a raw
+    # ICAR field to unit marginal variance via the same scaling factor
+    # (Riebler et al. 2016).
+    if (isTRUE(cfg$use_bym2) || isTRUE(cfg$use_icar_ar1_innov) || isTRUE(cfg$use_icar_anchor)) {
       stan_data$scaling_factor <- compute_bym2_scaling(
         icar_edges$node1, icar_edges$node2, stan_data$B
       )
@@ -554,13 +581,14 @@ fit <- mod$sample(
   init = make_init_fun(
     stan_data, cfg$use_temporal_AR,
     use_hsgp              = isTRUE(cfg$use_hsgp) && !isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
-    use_icar              = isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2) && !isTRUE(cfg$use_icar_ar1_innov),
+    use_icar              = isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2) && !isTRUE(cfg$use_icar_ar1_innov) && !isTRUE(cfg$use_icar_anchor),
     use_bym2              = isTRUE(cfg$use_bym2),
     use_time_RE           = isTRUE(cfg$use_time_RE),
     use_spatial_AC        = isTRUE(cfg$use_spatial_AC),
     use_block_dev         = isTRUE(cfg$use_block_dev),
     use_temporal_AR_perCMF = isTRUE(cfg$use_temporal_AR_perCMF),
     use_icar_ar1_innov    = isTRUE(cfg$use_icar_ar1_innov),
+    use_icar_anchor       = isTRUE(cfg$use_icar_anchor),
     use_dlnm              = isTRUE(cfg$use_dlnm)
   ),
   adapt_delta = cfg$adapt_delta,
@@ -591,9 +619,14 @@ if (isTRUE(cfg$use_time_RE)) {
   # DLNM+ICAR: sigma_icar not captured by use_spatial_AC branch above
   if (isTRUE(cfg$use_dlnm) && isTRUE(cfg$use_icar))
     summary_vars <- c(summary_vars, "sigma_icar")
+  # ICAR-anchored AR(1): sigma_icar sets the anchor's magnitude (u_block_out is
+  # a generated quantity, not a scalar, so it's inspected via plots, not here).
+  if (isTRUE(cfg$use_icar_anchor))
+    summary_vars <- c(summary_vars, "sigma_icar")
   # ICAR-on-AR1-innovations has no separate block/spatial scalar: spatial
   # smoothness is folded into tau/sigma_v/rho above, so skip sigma_block here.
-  if (!isTRUE(cfg$use_bym2) && !isTRUE(cfg$use_icar) && !isTRUE(cfg$use_icar_ar1_innov) && isTRUE(cfg$use_block_dev)) {
+  if (!isTRUE(cfg$use_bym2) && !isTRUE(cfg$use_icar) && !isTRUE(cfg$use_icar_ar1_innov) &&
+      !isTRUE(cfg$use_icar_anchor) && isTRUE(cfg$use_block_dev)) {
     if (isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_temporal_AR_perCMF))
       summary_vars <- c(summary_vars, "sigma_block_dev")
     else
@@ -686,12 +719,13 @@ summary_output <- capture.output({
     cat("Interactions:", paste(sapply(cfg$ix_vars, paste, collapse = " x "), collapse = ", "), "\n")
 
   cat("\n--- Random effects ---\n")
-  cat("Block RE            :", (isTRUE(cfg$use_block_RE) || isTRUE(cfg$use_block_dev)) && !isTRUE(cfg$use_icar_ar1_innov), "\n")
+  cat("Block RE            :", (isTRUE(cfg$use_block_RE) || isTRUE(cfg$use_block_dev)) && !isTRUE(cfg$use_icar_ar1_innov) && !isTRUE(cfg$use_icar_anchor), "\n")
   cat("Temporal AR(1)/CMF  :", isTRUE(cfg$use_temporal_AR_perCMF), "\n")
   cat("Temporal AR(1) global:", isTRUE(cfg$use_temporal_AR) && !isTRUE(cfg$use_temporal_AR_perCMF), "\n")
   cat("Spatial ICAR        :", isTRUE(cfg$use_icar), "\n")
   cat("Spatial BYM2        :", isTRUE(cfg$use_bym2), "\n")
   cat("ICAR-on-AR1-innov   :", isTRUE(cfg$use_icar_ar1_innov), "\n")
+  cat("ICAR-anchored AR(1) :", isTRUE(cfg$use_icar_anchor), "\n")
   cat("Reactive shift (delta1):", !isTRUE(cfg$fix_delta1), "\n")
   cat("phi fixed           :", isTRUE(cfg$fix_phi), "\n")
 

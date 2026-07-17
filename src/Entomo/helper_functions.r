@@ -536,6 +536,7 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
                           use_block_dev = TRUE,
                           use_temporal_AR_perCMF = FALSE,
                           use_icar_ar1_innov = FALSE,
+                          use_icar_anchor = FALSE,
                           use_dlnm = FALSE) {
   function() {
     init_vals <- list(
@@ -584,6 +585,11 @@ make_init_fun <- function(stan_data, use_temporal_re, use_hsgp = FALSE,
         if (isTRUE(use_icar_ar1_innov)) {
           # ICAR is baked into v_raw's own prior (per time-slice); no separate
           # additive spatial/block field is declared in this Stan variant.
+        } else if (isTRUE(use_icar_anchor)) {
+          # ICAR-structured anchor u_block: the AR(1) reverts to this rather
+          # than adding it as a separate term (see the _ICARanchor stan files).
+          init_vals$u_block_raw <- rnorm(stan_data$B, 0, 0.1)
+          init_vals$sigma_icar  <- runif(1, 0.1, 0.4)
         } else if (isTRUE(use_icar)) {
           # DLNM+ICAR or perCMF+ICAR: ICAR spatial field replaces block RE
           init_vals$u_icar_raw <- rnorm(stan_data$B, 0, 0.1)
