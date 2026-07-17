@@ -59,7 +59,7 @@ cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data",
   # Extended-lag dataset: env 2015-2019 (NDVI only for 2016-2019), ento-epi 2016-2019.
   # 2015 rows serve as lag lead-in; response_start below marks the observation period.
-  data_file_name = if (spatial_level == "CMF")"env_epi_entomo_data_per_CMF_2015_01_to_2019_12_noNDXI_noColinnearity.csv" else "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_noNDXI_noColinnearity.csv",
+  data_file_name = if (spatial_level == "CMF")"env_epi_entomo_data_per_CMF_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv" else "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv",
   output_dir = if (hostname == "frietjes") "/home/rita/data/Entomo/fitting/stan" else "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
@@ -192,7 +192,11 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
                     else if (isTRUE(cfg$use_block_dev)) "blockRE"
                     else "noBlockRE"
   n_block_suffix <- paste0(ifelse(is.null(cfg$n_blocks), "All", cfg$n_blocks), "Blocks")
-  paste0("DLNM_", ar1_suffix, "_", sp_suffix, "_", re_suffix,
+  # sp_suffix/re_suffix collapse to the same label whenever the spatial term and
+  # the block-level term are the same object (ICARanchor, ICARinnov, plain ICAR)
+  # -- don't repeat it in the folder name.
+  spatial_re_part <- if (identical(sp_suffix, re_suffix)) sp_suffix else paste0(sp_suffix, "_", re_suffix)
+  paste0("DLNM_", ar1_suffix, "_", spatial_re_part,
          "_lag", cfg$max_lag, "_k", cfg$kappa, "_", n_block_suffix)
 } else {
   ar1_suffix <- if (isTRUE(cfg$use_temporal_AR_perCMF)) "AR1perCMF"
@@ -212,7 +216,11 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
                else ifelse(isTRUE(cfg$use_block_dev), "blockRE", "noBlockRE")
   n_block_suffix  <- ifelse(is.null(cfg$n_blocks), "All", cfg$n_blocks)
   n_block_suffix  <- paste0(n_block_suffix, "Blocks")
-  paste0(ar1_suffix, "_", gp_suffix, "_", re_suffix,
+  # gp_suffix/re_suffix collapse to the same label whenever the spatial term and
+  # the block-level term are the same object (ICARanchor, ICARinnov) -- don't
+  # repeat it in the folder name.
+  spatial_re_part <- if (identical(gp_suffix, re_suffix)) gp_suffix else paste0(gp_suffix, "_", re_suffix)
+  paste0(ar1_suffix, "_", spatial_re_part,
          "_lag", cfg$max_lag, "_k", cfg$kappa, "_", n_block_suffix)
 }
 model_spec <- paste0(spatial_level, "_", model_spec)
