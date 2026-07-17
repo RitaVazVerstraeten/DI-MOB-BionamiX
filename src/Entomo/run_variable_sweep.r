@@ -28,6 +28,7 @@ library(readr)
 library(sf)
 library(lubridate)
 library(spdep)
+library(parallel)
 
 # ── Script directory detection ────────────────────────────────────────────────
 script_dir <- tryCatch({
@@ -94,52 +95,90 @@ combinations <- list(
   # ── Group 1: Precipitation core — no temperature or wind ──────────────────
   # Establishes the baseline signal from total_precip + VPD alone.
   # Incrementally adds optional static predictors to test their contribution.
+
+  # minimal model 
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization")),
+
+  # minimal model + one extra spatial predictor 
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization", "mean_ndvi")),
 
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization","water_containers")),
+  
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization","is_WUI")),
 
+  # minimal model + two extra spatial predictors  
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization","mean_ndvi", "water_containers")),
+
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization","mean_ndvi", "water_shortage")),
+
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization","is_WUI", "water_containers")),
+
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization","is_WUI", "is_WI")),
+  
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization","is_WUI", "water_shortage")),
+
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization","water_containers", "water_shortage")),
+
+  # minimal model + three extra spatial predictors   
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi")),
 
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "is_WUI", "water_shortage", "mean_ndvi")),
+  
+  # minimal model + four extra spatial predictors  
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization", "is_WUI", "water_containers", "water_shortage", "mean_ndvi")),
 
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization", "is_WUI", "is_WI", "water_containers", "mean_ndvi")),
 
+# full model - 1 predictor 
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization", "is_WUI", "is_WI", "water_containers", "water_shortage", "mean_ndvi")),
 
-  # ── Group 2: Add avg_temp ─────────────────────────────────────────────────
-  # avg_temp is the dominant RF predictor (importance 0.307) but correlated
-  # with total_precip (Spearman r = 0.65) and total_rainy_days (r = 0.70)
-  # because the warm and wet seasons coincide in Cienfuegos. LOO-IC will
-  # reveal whether temp adds independent predictive value on top of precip.
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
-       unlag = c("HFP_urbanization")),
+# full model 
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "is_WUI", "is_WI", "water_containers", "water_shortage", "mean_ndvi", "WS2M")),
+
+  # # ── Group 2: Add avg_temp ─────────────────────────────────────────────────
+  # # avg_temp is the dominant RF predictor (importance 0.307) but correlated
+  # # with total_precip (Spearman r = 0.65) and total_rainy_days (r = 0.70)
+  # # because the warm and wet seasons coincide in Cienfuegos. LOO-IC will
+  # # reveal whether temp adds independent predictive value on top of precip.
+  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+  #      unlag = c("HFP_urbanization")),
   
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
-       unlag = c("HFP_urbanization", "mean_ndvi")),
+  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+  #      unlag = c("HFP_urbanization", "mean_ndvi")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
-       unlag = c("HFP_urbanization", "water_containers")),
+  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+  #      unlag = c("HFP_urbanization", "water_containers")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
-       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi")),
+  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+  #      unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi")),
   
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
-       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi", "WS2M")),
+  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+  #      unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi", "WS2M")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
-       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "water_shortage", "mean_ndvi")),
+  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+  #      unlag = c("HFP_urbanization", "is_WUI", "water_containers", "water_shortage", "mean_ndvi")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
-       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "is_WI", "mean_ndvi")),
+  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+  #      unlag = c("HFP_urbanization", "is_WUI", "water_containers", "is_WI", "mean_ndvi")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
-       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "water_shortage", "is_WI", "mean_ndvi")),
+  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
+  #      unlag = c("HFP_urbanization", "is_WUI", "water_containers", "water_shortage", "is_WI", "mean_ndvi")),
 
   # # ── Group 3: WS2M instead of avg_temp ────────────────────────────────────
   # # WS2M tracks the dry/cool season (r = -0.48 with total_precip, r = -0.61
@@ -178,8 +217,22 @@ combinations <- list(
               dlnm_var   = "total_precip",     label = "nonurban_x_tp")
        )),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD", "avg_temp"),
-       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi"),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi", "WS2M"),
+       ix    = list(
+         list(binary_var = "is_urban",        active_level = 0,
+              dlnm_var   = "total_precip",     label = "nonurban_x_tp")
+       )),
+
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "water_shortage", "mean_ndvi", "WS2M"),
+       ix    = list(
+         list(binary_var = "is_urban",        active_level = 0,
+              dlnm_var   = "total_precip",     label = "nonurban_x_tp")
+       )),
+
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "is_WUI","is_WI", "water_containers", "water_shortage", "mean_ndvi", "WS2M"),
        ix    = list(
          list(binary_var = "is_urban",        active_level = 0,
               dlnm_var   = "total_precip",     label = "nonurban_x_tp")
@@ -311,7 +364,21 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
 }
 model_spec <- paste0(spatial_level, "_", model_spec)
 
-options(mc.cores = if (hostname == "frietjes") 6 else 2)
+# ── Core budget: combos run in parallel (mclapply, below), each combo's own
+# MCMC chains run serially or in parallel per cfg$parallel_chains. Total
+# concurrent cores = n_workers * cfg$parallel_chains, capped at MAX_TOTAL_CORES.
+# loo::loo()'s own internal parallelism is disabled (mc.cores = 1) so it can't
+# oversubscribe on top of the combo-level workers.
+MAX_TOTAL_CORES <- 9
+n_workers <- max(1, min(length(combinations),
+                        parallel::detectCores(),
+                        floor(MAX_TOTAL_CORES / cfg$parallel_chains)))
+options(mc.cores = 1)
+cat(sprintf(
+  "Parallel sweep: %d worker(s) x %d chain(s)/fit = up to %d cores (cap %d).\n",
+  n_workers, cfg$parallel_chains, n_workers * cfg$parallel_chains, MAX_TOTAL_CORES
+))
+
 dir.create(cfg$output_dir, recursive = TRUE, showWarnings = FALSE)
 sweep_dir <- file.path(cfg$output_dir, paste0("variable_sweep_", model_spec, "_", date_suffix))
 dir.create(sweep_dir, recursive = TRUE, showWarnings = FALSE)
@@ -370,17 +437,42 @@ if (isTRUE(cfg$use_dlnm)) {
   cat("Stan model compiled.\n")
 }
 
-# ── Sweep log initialisation ──────────────────────────────────────────────────
-sweep_log <- vector("list", length(combinations))
-loo_list  <- list()   # named by predictor_spec; populated inside loop
-
-# ── Main sweep loop ───────────────────────────────────────────────────────────
-for (combo_i in seq_along(combinations)) {
+# ── Per-combo worker ───────────────────────────────────────────────────────────
+# Runs one combo end-to-end (design matrices -> MCMC -> plots -> LOO) and
+# returns its result instead of mutating shared state, so it's safe to call
+# from parallel forked workers (mclapply, below). Each combo's own console
+# output is redirected to its own log file (run_output_dir/console_log.txt)
+# to avoid interleaving when several workers print concurrently.
+run_one_combo <- function(combo_i) {
+  cfg_i <- cfg   # per-worker copy; never mutate the shared `cfg`
   combo <- combinations[[combo_i]]
   has_ix <- !is.null(combo$ix)
   ix_labels  <- if (has_ix)
     paste(sapply(combo$ix, `[[`, "label"), collapse = "+")
   else ""
+
+  cfg_i$lag_vars      <- combo$lag
+  cfg_i$unlagged_vars <- combo$unlag
+  combo_vars <- get_combo_vars(cfg_i$lag_vars, cfg_i$unlagged_vars)
+  cfg_i$lag_vars      <- combo_vars$lag
+  cfg_i$unlagged_vars <- combo_vars$unlag
+  cfg_i$numeric_vars  <- get_numeric_vars(cfg_i$lag_vars, cfg_i$unlagged_vars)
+
+  # predictor_spec encodes the variable set → unique output dir per combo
+  predictor_spec <- paste0(
+    "lag-",    paste(cfg_i$lag_vars,      collapse = "-"),
+    "_unlag-", paste(cfg_i$unlagged_vars, collapse = "-"),
+    if (has_ix) paste0("_ix-", gsub("\\+", "-", ix_labels)) else ""
+  )
+  run_output_dir   <- file.path(sweep_dir, predictor_spec)
+  plots_output_dir <- file.path(run_output_dir, "plots")
+  dir.create(run_output_dir,   recursive = TRUE, showWarnings = FALSE)
+  dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
+
+  log_con <- file(file.path(run_output_dir, "console_log.txt"), open = "wt")
+  sink(log_con); sink(log_con, type = "message")
+  on.exit({ sink(type = "message"); sink(); close(log_con) }, add = TRUE)
+
   cat(sprintf(
     "\n========== Run %d / %d ==========\n  lag:   %s\n  unlag: %s%s\n",
     combo_i, length(combinations),
@@ -389,54 +481,37 @@ for (combo_i in seq_along(combinations)) {
     if (has_ix) paste0("\n  ix:    ", ix_labels) else ""
   ))
 
-  cfg$lag_vars      <- combo$lag
-  cfg$unlagged_vars <- combo$unlag
-  combo_vars <- get_combo_vars(cfg$lag_vars, cfg$unlagged_vars)
-  cfg$lag_vars      <- combo_vars$lag
-  cfg$unlagged_vars <- combo_vars$unlag
-  cfg$numeric_vars  <- get_numeric_vars(cfg$lag_vars, cfg$unlagged_vars)
-
-  # predictor_spec encodes the variable set → unique output dir per combo
-  predictor_spec <- paste0(
-    "lag-",    paste(cfg$lag_vars,      collapse = "-"),
-    "_unlag-", paste(cfg$unlagged_vars, collapse = "-"),
-    if (has_ix) paste0("_ix-", gsub("\\+", "-", ix_labels)) else ""
-  )
-  run_output_dir   <- file.path(sweep_dir, predictor_spec)
-  plots_output_dir <- file.path(run_output_dir, "plots")
-  dir.create(run_output_dir,   recursive = TRUE, showWarnings = FALSE)
-  dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
-
   t_start <- proc.time()["elapsed"]
+  loo_result <- NULL
 
-  result <- tryCatch({
+  status <- tryCatch({
 
     # Rebuild design matrices for this combo (fast; spatial setup already done)
-    if (isTRUE(cfg$use_dlnm)) {
-      cfg$dlnm_vars    <- combo_vars$lag
-      cfg$dlnm_argvar  <- setNames(
+    if (isTRUE(cfg_i$use_dlnm)) {
+      cfg_i$dlnm_vars    <- combo_vars$lag
+      cfg_i$dlnm_argvar  <- setNames(
         lapply(combo_vars$lag, function(v) list(fun = "ns", df = 3)),
         combo_vars$lag
       )
-      cfg$dlnm_arglag  <- list(fun = "ns", df = 3)
-      cfg$dlnm_ix_vars <- combo$ix   # NULL when !has_ix -> P_ix = 0, handled by the Stan model
-      prep <- build_dlnm_stan_data(cfg)
+      cfg_i$dlnm_arglag  <- list(fun = "ns", df = 3)
+      cfg_i$dlnm_ix_vars <- combo$ix   # NULL when !has_ix -> P_ix = 0, handled by the Stan model
+      prep <- build_dlnm_stan_data(cfg_i)
     } else {
-      prep <- build_stan_data(cfg)
+      prep <- build_stan_data(cfg_i)
     }
     stan_data <- prep$stan_data
     df        <- prep$df
 
     # Inject pre-computed ICAR edges (only for spatial AC models)
-    if (isTRUE(cfg$use_spatial_AC)) {
+    if (isTRUE(cfg_i$use_spatial_AC)) {
       stan_data$N_edges <- icar_edges$N_edges
       stan_data$node1   <- icar_edges$node1
       stan_data$node2   <- icar_edges$node2
     }
 
     # phi setup
-    stan_data$fix_phi <- as.integer(isTRUE(cfg$fix_phi))
-    if (isTRUE(cfg$fix_phi)) {
+    stan_data$fix_phi <- as.integer(isTRUE(cfg_i$fix_phi))
+    if (isTRUE(cfg_i$fix_phi)) {
       disp_df <- df %>%
         mutate(n_bt = stan_data$n_bt, y_bt = stan_data$y) %>%
         filter(n_bt > 0) %>%
@@ -459,7 +534,7 @@ for (combo_i in seq_along(combinations)) {
                      phi_grouped_median < 500) {
         round(phi_grouped_median, 1)
       } else {
-        cfg$phi_fixed
+        cfg_i$phi_fixed
       }
       stan_data$phi_data <- phi_use
       cat(sprintf("phi fixed at %.1f\n", phi_use))
@@ -469,11 +544,11 @@ for (combo_i in seq_along(combinations)) {
     }
 
     # MCMC
-    mod_use <- if (isTRUE(cfg$use_dlnm)) mod_dlnm_ix else mod
-    init_fn <- if (isTRUE(cfg$use_dlnm)) {
+    mod_use <- if (isTRUE(cfg_i$use_dlnm)) mod_dlnm_ix else mod
+    init_fn <- if (isTRUE(cfg_i$use_dlnm)) {
       local({
         sd <- stan_data
-        fix_phi_flag <- isTRUE(cfg$fix_phi)
+        fix_phi_flag <- isTRUE(cfg_i$fix_phi)
         function() list(
           alpha       = rnorm(1, -7, 0.5),
           w_cb        = rnorm(sd$P_cb, 0, 0.05),
@@ -490,26 +565,26 @@ for (combo_i in seq_along(combinations)) {
       })
     } else {
       make_init_fun(
-        stan_data, cfg$use_temporal_AR,
-        use_hsgp               = isTRUE(cfg$use_hsgp) && !isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
-        use_icar               = isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
-        use_bym2               = isTRUE(cfg$use_bym2),
-        use_time_RE            = isTRUE(cfg$use_time_RE),
-        use_spatial_AC         = isTRUE(cfg$use_spatial_AC),
-        use_block_dev          = isTRUE(cfg$use_block_dev),
-        use_temporal_AR_perCMF = isTRUE(cfg$use_temporal_AR_perCMF)
+        stan_data, cfg_i$use_temporal_AR,
+        use_hsgp               = isTRUE(cfg_i$use_hsgp) && !isTRUE(cfg_i$use_icar) && !isTRUE(cfg_i$use_bym2),
+        use_icar               = isTRUE(cfg_i$use_icar) && !isTRUE(cfg_i$use_bym2),
+        use_bym2               = isTRUE(cfg_i$use_bym2),
+        use_time_RE            = isTRUE(cfg_i$use_time_RE),
+        use_spatial_AC         = isTRUE(cfg_i$use_spatial_AC),
+        use_block_dev          = isTRUE(cfg_i$use_block_dev),
+        use_temporal_AR_perCMF = isTRUE(cfg_i$use_temporal_AR_perCMF)
       )
     }
     fit <- mod_use$sample(
       data            = stan_data,
-      chains          = cfg$chains,
-      iter_warmup     = cfg$iter_warmup,
-      iter_sampling   = cfg$iter_sampling,
-      thin            = if (!is.null(cfg$thin)) cfg$thin else 1,
+      chains          = cfg_i$chains,
+      iter_warmup     = cfg_i$iter_warmup,
+      iter_sampling   = cfg_i$iter_sampling,
+      thin            = if (!is.null(cfg_i$thin)) cfg_i$thin else 1,
       init            = init_fn,
-      adapt_delta     = cfg$adapt_delta,
-      max_treedepth   = cfg$max_treedepth,
-      parallel_chains = cfg$parallel_chains,
+      adapt_delta     = cfg_i$adapt_delta,
+      max_treedepth   = cfg_i$max_treedepth,
+      parallel_chains = cfg_i$parallel_chains,
       output_dir      = run_output_dir
     )
     invisible(file.remove(list.files(run_output_dir,
@@ -517,30 +592,30 @@ for (combo_i in seq_along(combinations)) {
                                      full.names = TRUE)))
 
     # Model summary
-    w_vars <- if (isTRUE(cfg$use_dlnm)) {
+    w_vars <- if (isTRUE(cfg_i$use_dlnm)) {
       c("w_cb", "w_unlagged", if (has_ix) "w_ix")
     } else {
       c("w", "w_unlagged")
     }
     summary_vars <- c("alpha", "delta1", w_vars)
-    if (isTRUE(cfg$use_time_RE)) {
+    if (isTRUE(cfg_i$use_time_RE)) {
       summary_vars <- c(summary_vars, "sigma_time", "sigma_block")
     } else {
-      if (isTRUE(cfg$use_spatial_AC)) {
-        if (isTRUE(cfg$use_bym2))      summary_vars <- c(summary_vars, "sigma_spatial", "phi_mix")
-        else if (isTRUE(cfg$use_icar)) summary_vars <- c(summary_vars, "sigma_icar")
+      if (isTRUE(cfg_i$use_spatial_AC)) {
+        if (isTRUE(cfg_i$use_bym2))      summary_vars <- c(summary_vars, "sigma_spatial", "phi_mix")
+        else if (isTRUE(cfg_i$use_icar)) summary_vars <- c(summary_vars, "sigma_icar")
         else                            summary_vars <- c(summary_vars, "sigma_gp", "rho_gp")
       }
-      if (isTRUE(cfg$use_temporal_AR)) summary_vars <- c(summary_vars, "tau", "sigma_v", "rho")
-      if (!isTRUE(cfg$use_bym2) && isTRUE(cfg$use_block_dev)) {
-        if (isTRUE(cfg$use_temporal_AR_perCMF))
+      if (isTRUE(cfg_i$use_temporal_AR)) summary_vars <- c(summary_vars, "tau", "sigma_v", "rho")
+      if (!isTRUE(cfg_i$use_bym2) && isTRUE(cfg_i$use_block_dev)) {
+        if (isTRUE(cfg_i$use_temporal_AR_perCMF))
           summary_vars <- c(summary_vars, "sigma_block")
         else
           summary_vars <- c(summary_vars, "sigma_block_dev")
       }
     }
-    if (!isTRUE(cfg$fix_phi)) summary_vars <- c(summary_vars, "phi")
-    model_sum <- if (isTRUE(cfg$use_dlnm)) {
+    if (!isTRUE(cfg_i$fix_phi)) summary_vars <- c(summary_vars, "phi")
+    model_sum <- if (isTRUE(cfg_i$use_dlnm)) {
       fit$summary(variables = summary_vars)
     } else {
       rename_w_in_summary(fit$summary(variables = summary_vars), prep$lag_vars_expanded, prep$unlagged_vars)
@@ -565,7 +640,7 @@ for (combo_i in seq_along(combinations)) {
     rm(y_pred_mat)
 
     # Random effects plot
-    if (cfg$plot_random_effects) {
+    if (cfg_i$plot_random_effects) {
       if (!all(is.na(post$u)) && length(post$u) > 0) {
         save_random_effects(post$u, post$v, plots_output_dir, model_spec)
       } else if (!all(is.na(post$v)) && length(post$v) > 0) {
@@ -581,15 +656,15 @@ for (combo_i in seq_along(combinations)) {
         dev.off()
       }
     }
-    if (cfg$plot_ppc)        save_ppc(df, fit, plots_output_dir, model_spec)
-    if (cfg$plot_timeseries) save_timeseries_plots(df, plots_output_dir, model_spec,
-                                                    cfg$n_blocks_facet)
+    if (cfg_i$plot_ppc)        save_ppc(df, fit, plots_output_dir, model_spec)
+    if (cfg_i$plot_timeseries) save_timeseries_plots(df, plots_output_dir, model_spec,
+                                                      cfg_i$n_blocks_facet)
 
     # DLNM response plots: 2D/3D exposure-response and lag-response surfaces,
-    # for every combo now that cfg$use_dlnm applies sweep-wide. The
+    # for every combo now that cfg_i$use_dlnm applies sweep-wide. The
     # interaction-comparison plots stay gated on has_ix (nothing to compare
     # against a reference group when P_ix = 0).
-    if (isTRUE(cfg$use_dlnm)) {
+    if (isTRUE(cfg_i$use_dlnm)) {
       save_dlnm_response_plots(fit, prep, plots_output_dir, model_spec)
       save_dlnm_lagresponse_plots(fit, prep, plots_output_dir, model_spec)
       if (has_ix) save_dlnm_interaction_response_plots(fit, prep, plots_output_dir, model_spec)
@@ -599,7 +674,7 @@ for (combo_i in seq_along(combinations)) {
     save_v_bt_plot(fit, df, stan_data, plots_output_dir, model_spec)
 
     # Traceplots
-    if (cfg$plot_traceplots && requireNamespace("bayesplot", quietly = TRUE)) {
+    if (cfg_i$plot_traceplots && requireNamespace("bayesplot", quietly = TRUE)) {
       library(bayesplot)
       model_vars     <- fit$metadata()$stan_variables
       scalar_include <- c("alpha", "sigma_gp", "rho_gp", "sigma_icar",
@@ -623,7 +698,7 @@ for (combo_i in seq_along(combinations)) {
         scalar_params <- dimnames(draws_scalar)[[3]]
         save_trace_chunks(scalar_params, draws_scalar, "traceplot_params", w = 10, h = 8)
       }
-      if (isTRUE(cfg$use_dlnm)) {
+      if (isTRUE(cfg_i$use_dlnm)) {
         if ("w_cb" %in% model_vars) {
           draws_wcb <- fit$draws(variables = "w_cb", format = "array")
           save_trace_chunks(dimnames(draws_wcb)[[3]], draws_wcb,
@@ -656,7 +731,6 @@ for (combo_i in seq_along(combinations)) {
       loo_output    <- capture.output(print(loo_result))
       writeLines(loo_output, file.path(run_output_dir, paste0("loo_", predictor_spec, ".txt")))
       saveRDS(loo_result,    file.path(run_output_dir, paste0("loo_", predictor_spec, ".rds")))
-      loo_list[[predictor_spec]] <- loo_result
     }
 
     # Delete chain CSVs — plots and summary already saved, raw draws not needed
@@ -673,16 +747,30 @@ for (combo_i in seq_along(combinations)) {
   })
 
   elapsed_min <- round((proc.time()["elapsed"] - t_start) / 60, 1)
-  sweep_log[[combo_i]] <- data.frame(
+  log_row <- data.frame(
     run         = combo_i,
     lag_vars    = paste(combo$lag,   collapse = "|"),
     unlag_vars  = paste(combo$unlag, collapse = "|"),
     ix_vars     = if (has_ix) ix_labels else "",
     n_lag       = length(combo$lag),
     n_unlag     = length(combo$unlag),
-    status      = result,
+    status      = status,
     elapsed_min = elapsed_min
   )
+
+  list(predictor_spec = predictor_spec, loo_result = loo_result, log_row = log_row)
+}
+
+# ── Main sweep: run all combos, up to n_workers at a time ────────────────────
+cat(sprintf("\nLaunching %d combo(s) across %d parallel worker(s)...\n",
+            length(combinations), n_workers))
+combo_results <- parallel::mclapply(seq_along(combinations), run_one_combo,
+                                    mc.cores = n_workers, mc.preschedule = FALSE)
+
+sweep_log <- lapply(combo_results, function(r) r$log_row)
+loo_list  <- list()   # named by predictor_spec
+for (r in combo_results) {
+  if (!is.null(r$loo_result)) loo_list[[r$predictor_spec]] <- r$loo_result
 }
 
 # ── Write sweep log ───────────────────────────────────────────────────────────

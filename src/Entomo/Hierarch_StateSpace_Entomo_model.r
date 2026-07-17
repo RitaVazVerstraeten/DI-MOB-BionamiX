@@ -528,28 +528,45 @@ if (isTRUE(cfg$run_prior_predictive)) {
 }
 
 # ========================= MCMC sampling =======================================
-fit <- mod$sample(
-  data = stan_data,
-  chains = cfg$chains,
-  iter_warmup = cfg$iter_warmup,
-  iter_sampling = cfg$iter_sampling,
-  thin = if (!is.null(cfg$thin)) cfg$thin else 1,
-  init = make_init_fun(
-    stan_data, cfg$use_temporal_AR,
-    use_hsgp              = isTRUE(cfg$use_hsgp) && !isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
-    use_icar              = isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
-    use_bym2              = isTRUE(cfg$use_bym2),
-    use_time_RE           = isTRUE(cfg$use_time_RE),
-    use_spatial_AC        = isTRUE(cfg$use_spatial_AC),
-    use_block_dev         = isTRUE(cfg$use_block_dev),
-    use_temporal_AR_perCMF = isTRUE(cfg$use_temporal_AR_perCMF),
-    use_dlnm              = isTRUE(cfg$use_dlnm)
-  ),
-  adapt_delta = cfg$adapt_delta,
-  max_treedepth = cfg$max_treedepth,
-  parallel_chains = cfg$parallel_chains,
-  output_dir = run_output_dir   # write chain CSVs here instead of /tmp
+# If a previous run already wrote complete chain CSVs to run_output_dir (e.g. you're
+# re-sourcing this script only to regenerate post-fit plots), reload them instead of
+# re-sampling. Set .hierarch_run_suffix before source()-ing to point at that run's
+# date folder. NB: this only checks the file count, not chain health -- if a prior
+# run crashed mid-sampling, delete its partial CSVs first to force a fresh fit.
+existing_csv <- list.files(
+  run_output_dir,
+  pattern = paste0("^", tools::file_path_sans_ext(basename(cfg$stan_file)), "-.*\\.csv$"),
+  full.names = TRUE
 )
+
+if (length(existing_csv) >= cfg$chains) {
+  cat(sprintf("Found %d existing chain CSV(s) in %s; reloading fit instead of re-sampling.\n",
+              length(existing_csv), run_output_dir))
+  fit <- as_cmdstan_fit(existing_csv)
+} else {
+  fit <- mod$sample(
+    data = stan_data,
+    chains = cfg$chains,
+    iter_warmup = cfg$iter_warmup,
+    iter_sampling = cfg$iter_sampling,
+    thin = if (!is.null(cfg$thin)) cfg$thin else 1,
+    init = make_init_fun(
+      stan_data, cfg$use_temporal_AR,
+      use_hsgp              = isTRUE(cfg$use_hsgp) && !isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
+      use_icar              = isTRUE(cfg$use_icar) && !isTRUE(cfg$use_bym2),
+      use_bym2              = isTRUE(cfg$use_bym2),
+      use_time_RE           = isTRUE(cfg$use_time_RE),
+      use_spatial_AC        = isTRUE(cfg$use_spatial_AC),
+      use_block_dev         = isTRUE(cfg$use_block_dev),
+      use_temporal_AR_perCMF = isTRUE(cfg$use_temporal_AR_perCMF),
+      use_dlnm              = isTRUE(cfg$use_dlnm)
+    ),
+    adapt_delta = cfg$adapt_delta,
+    max_treedepth = cfg$max_treedepth,
+    parallel_chains = cfg$parallel_chains,
+    output_dir = run_output_dir   # write chain CSVs here instead of /tmp
+  )
+}
 
 
 # CSV chain files are already in run_output_dir; skip .rds to save disk space
@@ -1059,6 +1076,14 @@ if (isTRUE(cfg$plot_morans_I) && requireNamespace("spdep", quietly = TRUE)) {
   cat("Skipping Stan Moran's I (plot_morans_I = FALSE).\n")
 } else {
   cat("Skipping Stan Moran's I: package 'spdep' not installed.\n")
+}
+
+# =========================
+# 5) SPATIAL RE vs. AR TERM: DOES THE AR STATE ABSORB THE SPATIAL SIGNAL?
+# =========================
+if ("u_block_out" %in% model_vars) {
+  cat("Generating spatial RE vs. AR term correlation checks...\n")
+  save_spatial_re_ar_correlation_checks(fit, coords_sf, stan_data, plots_output_dir, model_spec)
 }
 
 # =========================

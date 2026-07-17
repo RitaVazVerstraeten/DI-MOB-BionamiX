@@ -903,6 +903,253 @@ save_u_block_plot <- function(fit, output_dir, run_suffix) {
   cat("u_block plot saved.\n")
 }
 
+#' Save Spatial RE vs. AR Term Correlation Checks
+#'
+#' Two mechanistic checks on the "clean" model estimates themselves (not residuals):
+#'   a) Moran's I on posterior-mean u_block_out directly -- does the block RE still
+#'      have neighbor structure, i.e. is it behaving like a spatial effect? Reported
+#'      two ways: (a1) a 50m-annuli correlogram (as for the residual checks, useful
+#'      for seeing *at what distance* any structure appears) and (a2) a single pooled
+#'      global test over all block pairs at once via k-NN (or inverse-distance)
+#'      weights -- not binned, so it isn't diluted/underpowered the way each
+#'      individual annulus in (a1) can be.
+#'   b) Correlation of each block's time-averaged AR(1) state v_bar_b against its
+#'      u_block -- a high correlation is direct evidence that v (AR) is carrying
+#'      the same signal u_block would otherwise pick up spatially.
+#' All plots are written to a "residual_spatial_correlation_checks" subfolder of
+#' output_dir, alongside companion CSVs.
+#'
+#' @param fit CmdStan fit object
+#' @param coords_sf Data frame with columns block_chr, x, y (ordered to match block index)
+#' @param stan_data List with B (n blocks) and T (n time points)
+#' @param output_dir Character string path to output directory (plots dir)
+#' @param run_suffix Character string suffix for filenames
+#' @param weight_type "knn" (default) for k-nearest-neighbor weights, or "idw" for
+#'   inverse-squared-distance weights, used for the pooled global test in (a2)
+#' @param k_neighbors Number of nearest neighbors to use when weight_type = "knn"
+#' @return NULL (saves plots + CSVs to PNG/CSV files, or returns invisibly if u_block_out missing)
+save_spatial_re_ar_correlation_checks <- function(fit, coords_sf, stan_data, output_dir, run_suffix,
+                                                   weight_type = c("knn", "idw"), k_neighbors = 6) {
+  weight_type <- match.arg(weight_type)
+
+  draws_u <- tryCatch(fit$draws("u_block_out", format = "matrix"), error = function(e) NULL)
+  if (is.null(draws_u)) {
+    cat("u_block_out not found in fit; skipping spatial RE correlation checks.\n")
+    return(invisible(NULL))
+  }
+
+  corr_dir <- file.path(output_dir, "residual_spatial_correlation_checks")
+  dir.create(corr_dir, recursive = TRUE, showWarnings = FALSE)
+
+  u_mean <- colMeans(draws_u)
+
+  # --- a1) Moran's I on u_block_out itself: 50m-annuli correlogram -----------
+  if (!requireNamespace("spdep", quietly = TRUE)) {
+    cat("Skipping Moran's I on u_block: package 'spdep' not installed.\n")
+  } else {
+    u_df <- coords_sf %>%
+      mutate(u_block = u_mean) %>%
+      filter(!is.na(x), !is.na(y), !is.na(u_block), is.finite(u_block))
+
+    if (nrow(u_df) < 10) {
+      cat("Skipping Moran's I on u_block: fewer than 10 blocks with valid values.\n")
+    } else {
+      coords_u <- as.matrix(u_df[, c("x", "y")])
+      dist_u   <- as.matrix(dist(coords_u))
+      diag(dist_u) <- NA_real_
+
+      distance_breaks_u <- seq(0, 2000, by = 50)
+      band_list_u <- vector("list", length(distance_breaks_u) - 1)
+
+      for (i in seq_len(length(distance_breaks_u) - 1)) {
+        d_low  <- distance_breaks_u[i]
+        d_high <- distance_breaks_u[i + 1]
+        w <- matrix(0, nrow = nrow(dist_u), ncol = ncol(dist_u))
+        w[!is.na(dist_u) & dist_u > d_low & dist_u <= d_high] <- 1
+        if (sum(w) == 0) {
+          band_list_u[[i]] <- data.frame(
+            d_low = d_low, d_high = d_high, d_mid = (d_low + d_high) / 2,
+            morans_I = NA_real_, p_value = NA_real_, significant = NA)
+          next
+        }
+        lw <- spdep::mat2listw(w, style = "W", zero.policy = TRUE)
+        mt <- tryCatch(
+          spdep::moran.test(u_df$u_block, lw, zero.policy = TRUE),
+          error   = function(e) NULL,
+          warning = function(w) suppressWarnings(
+            spdep::moran.test(u_df$u_block, lw, zero.policy = TRUE))
+        )
+        if (is.null(mt)) {
+          band_list_u[[i]] <- data.frame(
+            d_low = d_low, d_high = d_high, d_mid = (d_low + d_high) / 2,
+            morans_I = NA_real_, p_value = NA_real_, significant = NA)
+          next
+        }
+        band_list_u[[i]] <- data.frame(
+          d_low       = d_low, d_high = d_high,
+          d_mid       = (d_low + d_high) / 2,
+          morans_I    = unname(mt$estimate[["Moran I statistic"]]),
+          p_value     = mt$p.value,
+          significant = mt$p.value < 0.05)
+      }
+
+      moran_u_df <- do.call(rbind, band_list_u) %>% filter(!is.na(morans_I))
+
+      if (nrow(moran_u_df) == 0) {
+        cat("Skipping u_block Moran's I correlogram plot: no valid distance bands.\n")
+      } else {
+        p_moran_u <- ggplot(moran_u_df, aes(x = d_mid, y = morans_I)) +
+          geom_hline(yintercept = 0, linetype = "dashed", colour = "gray50") +
+          geom_line(linewidth = 0.8, colour = "steelblue") +
+          geom_point(aes(shape = significant), size = 2, colour = "steelblue") +
+          scale_shape_manual(values  = c("TRUE" = 16, "FALSE" = 1),
+                             labels  = c("TRUE" = "p < 0.05", "FALSE" = "p >= 0.05"),
+                             na.value = 1) +
+          scale_x_continuous(breaks = seq(0, 2000, by = 200)) +
+          labs(
+            title    = "Moran's I correlogram on posterior-mean u_block (spatial RE itself, not residuals)",
+            subtitle = "Neighbor structure in the block random effect, by distance band -- does u_block behave spatially?",
+            x = "Distance band midpoint (m)", y = "Moran's I",
+            shape = NULL
+          ) +
+          theme_minimal()
+
+        ggsave(
+          file.path(corr_dir, paste0("moransI_u_block_correlogram_", run_suffix, ".png")),
+          p_moran_u, width = 9, height = 5, dpi = 150
+        )
+        write.csv(
+          moran_u_df,
+          file.path(corr_dir, paste0("moransI_u_block_correlogram_", run_suffix, ".csv")),
+          row.names = FALSE
+        )
+        cat("Moran's I correlogram on u_block saved to:", corr_dir, "\n")
+      }
+
+      # --- a2) Single pooled global Moran's I over ALL block pairs at once ----
+      # (not binned -- every pair contributes to one properly-powered test)
+      min_n <- if (weight_type == "knn") k_neighbors + 1 else 10
+      if (nrow(u_df) < min_n) {
+        cat(sprintf("Skipping global Moran's I on u_block: fewer than %d blocks with valid values.\n", min_n))
+      } else {
+        if (weight_type == "knn") {
+          knn <- spdep::knearneigh(coords_u, k = k_neighbors)
+          nb  <- spdep::knn2nb(knn)
+          lw_global <- spdep::nb2listw(nb, style = "W", zero.policy = TRUE)
+          weight_desc <- sprintf("k-NN weights (k = %d)", k_neighbors)
+        } else {
+          w_idw <- 1 / pmax(dist_u, 1e-6)^2
+          w_idw[is.na(w_idw)] <- 0
+          lw_global <- spdep::mat2listw(w_idw, style = "W", zero.policy = TRUE)
+          weight_desc <- "inverse-squared-distance weights"
+        }
+
+        mt_global <- tryCatch(
+          spdep::moran.test(u_df$u_block, lw_global, zero.policy = TRUE),
+          error   = function(e) NULL,
+          warning = function(w) suppressWarnings(
+            spdep::moran.test(u_df$u_block, lw_global, zero.policy = TRUE))
+        )
+
+        if (is.null(mt_global)) {
+          cat("Skipping global Moran's I on u_block: moran.test() failed.\n")
+        } else {
+          I_val <- unname(mt_global$estimate[["Moran I statistic"]])
+          p_val <- mt_global$p.value
+
+          u_lag <- spdep::lag.listw(lw_global, u_df$u_block, zero.policy = TRUE)
+          moran_scatter_df <- data.frame(block_chr = u_df$block_chr, u_block = u_df$u_block, u_lag = u_lag)
+
+          p_moran_global <- ggplot(moran_scatter_df, aes(x = u_block, y = u_lag)) +
+            geom_hline(yintercept = mean(u_lag), linetype = "dotted", colour = "grey60") +
+            geom_vline(xintercept = mean(u_df$u_block), linetype = "dotted", colour = "grey60") +
+            geom_point(colour = "steelblue", alpha = 0.7) +
+            geom_smooth(method = "lm", formula = y ~ x, colour = "darkred", se = TRUE) +
+            labs(
+              title    = "Global Moran's I on posterior-mean u_block (all pairs pooled, spatial RE itself)",
+              subtitle = sprintf("I = %.3f, p = %.3g -- %s, n = %d blocks (single pooled test, not binned)",
+                                  I_val, p_val, weight_desc, nrow(u_df)),
+              x = "u_block (posterior mean)",
+              y = "Spatial lag of u_block (neighbor-weighted mean)"
+            ) +
+            theme_minimal()
+
+          ggsave(
+            file.path(corr_dir, paste0("moransI_u_block_global_", run_suffix, ".png")),
+            p_moran_global, width = 7, height = 6, dpi = 150
+          )
+
+          moran_global_df <- data.frame(
+            n = nrow(u_df), weight_type = weight_type,
+            k_neighbors = if (weight_type == "knn") k_neighbors else NA_integer_,
+            morans_I = I_val,
+            expectation = unname(mt_global$estimate[["Expectation"]]),
+            variance = unname(mt_global$estimate[["Variance"]]),
+            p_value = p_val,
+            significant = p_val < 0.05
+          )
+          write.csv(
+            moran_global_df,
+            file.path(corr_dir, paste0("moransI_u_block_global_", run_suffix, ".csv")),
+            row.names = FALSE
+          )
+          cat(sprintf("Global Moran's I on u_block: I = %.3f, p = %.3g (%s, n = %d) -- saved to %s\n",
+                      I_val, p_val, weight_desc, nrow(u_df), corr_dir))
+        }
+      }
+    }
+  }
+
+  # --- b) Correlate time-averaged v_bar_b against u_block --------------------
+  draws_v <- tryCatch(fit$draws("v_cmf_out", format = "matrix"), error = function(e) NULL)
+  if (is.null(draws_v)) {
+    cat("v_cmf_out not found in fit; skipping u_block vs v_bar correlation.\n")
+    return(invisible(NULL))
+  }
+
+  B <- stan_data$B
+  T <- stan_data$T
+  v_mean_mat <- matrix(colMeans(draws_v), nrow = B, ncol = T)
+  v_bar      <- rowMeans(v_mean_mat)
+
+  uv_df <- data.frame(block = seq_len(B), u_block = u_mean, v_bar = v_bar) %>%
+    filter(is.finite(u_block), is.finite(v_bar))
+
+  if (nrow(uv_df) < 3) {
+    cat("Skipping u_block vs v_bar correlation: fewer than 3 blocks with valid values.\n")
+    return(invisible(NULL))
+  }
+
+  ct <- cor.test(uv_df$u_block, uv_df$v_bar)
+  r  <- unname(ct$estimate)
+  p  <- ct$p.value
+
+  p_uv <- ggplot(uv_df, aes(x = u_block, y = v_bar)) +
+    geom_point(colour = "steelblue", alpha = 0.7) +
+    geom_smooth(method = "lm", formula = y ~ x, colour = "darkred", se = TRUE) +
+    labs(
+      title    = "u_block vs. time-averaged AR state: is the AR term absorbing the spatial signal?",
+      subtitle = sprintf("Pearson r = %.3f, p = %.3g -- high |r| = AR(1) mechanistically carries the spatial signal",
+                          r, p),
+      x = "u_block (posterior mean, spatial RE)",
+      y = expression(bar(v)[b]~"(time-averaged AR(1) state)")
+    ) +
+    theme_minimal() +
+    theme(plot.title = element_text(size = 11))
+
+  ggsave(
+    file.path(corr_dir, paste0("u_block_vs_v_bar_correlation_", run_suffix, ".png")),
+    p_uv, width = 8, height = 6, dpi = 150
+  )
+  write.csv(
+    uv_df,
+    file.path(corr_dir, paste0("u_block_vs_v_bar_correlation_", run_suffix, ".csv")),
+    row.names = FALSE
+  )
+  cat(sprintf("u_block vs v_bar correlation saved to: %s (r = %.3f, p = %.3g)\n",
+              corr_dir, r, p))
+}
+
 #' Save Time Series Diagnostic Plots
 #'
 #' Creates four time series plots: aggregate time series, block-specific time series,
