@@ -114,9 +114,9 @@ cfg <- list(
   kappa = 4,
 
   # unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
-  unlagged_vars = c("urban_pct", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
+  unlagged_vars = c("HFP_urbanization", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
 
-  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "urban_pct"),
+  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization"),
 
   # DLNM settings (only used when use_dlnm = TRUE)
   dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp"),
