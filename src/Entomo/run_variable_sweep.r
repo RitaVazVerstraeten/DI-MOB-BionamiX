@@ -139,8 +139,8 @@ cfg <- list(
   block_col    = if (spatial_level == "CMF") "cmf"      else "manzana",
 
   n_blocks  = NULL,
-  max_lag   = 2,
-  kappa     = 2,
+  max_lag   = 6,
+  kappa     = 4,
 
   chains          = 4,
   iter_warmup     = 1000,
