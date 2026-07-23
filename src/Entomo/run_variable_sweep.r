@@ -440,9 +440,8 @@ if (isTRUE(cfg$use_dlnm)) {
 # ── Per-combo worker ───────────────────────────────────────────────────────────
 # Runs one combo end-to-end (design matrices -> MCMC -> plots -> LOO) and
 # returns its result (rather than mutating shared state) so results can be
-# collected uniformly after the sweep loop below. Each combo's own console
-# output is redirected to its own log file (run_output_dir/console_log.txt),
-# which also makes it easy to `tail -f` a specific combo's progress.
+# collected uniformly after the sweep loop below. Console output goes straight
+# to stdout as usual (combos run sequentially, so there's nothing to interleave).
 run_one_combo <- function(combo_i) {
   cfg_i <- cfg   # per-worker copy; never mutate the shared `cfg`
   combo <- combinations[[combo_i]]
@@ -468,10 +467,6 @@ run_one_combo <- function(combo_i) {
   plots_output_dir <- file.path(run_output_dir, "plots")
   dir.create(run_output_dir,   recursive = TRUE, showWarnings = FALSE)
   dir.create(plots_output_dir, recursive = TRUE, showWarnings = FALSE)
-
-  log_con <- file(file.path(run_output_dir, "console_log.txt"), open = "wt")
-  sink(log_con); sink(log_con, type = "message")
-  on.exit({ sink(type = "message"); sink(); close(log_con) }, add = TRUE)
 
   cat(sprintf(
     "\n========== Run %d / %d ==========\n  lag:   %s\n  unlag: %s%s\n",
