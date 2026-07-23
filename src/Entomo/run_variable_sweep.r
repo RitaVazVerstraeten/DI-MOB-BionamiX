@@ -28,7 +28,6 @@ library(readr)
 library(sf)
 library(lubridate)
 library(spdep)
-library(parallel)
 
 # ── Script directory detection ────────────────────────────────────────────────
 script_dir <- tryCatch({
@@ -364,19 +363,20 @@ model_spec <- if (isTRUE(cfg$use_time_RE)) {
 }
 model_spec <- paste0(spatial_level, "_", model_spec)
 
-# ── Core budget: combos run in parallel (mclapply, below), each combo's own
-# MCMC chains run serially or in parallel per cfg$parallel_chains. Total
-# concurrent cores = n_workers * cfg$parallel_chains, capped at MAX_TOTAL_CORES.
-# loo::loo()'s own internal parallelism is disabled (mc.cores = 1) so it can't
-# oversubscribe on top of the combo-level workers.
-MAX_TOTAL_CORES <- 9
-n_workers <- max(1, min(length(combinations),
-                        parallel::detectCores(),
-                        floor(MAX_TOTAL_CORES / cfg$parallel_chains)))
+# ── Core budget: combos run SEQUENTIALLY, one at a time. Each combo's own
+# MCMC chains still run in parallel per cfg$parallel_chains (chain-level
+# parallelism within a single fit is cheap: those chains share one copy of
+# the compiled model/data). Running multiple combos concurrently on top of
+# that was reverted -- on a shared, memory-constrained box, stacking several
+# full Stan fits at once (each with its own copy of the model, data, and
+# log_lik draws in memory) is a much more likely crash cause than CPU
+# contention, especially when swap is already in heavy use from other users'
+# jobs. loo::loo()'s own internal parallelism is disabled (mc.cores = 1) to
+# avoid adding to that footprint.
 options(mc.cores = 1)
 cat(sprintf(
-  "Parallel sweep: %d worker(s) x %d chain(s)/fit = up to %d cores (cap %d).\n",
-  n_workers, cfg$parallel_chains, n_workers * cfg$parallel_chains, MAX_TOTAL_CORES
+  "Sequential sweep: 1 combo at a time x %d chain(s)/fit.\n",
+  cfg$parallel_chains
 ))
 
 dir.create(cfg$output_dir, recursive = TRUE, showWarnings = FALSE)
@@ -439,10 +439,10 @@ if (isTRUE(cfg$use_dlnm)) {
 
 # ── Per-combo worker ───────────────────────────────────────────────────────────
 # Runs one combo end-to-end (design matrices -> MCMC -> plots -> LOO) and
-# returns its result instead of mutating shared state, so it's safe to call
-# from parallel forked workers (mclapply, below). Each combo's own console
-# output is redirected to its own log file (run_output_dir/console_log.txt)
-# to avoid interleaving when several workers print concurrently.
+# returns its result (rather than mutating shared state) so results can be
+# collected uniformly after the sweep loop below. Each combo's own console
+# output is redirected to its own log file (run_output_dir/console_log.txt),
+# which also makes it easy to `tail -f` a specific combo's progress.
 run_one_combo <- function(combo_i) {
   cfg_i <- cfg   # per-worker copy; never mutate the shared `cfg`
   combo <- combinations[[combo_i]]
@@ -761,11 +761,9 @@ run_one_combo <- function(combo_i) {
   list(predictor_spec = predictor_spec, loo_result = loo_result, log_row = log_row)
 }
 
-# ── Main sweep: run all combos, up to n_workers at a time ────────────────────
-cat(sprintf("\nLaunching %d combo(s) across %d parallel worker(s)...\n",
-            length(combinations), n_workers))
-combo_results <- parallel::mclapply(seq_along(combinations), run_one_combo,
-                                    mc.cores = n_workers, mc.preschedule = FALSE)
+# ── Main sweep: run all combos one at a time ──────────────────────────────────
+cat(sprintf("\nRunning %d combo(s) sequentially...\n", length(combinations)))
+combo_results <- lapply(seq_along(combinations), run_one_combo)
 
 sweep_log <- lapply(combo_results, function(r) r$log_row)
 loo_list  <- list()   # named by predictor_spec
