@@ -662,7 +662,10 @@ run_one_combo <- function(combo_i) {
     if (isTRUE(cfg_i$use_dlnm)) {
       save_dlnm_response_plots(fit, prep, plots_output_dir, model_spec)
       save_dlnm_lagresponse_plots(fit, prep, plots_output_dir, model_spec)
-      if (has_ix) save_dlnm_interaction_response_plots(fit, prep, plots_output_dir, model_spec)
+      if (has_ix) {
+        save_dlnm_interaction_response_plots(fit, prep, plots_output_dir, model_spec)
+        save_dlnm_continuous_interaction_plots(fit, prep, plots_output_dir, model_spec)
+      }
     }
 
     # Per-CMF AR(1) trajectory plot (all runs)

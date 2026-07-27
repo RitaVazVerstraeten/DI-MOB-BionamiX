@@ -1698,6 +1698,12 @@ save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
 #'   - Cumulative effect comparison: reference group (w_cb only) vs active group (w_cb + w_ix)
 #'   - Per-lag slice comparison for each lag
 #'   - 3-D surface for both groups side-by-side
+#' Works for both interaction spec shapes from build_dlnm_stan_data():
+#'   binary_var/active_level -> "reference" vs "active" group comparison.
+#'   continuous_var (z-scored) -> "reference" is the effect at the modifier's
+#'     mean and "active" is the effect at +1 SD (draws_base + w_ix is exactly
+#'     the effect at modifier = +1 since the modifier is z-scored), i.e. the
+#'     same draws_base/draws_active mechanics, just relabelled.
 #'
 #' @param fit     CmdStanR fit object (must have w_cb and w_ix parameters)
 #' @param prep    Return value of build_dlnm_stan_data() with dlnm_ix_vars field populated
@@ -1797,8 +1803,17 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     lines(at_std, pred_active$allhigh, col = active_col, lwd = 1, lty = 2)
     axis(1, at = at_std, labels = round(at_orig, 2))
     abline(h = 0, lty = 2, col = "grey50")
-    legend_labels <- c(sprintf("Reference  (active_level ≠ %s)", ix$active_level),
-                       sprintf("Active group  (%s == %s)", ix$binary_var, ix$active_level))
+    # Continuous modifier (z-scored in build_dlnm_stan_data()): draws_base is
+    # the effect at the modifier's mean, draws_active = draws_base + w_ix is
+    # the effect at +1 SD -- the same two-draws mechanics as the binary case,
+    # just relabelled.
+    legend_labels <- if (!is.null(ix$continuous_var)) {
+      c(sprintf("Reference  (%s at mean)", ix$continuous_var),
+        sprintf("+1 SD  (%s)", ix$continuous_var))
+    } else {
+      c(sprintf("Reference  (active_level ≠ %s)", ix$active_level),
+        sprintf("Active group  (%s == %s)", ix$binary_var, ix$active_level))
+    }
     legend("topright", legend = legend_labels,
            col = c(ref_col, active_col), lwd = 2, bty = "n")
     dev.off()
@@ -1844,6 +1859,194 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     }
 
     cat(sprintf("  DLNM interaction plots saved: %s\n", label))
+  }
+}
+
+#' Save DLNM Continuous-Modifier Interaction Plots
+#'
+#' For each continuous_var interaction in prep$dlnm_ix_vars, visualises the
+#' full effect-modification surface rather than collapsing it to a single
+#' reference/+1SD comparison:
+#'   - Percentile-lines plot: cumulative effect of the DLNM variable, one line
+#'     per percentile of the observed modifier (default p10/25/50/75/90),
+#'     coloured on a continuous scale by the modifier's value -- same idea as
+#'     save_glmm_dlnm_plots()'s exposure-quantile lines, but here the lines
+#'     vary over the *modifier*, not the exposure.
+#'   - Heatmap: cumulative effect over the full (DLNM variable x modifier)
+#'     grid, so the continuous surface is visible directly rather than
+#'     inferred from a handful of lines.
+#'
+#' Both exploit that the interaction is a *linear* tilt of the cross-basis:
+#' since the modifier is z-scored when X_ix is built (build_dlnm_stan_data()),
+#' the coefficient draws at any modifier z-value are exactly
+#' draws_base + z * draws_ix -- no new model fit needed, just linear
+#' recombination of the existing w_cb/w_ix posterior draws.
+#'
+#' @param fit     CmdStanR fit object (must have w_cb and w_ix parameters)
+#' @param prep    Return value of build_dlnm_stan_data() with dlnm_ix_vars field populated
+#' @param output_dir  Directory to write PNGs/CSVs into
+#' @param run_suffix  String appended to each filename
+#' @param percentiles Numeric vector in (0,1): modifier percentiles for the line plot
+#' @param grid_n  Number of modifier grid points for the heatmap (exposure grid
+#'   reuses the same resolution as the rest of the DLNM plots)
+save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_suffix,
+                                                    percentiles = c(0.10, 0.25, 0.50, 0.75, 0.90),
+                                                    grid_n = 40) {
+  if (!requireNamespace("dlnm", quietly = TRUE)) {
+    cat("dlnm not installed; skipping DLNM continuous interaction plots.\n")
+    return(invisible(NULL))
+  }
+  if (is.null(prep$dlnm_ix_vars) || length(prep$dlnm_ix_vars) == 0) return(invisible(NULL))
+
+  cb_mats        <- prep$cb_mats
+  dlnm_vars      <- prep$dlnm_vars
+  dlnm_ix_vars   <- prep$dlnm_ix_vars
+  df             <- prep$df
+  dlnm_var_stats <- prep$dlnm_var_stats
+
+  cb_ncols      <- sapply(dlnm_vars, function(v) ncol(cb_mats[[v]]))
+  col_starts_cb <- cumsum(c(1L, cb_ncols[-length(cb_ncols)]))
+
+  w_cb_draws <- fit$draws("w_cb", format = "matrix")
+  w_ix_draws <- fit$draws("w_ix", format = "matrix")
+
+  ix_ncols      <- sapply(dlnm_ix_vars, function(ix) cb_ncols[which(dlnm_vars == ix$dlnm_var)])
+  ix_col_starts <- cumsum(c(1L, ix_ncols[-length(ix_ncols)]))
+
+  for (k in seq_along(dlnm_ix_vars)) {
+    ix <- dlnm_ix_vars[[k]]
+    if (is.null(ix$continuous_var)) next  # binary specs: see save_dlnm_interaction_response_plots()
+
+    dlnm_var       <- ix$dlnm_var
+    label          <- ix$label
+    continuous_var <- ix$continuous_var
+
+    var_idx  <- which(dlnm_vars == dlnm_var)
+    n_cols   <- cb_ncols[var_idx]
+    cb_cols  <- col_starts_cb[var_idx] + seq_len(n_cols) - 1L
+    ix_cols  <- ix_col_starts[k]       + seq_len(n_cols) - 1L
+    cb_names <- colnames(cb_mats[[dlnm_var]])
+
+    draws_base <- w_cb_draws[, cb_cols, drop = FALSE]
+    draws_ix   <- w_ix_draws[, ix_cols, drop = FALSE]
+
+    # Reconstruct the exact z-scoring build_dlnm_stan_data() used for this
+    # modifier (same column, same rows -> same mean/sd).
+    raw_mod  <- df[[continuous_var]]
+    mod_mean <- mean(raw_mod, na.rm = TRUE)
+    mod_sd   <- sd(raw_mod, na.rm = TRUE)
+    if (!is.finite(mod_sd) || mod_sd == 0) {
+      cat(sprintf("  Skipping continuous interaction plot for %s: zero/invalid SD.\n", label))
+      next
+    }
+
+    # DLNM variable's x-axis back-transform (same pattern as elsewhere)
+    stats_i <- if (!is.null(dlnm_var_stats) && dlnm_var %in% names(dlnm_var_stats))
+      dlnm_var_stats[[dlnm_var]] else list(mean = 0, sd = 1)
+    v_mean <- stats_i$mean
+    v_sd   <- stats_i$sd
+    x_orig_range <- range(df[[dlnm_var]], na.rm = TRUE) * v_sd + v_mean
+    at_orig_nice <- pretty(x_orig_range, n = grid_n)
+    at_std_nice  <- (at_orig_nice - v_mean) / v_sd
+    obs_range    <- range(df[[dlnm_var]][is.finite(df[[dlnm_var]])], na.rm = TRUE)
+    keep_pts     <- at_std_nice >= obs_range[1] & at_std_nice <= obs_range[2]
+    at_std  <- at_std_nice[keep_pts]
+    at_orig <- at_orig_nice[keep_pts]
+
+    crosspred_at_z <- function(z_val) {
+      draws_z <- draws_base + z_val * draws_ix
+      coef_z  <- setNames(colMeans(draws_z), cb_names)
+      vcov_z  <- cov(draws_z)
+      dimnames(vcov_z) <- list(cb_names, cb_names)
+      tryCatch(
+        dlnm::crosspred(cb_mats[[dlnm_var]], coef = coef_z, vcov = vcov_z,
+                        at = at_std, cen = 0, cumul = TRUE),
+        error = function(e) NULL
+      )
+    }
+
+    # ── Percentile-lines plot ─────────────────────────────────────────────────
+    mod_orig_at_p <- as.numeric(quantile(raw_mod, probs = percentiles, na.rm = TRUE))
+    mod_z_at_p    <- (mod_orig_at_p - mod_mean) / mod_sd
+
+    line_rows <- lapply(seq_along(percentiles), function(p_idx) {
+      pred_z <- crosspred_at_z(mod_z_at_p[p_idx])
+      if (is.null(pred_z)) return(NULL)
+      data.frame(
+        exposure       = at_orig,
+        fit            = pred_z$allfit,
+        low            = pred_z$alllow,
+        high           = pred_z$allhigh,
+        modifier_value = mod_orig_at_p[p_idx],
+        percentile     = percentiles[p_idx]
+      )
+    })
+    curve_df <- do.call(rbind, line_rows)
+
+    if (is.null(curve_df) || nrow(curve_df) == 0) {
+      cat(sprintf("  Skipping continuous interaction line plot for %s: crosspred failed at all percentiles.\n", label))
+    } else {
+      curve_df$pct_label <- factor(
+        sprintf("p%d (%s=%.2f)", round(curve_df$percentile * 100), continuous_var, curve_df$modifier_value),
+        levels = sprintf("p%d (%s=%.2f)", round(percentiles * 100), continuous_var, mod_orig_at_p)
+      )
+
+      p_lines <- ggplot(curve_df, aes(x = exposure, y = fit, group = pct_label)) +
+        geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+        geom_ribbon(aes(ymin = low, ymax = high, fill = modifier_value), alpha = 0.10) +
+        geom_line(aes(colour = modifier_value), linewidth = 1) +
+        scale_colour_viridis_c(name = continuous_var, option = "plasma") +
+        scale_fill_viridis_c(name = continuous_var, option = "plasma", guide = "none") +
+        labs(
+          title    = sprintf("Cumulative effect of %s across %s percentiles", dlnm_var, continuous_var),
+          subtitle = sprintf("Lines at p%s of %s (not just mean/+1SD)",
+                              paste(round(percentiles * 100), collapse = "/"), continuous_var),
+          x = dlnm_var, y = "Cumulative effect on log-odds of p_bt"
+        ) +
+        theme_minimal()
+
+      ggsave(file.path(output_dir, paste0("dlnm_ix_continuous_lines_", label, "_", run_suffix, ".png")),
+             p_lines, width = 9, height = 6, dpi = 150)
+      write.csv(curve_df,
+                file.path(output_dir, paste0("dlnm_ix_continuous_lines_", label, "_", run_suffix, ".csv")),
+                row.names = FALSE)
+    }
+
+    # ── Heatmap: full (exposure x modifier) surface ───────────────────────────
+    mod_orig_grid <- seq(min(raw_mod, na.rm = TRUE), max(raw_mod, na.rm = TRUE), length.out = grid_n)
+    mod_z_grid    <- (mod_orig_grid - mod_mean) / mod_sd
+
+    heat_rows <- lapply(seq_along(mod_z_grid), function(i) {
+      pred_z <- crosspred_at_z(mod_z_grid[i])
+      if (is.null(pred_z)) return(NULL)
+      data.frame(exposure = at_orig, modifier = mod_orig_grid[i], fit = pred_z$allfit)
+    })
+    heat_df <- do.call(rbind, heat_rows)
+
+    if (is.null(heat_df) || nrow(heat_df) == 0) {
+      cat(sprintf("  Skipping continuous interaction heatmap for %s: crosspred failed at all grid points.\n", label))
+    } else {
+      limit <- max(abs(heat_df$fit), na.rm = TRUE)
+      p_heat <- ggplot(heat_df, aes(x = exposure, y = modifier, fill = fit)) +
+        geom_tile() +
+        scale_fill_gradient2(low = "steelblue", mid = "white", high = "firebrick",
+                            midpoint = 0, limits = c(-limit, limit), name = "Log-odds") +
+        labs(
+          title    = sprintf("Effect-modification surface: %s x %s", dlnm_var, continuous_var),
+          subtitle = "Colour = cumulative effect on log-odds of p_bt",
+          x = dlnm_var, y = continuous_var
+        ) +
+        theme_minimal() +
+        theme(panel.grid = element_blank())
+
+      ggsave(file.path(output_dir, paste0("dlnm_ix_continuous_heatmap_", label, "_", run_suffix, ".png")),
+             p_heat, width = 8, height = 6, dpi = 150)
+      write.csv(heat_df,
+                file.path(output_dir, paste0("dlnm_ix_continuous_heatmap_", label, "_", run_suffix, ".csv")),
+                row.names = FALSE)
+    }
+
+    cat(sprintf("  Continuous interaction plots saved: %s\n", label))
   }
 }
 

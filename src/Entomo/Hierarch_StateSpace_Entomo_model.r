@@ -121,7 +121,7 @@ cfg <- list(
   # arbitrary two-point probe of a continuous effect-modification surface).
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
   dlnm_ix_vars = list(
-    list(binary_var = "is_urban", active_level = 0, dlnm_var = "total_precip", label = "nonurban_x_tp")
+    list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc")
   ),
   # dlnm_ix_vars = NULL,
 
@@ -930,6 +930,8 @@ if (isTRUE(cfg$use_dlnm)) {
   if (length(prep$dlnm_ix_vars) > 0) {
     cat("Generating DLNM interaction surface plots...\n")
     save_dlnm_interaction_response_plots(fit, prep, plots_output_dir, model_spec)
+    cat("Generating DLNM continuous-modifier interaction plots...\n")
+    save_dlnm_continuous_interaction_plots(fit, prep, plots_output_dir, model_spec)
   }
 }
 
