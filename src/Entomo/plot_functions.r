@@ -1716,6 +1716,13 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
   }
   if (is.null(prep$dlnm_ix_vars) || length(prep$dlnm_ix_vars) == 0) return(invisible(NULL))
 
+  # Same subfolder convention as save_dlnm_response_plots(): overall/cumulative
+  # + 3D surfaces together, per-lag slices in their own folder.
+  dir_overall <- file.path(output_dir, "interaction_overall_exposure_response")
+  dir_perlag  <- file.path(output_dir, "interaction_exposure_response_per_lag")
+  dir.create(dir_overall, recursive = TRUE, showWarnings = FALSE)
+  dir.create(dir_perlag,  recursive = TRUE, showWarnings = FALSE)
+
   cb_mats      <- prep$cb_mats
   dlnm_vars    <- prep$dlnm_vars
   dlnm_ix_vars <- prep$dlnm_ix_vars
@@ -1728,12 +1735,20 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
   w_cb_draws <- fit$draws("w_cb", format = "matrix")
   w_ix_draws <- fit$draws("w_ix", format = "matrix")
 
-  # Column offsets within w_ix: each interaction occupies cb_ncols[dlnm_var] columns
-  ix_ncols      <- sapply(dlnm_ix_vars, function(ix) cb_ncols[which(dlnm_vars == ix$dlnm_var)])
+  # Column offsets within w_ix: a binary spec occupies cb_ncols[dlnm_var]
+  # columns; a continuous spec occupies cb_ncols[dlnm_var] * continuous_df
+  # (see build_dlnm_stan_data()) -- must account for that here even though
+  # this function only *plots* the binary ones, or offsets for every
+  # interaction after a continuous one would be wrong.
+  ix_ncols <- sapply(dlnm_ix_vars, function(ix) {
+    base_n <- cb_ncols[which(dlnm_vars == ix$dlnm_var)]
+    if (!is.null(ix$continuous_var)) base_n * ix$continuous_df else base_n
+  })
   ix_col_starts <- cumsum(c(1L, ix_ncols[-length(ix_ncols)]))
 
   for (k in seq_along(dlnm_ix_vars)) {
-    ix       <- dlnm_ix_vars[[k]]
+    ix <- dlnm_ix_vars[[k]]
+    if (!is.null(ix$continuous_var)) next  # continuous specs: see save_dlnm_continuous_interaction_plots()
     dlnm_var <- ix$dlnm_var
     label    <- ix$label
 
@@ -1791,7 +1806,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     # ── Cumulative effect comparison ──────────────────────────────────────────
     y_lim <- range(pred_ref$alllow, pred_ref$allhigh,
                    pred_active$alllow, pred_active$allhigh, na.rm = TRUE)
-    png(file.path(output_dir, paste0("dlnm_ix_cumul_", label, "_", run_suffix, ".png")),
+    png(file.path(dir_overall, paste0("dlnm_ix_cumul_", label, "_", run_suffix, ".png")),
         width = 900, height = 500)
     plot(pred_ref, "overall", xaxt = "n", ylim = y_lim,
          main   = paste("Cumulative effect of", dlnm_var, "—", label),
@@ -1822,7 +1837,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     for (l in lag_seq) {
       y_lim_lag <- range(pred_ref$matlow[, l + 1], pred_ref$mathigh[, l + 1],
                          pred_active$matlow[, l + 1], pred_active$mathigh[, l + 1], na.rm = TRUE)
-      png(file.path(output_dir, paste0("dlnm_ix_lag", l, "_", label, "_", run_suffix, ".png")),
+      png(file.path(dir_perlag, paste0("dlnm_ix_lag", l, "_", label, "_", run_suffix, ".png")),
           width = 900, height = 500)
       plot(pred_ref, "slices", lag = l, xaxt = "n", ylim = y_lim_lag,
            main   = paste0("Effect at lag ", l, " — ", label),
@@ -1847,7 +1862,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
       z_mid   <- (z_mat[-1, -1] + z_mat[-1, -ncol(z_mat)] +
                   z_mat[-nrow(z_mat), -1] + z_mat[-nrow(z_mat), -ncol(z_mat)]) / 4
       fcol    <- pal[cut(z_mid, breaks = z_breaks_ix, include.lowest = TRUE)]
-      png(file.path(output_dir, paste0("dlnm_ix_3d_", label, "_", grp$name, "_", run_suffix, ".png")),
+      png(file.path(dir_overall, paste0("dlnm_ix_3d_", label, "_", grp$name, "_", run_suffix, ".png")),
           width = 800, height = 700)
       persp(x = at_orig, y = lag_seq, z = z_mat,
             zlim     = z_global_ix,
@@ -1867,20 +1882,31 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
 #' For each continuous_var interaction in prep$dlnm_ix_vars, visualises the
 #' full effect-modification surface rather than collapsing it to a single
 #' reference/+1SD comparison:
-#'   - Percentile-lines plot: cumulative effect of the DLNM variable, one line
-#'     per percentile of the observed modifier (default p10/25/50/75/90),
-#'     coloured on a continuous scale by the modifier's value -- same idea as
-#'     save_glmm_dlnm_plots()'s exposure-quantile lines, but here the lines
-#'     vary over the *modifier*, not the exposure.
+#'   - Percentile-lines plot (cumulative): cumulative effect of the DLNM
+#'     variable, one line per percentile of the observed modifier (default
+#'     p10/25/50/75/90), coloured on a continuous scale by the modifier's
+#'     value -- same idea as save_glmm_dlnm_plots()'s exposure-quantile
+#'     lines, but here the lines vary over the *modifier*, not the exposure.
+#'   - Per-lag percentile-lines plots: the same comparison but at each
+#'     individual lag month instead of summed across all lags. A lag- or
+#'     exposure-region-concentrated interaction (mixed-sign w_ix across the
+#'     cross-basis) can cancel out in the cumulative summary above even
+#'     though it's real and credible in the raw w_ix posterior -- check
+#'     these slices (and the w_ix rows in the model summary directly)
+#'     before concluding a flat cumulative plot means no interaction.
 #'   - Heatmap: cumulative effect over the full (DLNM variable x modifier)
 #'     grid, so the continuous surface is visible directly rather than
 #'     inferred from a handful of lines.
 #'
-#' Both exploit that the interaction is a *linear* tilt of the cross-basis:
-#' since the modifier is z-scored when X_ix is built (build_dlnm_stan_data()),
-#' the coefficient draws at any modifier z-value are exactly
-#' draws_base + z * draws_ix -- no new model fit needed, just linear
-#' recombination of the existing w_cb/w_ix posterior draws.
+#' All three exploit that the interaction is a tensor product of the DLNM
+#' sub-basis against ns(z, df = continuous_df) (z = z-scored modifier; see
+#' build_dlnm_stan_data()): the coefficient draws at any modifier z-value are
+#' draws_base + sum_j basis_row[j] * draws_ix_block[[j]], where basis_row is
+#' the modifier's spline basis evaluated at that z (via predict() on a
+#' reconstructed ns() object) -- no new model fit needed, just linear
+#' recombination of the existing w_cb/w_ix posterior draws, generalizing the
+#' single-column "draws_base + z * draws_ix" linear tilt to a curve that can
+#' bend rather than being forced through a straight line.
 #'
 #' @param fit     CmdStanR fit object (must have w_cb and w_ix parameters)
 #' @param prep    Return value of build_dlnm_stan_data() with dlnm_ix_vars field populated
@@ -1898,6 +1924,14 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
   }
   if (is.null(prep$dlnm_ix_vars) || length(prep$dlnm_ix_vars) == 0) return(invisible(NULL))
 
+  # Same subfolder convention as save_dlnm_response_plots()/
+  # save_dlnm_interaction_response_plots(): cumulative summary + heatmap
+  # together, per-lag slices in their own folder.
+  dir_overall <- file.path(output_dir, "interaction_overall_exposure_response")
+  dir_perlag  <- file.path(output_dir, "interaction_exposure_response_per_lag")
+  dir.create(dir_overall, recursive = TRUE, showWarnings = FALSE)
+  dir.create(dir_perlag,  recursive = TRUE, showWarnings = FALSE)
+
   cb_mats        <- prep$cb_mats
   dlnm_vars      <- prep$dlnm_vars
   dlnm_ix_vars   <- prep$dlnm_ix_vars
@@ -1910,7 +1944,13 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
   w_cb_draws <- fit$draws("w_cb", format = "matrix")
   w_ix_draws <- fit$draws("w_ix", format = "matrix")
 
-  ix_ncols      <- sapply(dlnm_ix_vars, function(ix) cb_ncols[which(dlnm_vars == ix$dlnm_var)])
+  # Column offsets within w_ix: a continuous spec occupies cb_ncols[dlnm_var] *
+  # continuous_df columns (continuous_df stacked cb_block-sized blocks); a
+  # binary spec occupies just cb_ncols[dlnm_var] (see build_dlnm_stan_data()).
+  ix_ncols <- sapply(dlnm_ix_vars, function(ix) {
+    base_n <- cb_ncols[which(dlnm_vars == ix$dlnm_var)]
+    if (!is.null(ix$continuous_var)) base_n * ix$continuous_df else base_n
+  })
   ix_col_starts <- cumsum(c(1L, ix_ncols[-length(ix_ncols)]))
 
   for (k in seq_along(dlnm_ix_vars)) {
@@ -1920,18 +1960,25 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
     dlnm_var       <- ix$dlnm_var
     label          <- ix$label
     continuous_var <- ix$continuous_var
+    df_mod         <- ix$continuous_df
 
     var_idx  <- which(dlnm_vars == dlnm_var)
     n_cols   <- cb_ncols[var_idx]
     cb_cols  <- col_starts_cb[var_idx] + seq_len(n_cols) - 1L
-    ix_cols  <- ix_col_starts[k]       + seq_len(n_cols) - 1L
+    ix_cols  <- ix_col_starts[k]       + seq_len(n_cols * df_mod) - 1L
     cb_names <- colnames(cb_mats[[dlnm_var]])
 
     draws_base <- w_cb_draws[, cb_cols, drop = FALSE]
-    draws_ix   <- w_ix_draws[, ix_cols, drop = FALSE]
+    draws_ix_full <- w_ix_draws[, ix_cols, drop = FALSE]
+    # Split into df_mod cb_block-sized draws blocks, one per modifier spline
+    # basis function (same stacking order used to build X_ix).
+    draws_ix_blocks <- lapply(seq_len(df_mod), function(j) {
+      draws_ix_full[, (j - 1) * n_cols + seq_len(n_cols), drop = FALSE]
+    })
 
-    # Reconstruct the exact z-scoring build_dlnm_stan_data() used for this
-    # modifier (same column, same rows -> same mean/sd).
+    # Reconstruct the exact z-scoring + spline basis build_dlnm_stan_data()
+    # used for this modifier (same column, same rows, same df -> same
+    # z-scoring and ns() knots).
     raw_mod  <- df[[continuous_var]]
     mod_mean <- mean(raw_mod, na.rm = TRUE)
     mod_sd   <- sd(raw_mod, na.rm = TRUE)
@@ -1939,6 +1986,8 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
       cat(sprintf("  Skipping continuous interaction plot for %s: zero/invalid SD.\n", label))
       next
     }
+    mod_z      <- (raw_mod - mod_mean) / mod_sd
+    mod_ns_basis <- splines::ns(mod_z, df = df_mod)
 
     # DLNM variable's x-axis back-transform (same pattern as elsewhere)
     stats_i <- if (!is.null(dlnm_var_stats) && dlnm_var %in% names(dlnm_var_stats))
@@ -1953,8 +2002,14 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
     at_std  <- at_std_nice[keep_pts]
     at_orig <- at_orig_nice[keep_pts]
 
+    # Coefficient draws at modifier z-value z_val: coef_base + the modifier's
+    # spline basis evaluated at z_val, weighting each of the df_mod draws
+    # blocks -- generalizes the old draws_base + z*draws_ix linear tilt to a
+    # curve that can bend, since mod_basis_row is no longer just [z_val].
     crosspred_at_z <- function(z_val) {
-      draws_z <- draws_base + z_val * draws_ix
+      mod_basis_row <- as.numeric(predict(mod_ns_basis, newx = z_val))
+      draws_z <- draws_base
+      for (j in seq_len(df_mod)) draws_z <- draws_z + mod_basis_row[j] * draws_ix_blocks[[j]]
       coef_z  <- setNames(colMeans(draws_z), cb_names)
       vcov_z  <- cov(draws_z)
       dimnames(vcov_z) <- list(cb_names, cb_names)
@@ -1965,12 +2020,20 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
       )
     }
 
-    # ── Percentile-lines plot ─────────────────────────────────────────────────
+    # Precompute crosspred() once per percentile; reuse for both the cumulative
+    # summary and the per-lag slices below (avoids redundant computation).
     mod_orig_at_p <- as.numeric(quantile(raw_mod, probs = percentiles, na.rm = TRUE))
     mod_z_at_p    <- (mod_orig_at_p - mod_mean) / mod_sd
+    preds_by_p    <- lapply(mod_z_at_p, crosspred_at_z)
 
+    # ── Percentile-lines plot (cumulative across all lags) ───────────────────
+    # NB: a lag-concentrated interaction (e.g. RF found this pair's H-statistic
+    # only at specific lags) can cancel out here if different lags/exposure
+    # regions pull in opposite directions -- check the per-lag slices below
+    # (and the raw w_ix posterior in the model summary) before concluding the
+    # interaction isn't real just because this cumulative view looks flat.
     line_rows <- lapply(seq_along(percentiles), function(p_idx) {
-      pred_z <- crosspred_at_z(mod_z_at_p[p_idx])
+      pred_z <- preds_by_p[[p_idx]]
       if (is.null(pred_z)) return(NULL)
       data.frame(
         exposure       = at_orig,
@@ -2005,10 +2068,62 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
         ) +
         theme_minimal()
 
-      ggsave(file.path(output_dir, paste0("dlnm_ix_continuous_lines_", label, "_", run_suffix, ".png")),
+      ggsave(file.path(dir_overall, paste0("dlnm_ix_continuous_lines_", label, "_", run_suffix, ".png")),
              p_lines, width = 9, height = 6, dpi = 150)
       write.csv(curve_df,
-                file.path(output_dir, paste0("dlnm_ix_continuous_lines_", label, "_", run_suffix, ".csv")),
+                file.path(dir_overall, paste0("dlnm_ix_continuous_lines_", label, "_", run_suffix, ".csv")),
+                row.names = FALSE)
+    }
+
+    # ── Per-lag percentile-lines plots ────────────────────────────────────────
+    # The cumulative plot above sums across all lags; if the true modification
+    # is concentrated at a few lags (with others near zero or opposite-signed),
+    # summing can cancel it out almost entirely. These slices show the effect
+    # at each individual lag month instead, so a lag-concentrated interaction
+    # is visible even when the cumulative summary isn't.
+    L_val <- as.integer(attr(cb_mats[[dlnm_var]], "lag")[2])
+    for (l in 0:L_val) {
+      lag_rows <- lapply(seq_along(percentiles), function(p_idx) {
+        pred_z <- preds_by_p[[p_idx]]
+        if (is.null(pred_z)) return(NULL)
+        data.frame(
+          exposure       = at_orig,
+          fit            = pred_z$matfit[, l + 1],
+          low            = pred_z$matlow[, l + 1],
+          high           = pred_z$mathigh[, l + 1],
+          modifier_value = mod_orig_at_p[p_idx],
+          percentile     = percentiles[p_idx]
+        )
+      })
+      lag_curve_df <- do.call(rbind, lag_rows)
+      if (is.null(lag_curve_df) || nrow(lag_curve_df) == 0) {
+        cat(sprintf("  Skipping continuous interaction lag-%d plot for %s: crosspred failed at all percentiles.\n", l, label))
+        next
+      }
+
+      lag_curve_df$pct_label <- factor(
+        sprintf("p%d (%s=%.2f)", round(lag_curve_df$percentile * 100), continuous_var, lag_curve_df$modifier_value),
+        levels = sprintf("p%d (%s=%.2f)", round(percentiles * 100), continuous_var, mod_orig_at_p)
+      )
+
+      p_lag <- ggplot(lag_curve_df, aes(x = exposure, y = fit, group = pct_label)) +
+        geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+        geom_ribbon(aes(ymin = low, ymax = high, fill = modifier_value), alpha = 0.10) +
+        geom_line(aes(colour = modifier_value), linewidth = 1) +
+        scale_colour_viridis_c(name = continuous_var, option = "plasma") +
+        scale_fill_viridis_c(name = continuous_var, option = "plasma", guide = "none") +
+        labs(
+          title    = sprintf("Effect of %s at lag %d across %s percentiles", dlnm_var, l, continuous_var),
+          subtitle = sprintf("Lines at p%s of %s -- not summed across lags",
+                              paste(round(percentiles * 100), collapse = "/"), continuous_var),
+          x = dlnm_var, y = "Effect on log-odds of p_bt"
+        ) +
+        theme_minimal()
+
+      ggsave(file.path(dir_perlag, paste0("dlnm_ix_continuous_lag", l, "_", label, "_", run_suffix, ".png")),
+             p_lag, width = 9, height = 6, dpi = 150)
+      write.csv(lag_curve_df,
+                file.path(dir_perlag, paste0("dlnm_ix_continuous_lag", l, "_", label, "_", run_suffix, ".csv")),
                 row.names = FALSE)
     }
 
@@ -2029,7 +2144,7 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
       limit <- max(abs(heat_df$fit), na.rm = TRUE)
       p_heat <- ggplot(heat_df, aes(x = exposure, y = modifier, fill = fit)) +
         geom_tile() +
-        scale_fill_gradient2(low = "steelblue", mid = "white", high = "firebrick",
+        scale_fill_gradient2(low = "firebrick", mid = "white", high = "steelblue",
                             midpoint = 0, limits = c(-limit, limit), name = "Log-odds") +
         labs(
           title    = sprintf("Effect-modification surface: %s x %s", dlnm_var, continuous_var),
@@ -2039,10 +2154,10 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
         theme_minimal() +
         theme(panel.grid = element_blank())
 
-      ggsave(file.path(output_dir, paste0("dlnm_ix_continuous_heatmap_", label, "_", run_suffix, ".png")),
+      ggsave(file.path(dir_overall, paste0("dlnm_ix_continuous_heatmap_", label, "_", run_suffix, ".png")),
              p_heat, width = 8, height = 6, dpi = 150)
       write.csv(heat_df,
-                file.path(output_dir, paste0("dlnm_ix_continuous_heatmap_", label, "_", run_suffix, ".csv")),
+                file.path(dir_overall, paste0("dlnm_ix_continuous_heatmap_", label, "_", run_suffix, ".csv")),
                 row.names = FALSE)
     }
 

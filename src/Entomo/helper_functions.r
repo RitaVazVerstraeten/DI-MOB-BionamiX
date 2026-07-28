@@ -402,19 +402,32 @@ build_dlnm_stan_data <- function(cfg) {
   #     active_level (e.g. 0 for non-urban when is_urban is coded 1 = urban;
   #     1 for water_shortage TRUE). w_ix is then "effect when the indicator
   #     switches on" relative to the w_cb baseline.
-  #   continuous_var: linear-in-modifier tilt of the whole cross-basis. The
-  #     modifier is z-scored here (not just mean-centered), so w_ix reads as
-  #     "change in the cross-basis effect per 1-SD increase in continuous_var"
-  #     -- a straight-line effect-modification surface, not a two-group split.
-  #     This assumes the modification is monotonic/linear in continuous_var;
-  #     it does not capture a non-monotonic "sweet spot". The fitted surface
-  #     can still be evaluated/plotted at any number of modifier values (not
-  #     just mean +/- 1 SD) once w_cb/w_ix are estimated.
+  #   continuous_var (+ optional continuous_df, default 2): tensor product of
+  #     the DLNM sub-block against ns(z, df = continuous_df), z = z-scored
+  #     continuous_var. This generalizes a plain linear-in-modifier tilt
+  #     (which forces the effect-modification surface to be a straight line in
+  #     the modifier and can null out a real but non-monotonic/threshold
+  #     pattern) to a low-df curve that can bend or reverse. continuous_df = 1
+  #     would recover an (almost) linear tilt; df = 2-3 lets it curve. Adds
+  #     continuous_df x P_cb_var columns to X_ix per interaction (one
+  #     cb_block-sized block per modifier spline basis function, stacked).
   if (!is.null(cfg$dlnm_ix_vars) && length(cfg$dlnm_ix_vars) > 0) {
-    ix_mats <- lapply(cfg$dlnm_ix_vars, function(ix) {
+    # Resolve defaults (continuous_df) up front so downstream code that reads
+    # prep$dlnm_ix_vars (plotting) sees the actual df used, not NULL.
+    dlnm_ix_vars_resolved <- lapply(cfg$dlnm_ix_vars, function(ix) {
+      if (!is.null(ix$continuous_var) && is.null(ix$continuous_df)) ix$continuous_df <- 2
+      ix
+    })
+
+    ix_mats <- lapply(dlnm_ix_vars_resolved, function(ix) {
       dlnm_var <- ix$dlnm_var
       if (!dlnm_var %in% cfg$dlnm_vars)
         stop(sprintf("dlnm_ix_vars: DLNM variable '%s' not in cfg$dlnm_vars", dlnm_var))
+
+      var_idx   <- which(cfg$dlnm_vars == dlnm_var)
+      col_start <- col_starts_cb[var_idx]
+      col_end   <- col_start + cb_ncols[var_idx] - 1L
+      cb_block  <- X_cb[, col_start:col_end, drop = FALSE]
 
       if (!is.null(ix$continuous_var)) {
         continuous_var <- ix$continuous_var
@@ -423,7 +436,11 @@ build_dlnm_stan_data <- function(cfg) {
         raw_num <- suppressWarnings(as.numeric(df_filt[[continuous_var]]))
         if (any(is.na(raw_num)))
           stop(sprintf("dlnm_ix_vars: NA in continuous modifier '%s'", continuous_var))
-        modifier <- as.numeric(scale(raw_num))
+        z         <- as.numeric(scale(raw_num))
+        mod_basis <- splines::ns(z, df = ix$continuous_df)   # N x continuous_df
+        # One cb_block-sized column set per modifier spline basis function,
+        # stacked -- lets the effect-modification curve bend, not just tilt.
+        do.call(cbind, lapply(seq_len(ix$continuous_df), function(j) cb_block * mod_basis[, j]))
       } else {
         binary_var   <- ix$binary_var
         active_level <- ix$active_level
@@ -434,22 +451,18 @@ build_dlnm_stan_data <- function(cfg) {
         if (any(is.na(modifier)))
           stop(sprintf("dlnm_ix_vars: NA in indicator for '%s' at active_level = %s",
                        binary_var, active_level))
+        cb_block * modifier
       }
-
-      var_idx   <- which(cfg$dlnm_vars == dlnm_var)
-      col_start <- col_starts_cb[var_idx]
-      col_end   <- col_start + cb_ncols[var_idx] - 1L
-      X_cb[, col_start:col_end, drop = FALSE] * modifier
     })
     X_ix <- do.call(cbind, ix_mats)
     P_ix <- ncol(X_ix)
     cat(sprintf("Interaction cross-basis: %d pair(s), P_ix = %d columns\n",
-                length(cfg$dlnm_ix_vars), P_ix))
-    for (ix in cfg$dlnm_ix_vars) {
+                length(dlnm_ix_vars_resolved), P_ix))
+    for (ix in dlnm_ix_vars_resolved) {
       if (!is.null(ix$continuous_var)) {
-        cat(sprintf("  %s (continuous, z-scored) x %s  [%d cols]\n",
-                    ix$continuous_var, ix$dlnm_var,
-                    cb_ncols[which(cfg$dlnm_vars == ix$dlnm_var)]))
+        cat(sprintf("  %s (continuous, ns df=%d tensor) x %s  [%d cols]\n",
+                    ix$continuous_var, ix$continuous_df, ix$dlnm_var,
+                    cb_ncols[which(cfg$dlnm_vars == ix$dlnm_var)] * ix$continuous_df))
       } else {
         cat(sprintf("  %s (level=%s) x %s  [%d cols]\n",
                     ix$binary_var, ix$active_level, ix$dlnm_var,
@@ -459,6 +472,7 @@ build_dlnm_stan_data <- function(cfg) {
   } else {
     X_ix <- matrix(0.0, nrow = nrow(X_cb), ncol = 0L)
     P_ix <- 0L
+    dlnm_ix_vars_resolved <- list()
     cat("No DLNM interaction cross-basis (cfg$dlnm_ix_vars not set)\n")
   }
 
@@ -488,7 +502,7 @@ build_dlnm_stan_data <- function(cfg) {
     cb_mats        = cb_mats,
     dlnm_var_stats = dlnm_var_stats,
     unlagged_vars  = cfg$unlagged_vars,
-    dlnm_ix_vars   = if (!is.null(cfg$dlnm_ix_vars)) cfg$dlnm_ix_vars else list()
+    dlnm_ix_vars   = dlnm_ix_vars_resolved
   )
 }
 
