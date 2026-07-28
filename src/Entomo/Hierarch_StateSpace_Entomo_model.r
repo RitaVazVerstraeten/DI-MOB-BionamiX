@@ -112,16 +112,22 @@ cfg <- list(
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
 
-  # Interaction cross-bases: each entry is (binary_var, active_level, dlnm_var,
-  # label) - a 0/1 indicator modifier, active where binary_var == active_level
-  # (e.g. is_urban coded 1=urban (reference), 0=non-urban -> active_level=0
-  # for the non-urban modifier). Continuous modifiers are not supported (see
-  # helper_functions.r::build_dlnm_stan_data() - a linear-in-modifier tilt
-  # evaluated only at mean/+1 SD is hard to interpret as anything but an
-  # arbitrary two-point probe of a continuous effect-modification surface).
+  # Interaction cross-bases: each entry is either
+  #   (binary_var, active_level, dlnm_var, label) - a 0/1 indicator modifier,
+  #     active where binary_var == active_level (e.g. is_urban coded
+  #     1=urban (reference), 0=non-urban -> active_level=0 for the
+  #     non-urban modifier)
+  #   (continuous_var, dlnm_var, label, continuous_df) - tensor product of
+  #     the dlnm_var cross-basis against ns(z, df = continuous_df), z =
+  #     z-scored continuous_var (see helper_functions.r::build_dlnm_stan_data()).
+  #     continuous_df = 1 collapses to a plain linear-in-modifier tilt
+  #     (ns(z, df=1) is exactly linear); continuous_df >= 2 lets the
+  #     effect-modification curve bend/reverse instead of being forced
+  #     through a straight line. Defaults to 2 if omitted.
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
   dlnm_ix_vars = list(
-    list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc")
+    list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 1),
+    list(continuous_var = "water_containers", dlnm_var = "precip_max_day_resid_on_tp", label = "tpResid_x_wc", continuous_df = 1)
   ),
   # dlnm_ix_vars = NULL,
 
@@ -931,7 +937,7 @@ if (isTRUE(cfg$use_dlnm)) {
     cat("Generating DLNM interaction surface plots...\n")
     save_dlnm_interaction_response_plots(fit, prep, plots_output_dir, model_spec)
     cat("Generating DLNM continuous-modifier interaction plots...\n")
-    save_dlnm_continuous_interaction_plots(fit, prep, plots_output_dir, model_spec)
+    save_dlnm_continuous_interaction_plots(fit, prep, plots_output_dir, model_spec, percentiles = c(0.10, 0.90))
   }
 }
 
