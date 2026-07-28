@@ -126,8 +126,8 @@ cfg <- list(
   #     through a straight line. Defaults to 2 if omitted.
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
   dlnm_ix_vars = list(
-    list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 1),
-    list(continuous_var = "water_containers", dlnm_var = "precip_max_day_resid_on_tp", label = "tpResid_x_wc", continuous_df = 1)
+    list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2)
+    # list(continuous_var = "water_containers", dlnm_var = "precip_max_day_resid_on_tp", label = "tpResid_x_wc", continuous_df = 1)
   ),
   # dlnm_ix_vars = NULL,
 
@@ -216,7 +216,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "_linear_modifier")
+run_suffix <- paste0(date_suffix, "spline_modifier")
 if (exists(".hierarch_run_suffix")) run_suffix <- .hierarch_run_suffix
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
