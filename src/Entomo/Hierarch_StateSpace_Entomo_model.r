@@ -216,7 +216,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "spline_modifier")
+run_suffix <- paste0(date_suffix, "_linear_modifier")
 if (exists(".hierarch_run_suffix")) run_suffix <- .hierarch_run_suffix
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
