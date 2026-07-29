@@ -412,14 +412,14 @@ build_dlnm_stan_data <- function(cfg) {
   #     continuous_df x P_cb_var columns to X_ix per interaction (one
   #     cb_block-sized block per modifier spline basis function, stacked).
   if (!is.null(cfg$dlnm_ix_vars) && length(cfg$dlnm_ix_vars) > 0) {
-    # Resolve defaults (continuous_df) up front so downstream code that reads
-    # prep$dlnm_ix_vars (plotting) sees the actual df used, not NULL.
-    dlnm_ix_vars_resolved <- lapply(cfg$dlnm_ix_vars, function(ix) {
+    # Resolve defaults (continuous_df) and build each interaction's design
+    # block together, so a continuous spec's basis-centering offset (see
+    # below) can be attached back onto the ix spec itself and flow through
+    # to prep$dlnm_ix_vars -- the plotting code needs that exact offset to
+    # reconstruct predictions consistently with what the model was fit on.
+    ix_results <- lapply(cfg$dlnm_ix_vars, function(ix) {
       if (!is.null(ix$continuous_var) && is.null(ix$continuous_df)) ix$continuous_df <- 2
-      ix
-    })
 
-    ix_mats <- lapply(dlnm_ix_vars_resolved, function(ix) {
       dlnm_var <- ix$dlnm_var
       if (!dlnm_var %in% cfg$dlnm_vars)
         stop(sprintf("dlnm_ix_vars: DLNM variable '%s' not in cfg$dlnm_vars", dlnm_var))
@@ -438,9 +438,22 @@ build_dlnm_stan_data <- function(cfg) {
           stop(sprintf("dlnm_ix_vars: NA in continuous modifier '%s'", continuous_var))
         z         <- as.numeric(scale(raw_num))
         mod_basis <- splines::ns(z, df = ix$continuous_df)   # N x continuous_df
+        # ns() does not guarantee each basis column is mean-zero just because
+        # z is (only continuous_df=1, exactly linear in z, gets that for
+        # free). An off-centre column here means cb_block * mod_basis[,j] ~=
+        # mean(mod_basis[,j]) * cb_block + deviation -- i.e. the interaction
+        # column is partly just a rescaled copy of the main-effect column,
+        # creating exactly the w_cb/w_ix collinearity that centring a
+        # moderator is supposed to prevent. Center explicitly so every
+        # column carries only its own deviation, the same guarantee z itself
+        # already has. The center is saved onto the ix spec (below) so
+        # save_dlnm_continuous_interaction_plots() applies the identical
+        # offset when reconstructing predictions at new modifier values.
+        mod_basis_c <- scale(mod_basis, center = TRUE, scale = FALSE)
+        ix$continuous_basis_center <- as.numeric(attr(mod_basis_c, "scaled:center"))
         # One cb_block-sized column set per modifier spline basis function,
         # stacked -- lets the effect-modification curve bend, not just tilt.
-        do.call(cbind, lapply(seq_len(ix$continuous_df), function(j) cb_block * mod_basis[, j]))
+        ix_mat <- do.call(cbind, lapply(seq_len(ix$continuous_df), function(j) cb_block * mod_basis_c[, j]))
       } else {
         binary_var   <- ix$binary_var
         active_level <- ix$active_level
@@ -451,9 +464,13 @@ build_dlnm_stan_data <- function(cfg) {
         if (any(is.na(modifier)))
           stop(sprintf("dlnm_ix_vars: NA in indicator for '%s' at active_level = %s",
                        binary_var, active_level))
-        cb_block * modifier
+        ix_mat <- cb_block * modifier
       }
+
+      list(ix = ix, mat = ix_mat)
     })
+    dlnm_ix_vars_resolved <- lapply(ix_results, `[[`, "ix")
+    ix_mats <- lapply(ix_results, `[[`, "mat")
     X_ix <- do.call(cbind, ix_mats)
     P_ix <- ncol(X_ix)
     cat(sprintf("Interaction cross-basis: %d pair(s), P_ix = %d columns\n",

@@ -1988,6 +1988,11 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
     }
     mod_z      <- (raw_mod - mod_mean) / mod_sd
     mod_ns_basis <- splines::ns(mod_z, df = df_mod)
+    # build_dlnm_stan_data() centers each spline basis column before it enters
+    # X_ix (ns() doesn't guarantee mean-zero columns just because mod_z is
+    # mean-zero); reuse that exact offset here so reconstructed predictions
+    # match what the model was actually fit on.
+    basis_center <- if (!is.null(ix$continuous_basis_center)) ix$continuous_basis_center else rep(0, df_mod)
 
     # DLNM variable's x-axis back-transform (same pattern as elsewhere)
     stats_i <- if (!is.null(dlnm_var_stats) && dlnm_var %in% names(dlnm_var_stats))
@@ -2007,7 +2012,7 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
     # blocks -- generalizes the old draws_base + z*draws_ix linear tilt to a
     # curve that can bend, since mod_basis_row is no longer just [z_val].
     crosspred_at_z <- function(z_val) {
-      mod_basis_row <- as.numeric(predict(mod_ns_basis, newx = z_val))
+      mod_basis_row <- as.numeric(predict(mod_ns_basis, newx = z_val)) - basis_center
       draws_z <- draws_base
       for (j in seq_len(df_mod)) draws_z <- draws_z + mod_basis_row[j] * draws_ix_blocks[[j]]
       coef_z  <- setNames(colMeans(draws_z), cb_names)
