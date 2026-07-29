@@ -48,6 +48,7 @@ source(file.path(script_dir, "plot_functions.r"))
 # 1) SETTINGS
 # =========================
 hostname <- Sys.info()["nodename"]
+is_compute_node <- hostname %in% c("frietjes", "stoofvlees")
 
 
 # ========== Spatial resolution =============
@@ -56,7 +57,7 @@ spatial_level <- "CMF"
 
 # ========== Output structure and config =============
 cfg <- list(
-  data_dir = if (hostname == "frietjes") "~/data/Entomo" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data",
+  data_dir = if (hostname == "frietjes") "~/data/Entomo" else if (hostname == "stoofvlees") "~/entomo_data" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data",
   # Extended-lag dataset: env 2015-2019 (NDVI/NDMI/NDWI observed 2016-2019, climatology-backfilled for 2015), ento-epi 2016-2019.
   # 2015 rows serve as lag lead-in; response_start below marks the observation period.
   data_file_name = if (spatial_level == "CMF")"env_epi_entomo_data_per_CMF_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv" else "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv",
@@ -78,6 +79,8 @@ cfg <- list(
   # spatial
   shapefile_path = if (hostname == "frietjes")
     "/home/rita/data/Entomo"
+  else if (hostname == "stoofvlees")
+    "~/entomo_data"
   else
     "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders",
   sf_block_col = if (spatial_level == "CMF") "Area_CMF" else "CODIGO_",
@@ -137,7 +140,7 @@ cfg <- list(
   iter_sampling = 1500,
   adapt_delta = 0.95, # target average acceptance probability for the NUTS sampler in stan
   max_treedepth = 12, # caps how many steps the NUTS sampler can take in a single iteration.
-  parallel_chains = if (hostname == "frietjes") 4 else 1,
+  parallel_chains = if (is_compute_node) 4 else 1,
 
   # delta1: set fix_delta1 = TRUE to fix the reactive detection boost at delta1_fixed value.
   # Use delta1_fixed = 0 to disable reactive detection enhancement entirely.
@@ -295,7 +298,7 @@ cat("Stan file:", cfg$stan_file, "\n")
 # }
 
 
-options(mc.cores = if (hostname == "frietjes") 6 else 2)
+options(mc.cores = if (is_compute_node) 6 else 2)
 dir.create(cfg$output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # =========================
@@ -487,7 +490,7 @@ if (isTRUE(cfg$fix_phi)) {
 
 # ================== compile stan model ==========================
 mod <- cmdstan_model(cfg$stan_file,
-  force_recompile = hostname == "frietjes")
+  force_recompile = is_compute_node)
 
 # =========================
 # PRIOR PREDICTIVE CHECK
