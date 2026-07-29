@@ -73,7 +73,7 @@ cfg <- list(
   use_bym2        = FALSE,    # (only if use_spatial_AC = TRUE) TRUE = BYM2 (structured+unstructured); overrides use_icar
   hsgp_m          = 20,     # basis functions per dimension (20 → 400 total)
   hsgp_c          = 1.5,    # boundary factor (domain = c * data range)
-  use_block_dev   = TRUE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
+  use_block_dev   = FALSE,   # (ignored if use_time_RE = TRUE) TRUE = per-block deviation
   use_dlnm        = TRUE,  # TRUE = replace lag flat matrix with DLNM cross-basis (blockRE only for now)
 
   # spatial
@@ -107,11 +107,10 @@ cfg <- list(
   dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp"),
 
   dlnm_argvar = list(
-    total_precip                = list(fun = "ns", df = 2),
+    total_precip                = list(fun = "ns", df = 3),
     avg_VPD                     = list(fun = "ns", df = 3),
-    precip_max_day_resid_on_tp = list(fun = "ns", df = 2)
+    precip_max_day_resid_on_tp = list(fun = "ns", df = 3)
     # avg_temp                     = list(fun = "ns", df = 3)
-  
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
 
@@ -129,8 +128,8 @@ cfg <- list(
   #     through a straight line. Defaults to 2 if omitted.
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
   dlnm_ix_vars = list(
-    list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 1),
-    list(continuous_var = "water_containers", dlnm_var = "precip_max_day_resid_on_tp", label = "tpResid_x_wc", continuous_df = 1)
+    list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2)
+    # list(continuous_var = "water_containers", dlnm_var = "precip_max_day_resid_on_tp", label = "tpResid_x_wc", continuous_df = 1)
   ),
   # dlnm_ix_vars = NULL,
 
