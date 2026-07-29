@@ -131,7 +131,7 @@ cfg <- list(
     # list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 1),
     # list(continuous_var = "water_containers", dlnm_var = "precip_max_day_resid_on_tp", label = "tpResid_x_wc", continuous_df = 2)
     # list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
-    list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_ws")
+    list(binary_var = "is_urban", active_level = 0, dlnm_var = "total_precip", label = "tp_x_nonurban")
 
   ),
   # dlnm_ix_vars = NULL,
