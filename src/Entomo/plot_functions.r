@@ -1069,6 +1069,7 @@ save_spatial_re_ar_correlation_checks <- function(fit, coords_sf, stan_data, out
               title    = "Global Moran's I on posterior-mean u_block (all pairs pooled, spatial RE itself)",
               subtitle = sprintf("I = %.3f, p = %.3g -- %s, n = %d blocks (single pooled test, not binned)",
                                   I_val, p_val, weight_desc, nrow(u_df)),
+              caption  = "Shaded band: 95% CI of the linear fit",
               x = "u_block (posterior mean)",
               y = "Spatial lag of u_block (neighbor-weighted mean)"
             ) +
@@ -1131,6 +1132,7 @@ save_spatial_re_ar_correlation_checks <- function(fit, coords_sf, stan_data, out
       title    = "u_block vs. time-averaged AR state: is the AR term absorbing the spatial signal?",
       subtitle = sprintf("Pearson r = %.3f, p = %.3g -- high |r| = AR(1) mechanistically carries the spatial signal",
                           r, p),
+      caption  = "Shaded band: 95% CI of the linear fit",
       x = "u_block (posterior mean, spatial RE)",
       y = expression(bar(v)[b]~"(time-averaged AR(1) state)")
     ) +
@@ -1327,7 +1329,7 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
     labs(x = "Time",
          title = "Time Series by Block: observed rate, predicted rate, and fitted p_bt",
          color = NULL,
-         caption = "Orange ribbon: 95% CI of y_pred/n. Grey bars: dengue cases per block (right axis).") +
+         caption = "Orange ribbon: 90% CI of y_pred/n. Grey bars: dengue cases per block (right axis).") +
     theme_minimal() +
     theme(legend.position = "bottom", axis.text.x = element_text(angle = 45, hjust = 1, size = 7))
   
@@ -1493,6 +1495,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     plot(pred_i, "overall",
          xaxt   = "n",
          main   = paste("Cumulative effect —", var),
+         sub    = "Shaded band: 95% CI",
          xlab   = var,
          ylab   = "Effect on log-odds of p_bt",
          col    = "steelblue",
@@ -1532,6 +1535,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
            lag    = l,
            xaxt   = "n",
            main   = paste0("Effect at lag ", l, " — ", var),
+           sub    = "Shaded band: 95% CI",
            xlab   = var,
            ylab   = "Effect on log-odds of p_bt",
            col    = "steelblue",
@@ -1665,6 +1669,7 @@ save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
       plot(red_i,
            main = sprintf("Lag-response - %s at %dth pct (%s = %.2f)",
                           var, round(p_val * 100), var, orig_val),
+           sub  = "Shaded band: 95% CI",
            xlab = "Lag (months)",
            ylab = "Effect on log-odds of p_bt",
            col    = "steelblue",
@@ -1810,6 +1815,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
         width = 900, height = 500)
     plot(pred_ref, "overall", xaxt = "n", ylim = y_lim,
          main   = paste("Cumulative effect of", dlnm_var, "—", label),
+         sub    = "Shaded band and dashed lines: 95% CI",
          xlab   = dlnm_var, ylab = "Effect on log-odds of p_bt",
          col    = ref_col,
          ci.arg = list(col = adjustcolor(ref_col, 0.20), border = NA))
@@ -1841,6 +1847,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
           width = 900, height = 500)
       plot(pred_ref, "slices", lag = l, xaxt = "n", ylim = y_lim_lag,
            main   = paste0("Effect at lag ", l, " — ", label),
+           sub    = "Shaded band and dashed lines: 95% CI",
            xlab   = dlnm_var, ylab = "Effect on log-odds of p_bt",
            col    = ref_col,
            ci.arg = list(col = adjustcolor(ref_col, 0.20), border = NA))
@@ -2067,7 +2074,7 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
         scale_fill_viridis_c(name = continuous_var, option = "plasma", guide = "none") +
         labs(
           title    = sprintf("Cumulative effect of %s across %s percentiles", dlnm_var, continuous_var),
-          subtitle = sprintf("Lines at p%s of %s (not just mean/+1SD)",
+          subtitle = sprintf("Lines at p%s of %s (not just mean/+1SD); shaded ribbon: 95%% CI",
                               paste(round(percentiles * 100), collapse = "/"), continuous_var),
           x = dlnm_var, y = "Cumulative effect on log-odds of p_bt"
         ) +
@@ -2119,7 +2126,7 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
         scale_fill_viridis_c(name = continuous_var, option = "plasma", guide = "none") +
         labs(
           title    = sprintf("Effect of %s at lag %d across %s percentiles", dlnm_var, l, continuous_var),
-          subtitle = sprintf("Lines at p%s of %s -- not summed across lags",
+          subtitle = sprintf("Lines at p%s of %s -- not summed across lags; shaded ribbon: 95%% CI",
                               paste(round(percentiles * 100), collapse = "/"), continuous_var),
           x = dlnm_var, y = "Effect on log-odds of p_bt"
         ) +
