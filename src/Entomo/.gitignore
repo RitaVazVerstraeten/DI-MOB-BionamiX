@@ -1,2 +1,10 @@
 renv/library/
-renv/*
+renv/local/
+renv/cellar/
+renv/lock/
+renv/python/
+renv/sandbox/
+renv/staging/
+
+src/Entomo/hierarchical_state_space_*
+!src/Entomo/hierarchical_state_space_*.*

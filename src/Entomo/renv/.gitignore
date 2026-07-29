@@ -1,0 +1,10 @@
+library/
+local/
+cellar/
+lock/
+python/
+sandbox/
+staging/
+
+src/Entomo/hierarchical_state_space_*
+!src/Entomo/hierarchical_state_space_*.*
