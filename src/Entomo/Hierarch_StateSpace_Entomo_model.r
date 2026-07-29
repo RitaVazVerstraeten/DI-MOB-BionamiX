@@ -135,8 +135,8 @@ cfg <- list(
   chains = 4,
   iter_warmup = 1000,
   iter_sampling = 1500,
-  adapt_delta = 0.97, # target average acceptance probability for the NUTS sampler in stan
-  max_treedepth = 10, # caps how many steps the NUTS sampler can take in a single iteration.
+  adapt_delta = 0.95, # target average acceptance probability for the NUTS sampler in stan
+  max_treedepth = 12, # caps how many steps the NUTS sampler can take in a single iteration.
   parallel_chains = if (hostname == "frietjes") 4 else 1,
 
   # delta1: set fix_delta1 = TRUE to fix the reactive detection boost at delta1_fixed value.
