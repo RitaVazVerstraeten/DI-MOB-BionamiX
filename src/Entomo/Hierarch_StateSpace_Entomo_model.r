@@ -104,7 +104,7 @@ cfg <- list(
   # (total_precip lags + is_urban/water_shortage/water_containers only, no land-use
   # covariates) to test whether the RF-flagged interactions resurrect once
   # HFP_urbanization/mean_ndvi/is_WUI/is_WI are removed.
-  =unlagged_vars = c("is_urban", "water_shortage", "water_containers"),
+  unlagged_vars = c("is_urban", "water_shortage", "water_containers"),
 
   numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "mean_ndvi", "HFP_urbanization"),
 
