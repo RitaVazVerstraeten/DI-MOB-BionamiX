@@ -159,6 +159,28 @@ standardize_matrix <- function(x) {
   scale(x, center = m, scale = s)
 }
 
+#' Standardize Matrix (Robust: median/MAD)
+#'
+#' Centers and scales each column to median 0 and MAD 1 (mad() scales by the
+#' usual 1.4826 constant so it's comparable to SD under normality), instead of
+#' mean/SD. Used for DLNM cross-basis variables instead of standardize_matrix()
+#' because several of them are meaningfully right-skewed -- e.g. total_precip
+#' (skewness ~1.95, mean at the 55th percentile) and precip_max_day_resid_on_tp
+#' (skewness ~0.95, mean at the 63rd percentile) -- so mean-centering was
+#' silently making z=0 (the reference value used throughout this pipeline's
+#' crosspred()/crossreduce() cen=0 calls) sit off-centre from "typical"
+#' observed conditions, rather than representing them. Handles zero-MAD
+#' columns by falling back to scale=1 (no scaling).
+#'
+#' @param x Numeric matrix to standardize
+#' @return Standardized matrix with same dimensions as input
+standardize_matrix_median <- function(x) {
+  m <- apply(x, 2, median, na.rm = TRUE)
+  s <- apply(x, 2, mad, na.rm = TRUE)
+  s[s == 0 | is.na(s)] <- 1
+  scale(x, center = m, scale = s)
+}
+
 #' Build Complete Stan Data List
 #'
 #' Orchestrates the full data preparation pipeline: loads data, creates indices,
@@ -287,18 +309,26 @@ build_dlnm_stan_data <- function(cfg) {
   # diverges from what's saved in dlnm_var_stats/returned in `df`.
   vars_to_std <- intersect(cfg$dlnm_vars, names(idx$df))
 
-  # Save mean/SD for DLNM vars BEFORE standardizing (needed for back-transformation in plots)
+  # Save median/MAD for DLNM vars BEFORE standardizing (needed for
+  # back-transformation in plots). NOTE: the list fields are still named
+  # `mean`/`sd` (not renamed to `median`/`mad`) so every consumer throughout
+  # plot_functions.r and the compute_af_posterior*() functions -- which all
+  # do `x_orig <- z * stats_i$sd + stats_i$mean` -- keeps working unchanged;
+  # the centering/scaling formula is generic and doesn't care which summary
+  # statistic populates it, as long as it's used consistently here and at
+  # standardization time below. See standardize_matrix_median()'s docs for
+  # why median/MAD replaced mean/SD for these variables.
   dlnm_var_stats <- setNames(lapply(cfg$dlnm_vars, function(v) {
     if (v %in% vars_to_std) {
       x <- idx$df[[v]][is.finite(idx$df[[v]])]
-      s <- sd(x)
-      list(mean = mean(x), sd = if (s == 0 | is.na(s)) 1 else s)
+      s <- mad(x)
+      list(mean = median(x), sd = if (s == 0 | is.na(s)) 1 else s)
     } else {
       list(mean = 0, sd = 1)   # not standardized; original = standardized
     }
   }), cfg$dlnm_vars)
 
-  idx$df[, vars_to_std] <- standardize_matrix(as.matrix(idx$df[, vars_to_std]))
+  idx$df[, vars_to_std] <- standardize_matrix_median(as.matrix(idx$df[, vars_to_std]))
 
   B      <- idx$B
   L      <- cfg$max_lag
@@ -807,4 +837,378 @@ save_trace_plots <- function(fit, output_dir, run_suffix, use_temporal_re) {
       mcmc_trace(draws_array, pars = wu_params), width = 12, height = 8
     )
   }
+}
+
+#' Backward attributable number from a DLNM crossbasis (per observation)
+#'
+#' Self-contained implementation of Gasparrini & Leone (2014, Eq 4, 5a-5b):
+#' b-AN_{x,t} = cases_t * (1 - exp(-sum_l beta_{x_{t-l},l})), where the summed
+#' beta term is the crossbasis row's linear-predictor contribution for the
+#' ACTUAL observed exposure history minus the same for a CONSTANT counterfactual
+#' history at cen_val (Eq 1a's re-parameterisation, beta*_x = beta_x - beta_x0).
+#'
+#' dlnm::attrdl() -- the function these equations were originally packaged as,
+#' per the paper's "Additional file 1: R script implementing the function to
+#' compute attributable risk measures" -- is NOT part of the installed CRAN
+#' dlnm package (checked: absent from ls("package:dlnm") for dlnm 2.4.10). It
+#' was distributed as a standalone supplementary script alongside the paper,
+#' never merged into the package itself. Rather than depend on locating/
+#' sourcing that external, unversioned script, this computes the same
+#' quantity directly from the crossbasis matrices already used throughout
+#' this pipeline's crosspred()/crossreduce() calls.
+#'
+#' The counterfactual crossbasis is rebuilt from a constant vector using
+#' attr(cb_actual, "argvar"/"arglag"/"lag") -- these attributes store the
+#' FULLY RESOLVED knot/boundary specification from the original crossbasis
+#' (verified: rebuilding from them reproduces identical dimensions/basis, not
+#' an approximation). This dataset's cb_mats are built from a manually
+#' per-block-lagged matrix (see build_dlnm_stan_data()'s `Q`), not directly
+#' from dlnm::crossbasis()'s own group-aware lagging -- but since the
+#' counterfactual history is CONSTANT everywhere, a naive whole-vector lag
+#' (no block/CMF grouping) is safe here specifically: shifting a constant
+#' value across an (unrecognised) CMF boundary just gives more of the same
+#' constant, not corrupted data. Verified empirically: subtracting the two
+#' crossbases' row contributions correctly inherits cb_actual's true
+#' per-CMF "insufficient lag history" NA rows regardless of cb_cf's own
+#' (much sparser, but harmless) NA pattern.
+#'
+#' IMPORTANT CAVEAT: this project's model uses a logit link (beta-binomial),
+#' so exp(beta) here is an ODDS RATIO (OR), not a relative risk (RR) -- but
+#' Eq 1a's AF = 1 - exp(-beta) formula (equivalently AN = cases*(1-1/RR) with
+#' RR = exp(beta)) is derived assuming beta is a log-RR. Using logit-scale
+#' coefficients implicitly substitutes OR for RR. This is only a valid
+#' approximation under the rare-outcome assumption (OR -> RR as baseline risk
+#' -> 0, since OR = RR * (1-p0)/(1-p1)). This dataset's observed positivity is
+#' genuinely rare (pooled rate ~0.42%, p90 ~1.2%, max ~10.5% in the extreme
+#' tail), so the approximation is well justified here -- but it is an
+#' approximation, not exact, and should be reported as such (mild distortion
+#' possible only in the rare high-positivity tail cells).
+#'
+#' @param cb_actual N x P crossbasis matrix built from the actual observed
+#'   exposure history (e.g. cb_mats[[var]])
+#' @param coef Named numeric vector of P cross-basis coefficients (one
+#'   posterior draw, or the posterior mean)
+#' @param cen_val Reference/counterfactual exposure level, original scale
+#' @param x_orig Numeric vector, original-scale exposure history (same N rows
+#'   as cb_actual) -- used only to build the counterfactual crossbasis with the
+#'   same lag/argvar/arglag structure as cb_actual
+#' @param cases Numeric vector of observed case counts, same N rows
+#' @return Numeric vector of length N: b-AN_{x,t} for every observation (NA
+#'   for the rows with insufficient lag history, matching cb_actual's own NAs)
+.backward_an <- function(cb_actual, coef, cen_val, x_orig, cases) {
+  cb_cf <- dlnm::crossbasis(rep(cen_val, length(x_orig)),
+                             lag    = attr(cb_actual, "lag"),
+                             argvar = attr(cb_actual, "argvar"),
+                             arglag = attr(cb_actual, "arglag"))
+  delta <- as.numeric(cb_actual %*% coef) - as.numeric(cb_cf %*% coef)
+  # exp(delta) here is an odds ratio, treated as a relative risk -- see the
+  # rare-outcome caveat above.
+  rr_approx <- exp(delta)
+  cases * (1 - 1 / rr_approx)
+}
+
+#' Compute posterior attributable fraction for a DLNM variable
+#'
+#' Loops .backward_an() directly over existing posterior draws of w_cb (not an
+#' attrdl()-style sim=TRUE Monte Carlo approximation from a Normal-approximated
+#' vcov) -- each draw already IS a valid posterior sample, so no additional
+#' simulation step is needed. The reference/counterfactual exposure level (cen)
+#' is fixed once from the posterior-mean curve's minimum-risk point, rather than
+#' left to float per draw, so draw-to-draw variation reflects genuine uncertainty
+#' in the attributable fraction rather than uncertainty in where the reference
+#' point itself sits. See .backward_an()'s documentation for the full rare-outcome
+#' (OR-as-RR) caveat, which applies here identically.
+#'
+#' @param var Character; name of the DLNM variable (must be a name in cb_mats)
+#' @param cb_mats Named list of crossbasis matrices, from build_dlnm_stan_data()
+#' @param w_cb_draws Posterior draws matrix for w_cb (fit$draws("w_cb", format="matrix"))
+#' @param cb_ncols Integer vector of per-variable crossbasis column counts
+#' @param col_starts Integer vector of per-variable starting column indices into w_cb
+#' @param df Data frame used to build the crossbasis (prep$df)
+#' @param dlnm_var_stats Named list of list(mean, sd) per DLNM variable, for
+#'   back-transforming standardized exposure values to original scale
+#' @param cases Numeric vector of observed case counts (e.g. stan_data$y), same
+#'   row order as cb_mats
+#' @param thin Integer; use every `thin`-th posterior draw (default 1 = all draws).
+#'   Increase for a faster first pass -- rebuilding the counterfactual crossbasis
+#'   per draw is not free.
+#' @return List with mean/median/q025/q975 of the posterior AF distribution, the
+#'   full vector of per-draw AF values, and the fixed reference level used (cen)
+compute_af_posterior <- function(var, cb_mats, w_cb_draws, cb_ncols, col_starts,
+                                  df, dlnm_var_stats, cases, thin = 1) {
+  var_idx <- which(names(cb_mats) == var)
+  cols    <- col_starts[var_idx] + seq_len(cb_ncols[var_idx]) - 1L
+  cb_names <- colnames(cb_mats[[var]])
+  draws_i  <- w_cb_draws[, cols, drop = FALSE]
+  cb_i     <- cb_mats[[var]]
+
+  # original-scale exposure history
+  stats_i <- dlnm_var_stats[[var]]
+  x_orig  <- df[[var]] * stats_i$sd + stats_i$mean
+
+  # Fix the reference/counterfactual level ONCE, from the posterior-mean curve --
+  # letting it float per-draw would conflate "uncertainty in the AF" with
+  # "uncertainty in where the reference point is."
+  coef_mean <- setNames(colMeans(draws_i), cb_names)
+  vcov_mean <- cov(draws_i); dimnames(vcov_mean) <- list(cb_names, cb_names)
+  pred_mean <- dlnm::crosspred(cb_i, coef = coef_mean, vcov = vcov_mean,
+                                at = seq(min(x_orig), max(x_orig), length.out = 100),
+                                cen = 0, cumul = TRUE)
+  cen_val <- pred_mean$predvar[which.min(pred_mean$allfit)]
+
+  # Loop over actual posterior draws (thin if needed for speed).
+  draw_idx <- seq(1, nrow(draws_i), by = thin)
+  af_draws <- numeric(length(draw_idx))
+
+  for (k in seq_along(draw_idx)) {
+    coef_k <- setNames(draws_i[draw_idx[k], ], cb_names)
+    an_obs <- .backward_an(cb_i, coef_k, cen_val, x_orig, cases)
+    af_draws[k] <- sum(an_obs, na.rm = TRUE) / sum(cases[!is.na(an_obs)])
+  }
+
+  list(
+    mean   = mean(af_draws),
+    median = median(af_draws),
+    q025   = quantile(af_draws, 0.025),
+    q975   = quantile(af_draws, 0.975),
+    draws  = af_draws,
+    cen    = cen_val
+  )
+}
+
+#' Compute posterior attributable fraction for a plain unlagged term
+#'
+#' Analogous to compute_af_posterior(), but for unlagged covariates (e.g.
+#' mean_ndvi, HFP_urbanization, is_urban) that have no lag/crossbasis structure --
+#' so there is no need for dlnm::attrdl() at all here; the log-odds difference
+#' between actual and reference exposure is a single one-line calculation per
+#' observation, then the same OR-as-RR attributable-fraction formula used in
+#' compute_af_posterior() is applied by hand (see that function's caveat about
+#' the rare-outcome approximation -- it applies identically here).
+#'
+#' unlagged variables are NOT standardized in prep$df (only the separate
+#' stan_data$X_unlagged matrix fed to Stan is) -- so `df[[var]]` is already the
+#' original-scale value, and `x_std_col` should be the corresponding column of
+#' stan_data$X_unlagged (already on whatever scale the model actually used,
+#' standardized for continuous vars, raw 0/1 for binary vars -- no need to
+#' know which case applies).
+#'
+#' @param var Character; name of the unlagged variable (must be in unlagged_vars)
+#' @param w_unlagged_draws Posterior draws matrix for w_unlagged
+#'   (fit$draws("w_unlagged", format="matrix"))
+#' @param unlagged_vars Character vector giving the column order of w_unlagged
+#'   (must match cfg$unlagged_vars order used to build the model)
+#' @param df Data frame used to fit the model (prep$df)
+#' @param x_std_col Numeric vector; the model-scale column for this variable,
+#'   i.e. prep$stan_data$X_unlagged[, which(unlagged_vars == var)]
+#' @param cases Numeric vector of observed case counts (e.g. stan_data$y)
+#' @param cen_val Optional fixed reference/counterfactual level, on the
+#'   ORIGINAL scale. Defaults to the median observed value -- a plain linear
+#'   term has no interior "minimum risk" point the way a DLNM curve does (the
+#'   effect is monotonic across the whole range), so the median is the natural,
+#'   interpretable reference here, not a minimum-risk search.
+#' @param thin Integer; use every `thin`-th posterior draw (default 1 = all draws)
+#' @return List with mean/median/q025/q975 of the posterior AF distribution, the
+#'   full vector of per-draw AF values, and the fixed reference level used (cen)
+compute_af_posterior_unlagged <- function(var, w_unlagged_draws, unlagged_vars,
+                                           df, x_std_col, cases,
+                                           cen_val = NULL, thin = 1) {
+  var_idx <- which(unlagged_vars == var)
+  draws_i <- w_unlagged_draws[, var_idx]
+
+  x_orig <- df[[var]]
+  x_std  <- x_std_col
+
+  if (is.null(cen_val)) cen_val <- median(x_orig, na.rm = TRUE)
+  # Recover whatever affine map (identity for binary vars, z-score for
+  # continuous vars) was used to go from x_orig to x_std, so the reference
+  # level is translated onto the model scale correctly either way.
+  affine_map <- lm(x_std ~ x_orig)
+  cen_std <- as.numeric(predict(affine_map, newdata = data.frame(x_orig = cen_val)))
+
+  draw_idx <- seq(1, length(draws_i), by = thin)
+  af_draws <- numeric(length(draw_idx))
+
+  for (k in seq_along(draw_idx)) {
+    beta_k <- draws_i[draw_idx[k]]
+    delta     <- beta_k * (x_std - cen_std)  # log-odds difference, actual vs reference
+    # NOTE: exp(delta) here is an odds ratio, treated as a relative risk in the
+    # attributable-number formula below -- same rare-outcome approximation as
+    # compute_af_posterior(); valid given this dataset's rare observed positivity.
+    rr_approx <- exp(delta)
+    an <- cases * (1 - 1 / rr_approx)
+    af_draws[k] <- sum(an) / sum(cases)
+  }
+
+  list(
+    mean   = mean(af_draws),
+    median = median(af_draws),
+    q025   = quantile(af_draws, 0.025),
+    q975   = quantile(af_draws, 0.975),
+    draws  = af_draws,
+    cen    = cen_val
+  )
+}
+
+#' Build a full attributable-fraction comparison table across predictors
+#'
+#' Wraps compute_af_posterior() (DLNM/lagged variables) and
+#' compute_af_posterior_unlagged() (plain unlagged variables) into a single
+#' call, producing one ranked table directly comparable across every predictor
+#' in the model -- temperature, VPD, precipitation, NDVI, urbanization, etc. --
+#' on the same attributable-fraction scale, addressing the "which effect is
+#' bigger" question directly from the fitted DLNM/Bayesian output rather than
+#' via a model-comparison metric like AIC/LOOIC.
+#'
+#' @param fit CmdStanR fit object (must have w_cb and w_unlagged parameters)
+#' @param prep Return value of build_dlnm_stan_data()
+#' @param dlnm_vars Character vector of DLNM variable names to include.
+#'   Defaults to prep$dlnm_vars (all of them).
+#' @param unlagged_vars Character vector of unlagged variable names to include.
+#'   Defaults to prep$unlagged_vars (all of them).
+#' @param thin Integer; use every `thin`-th posterior draw for every variable
+#'   (default 1 = all draws). Rebuilding the counterfactual crossbasis per draw
+#'   is not free -- start with a larger thin (e.g. 5-10) to check the whole
+#'   table runs end-to-end before
+#'   committing to thin = 1 for final numbers.
+#' @return List with `table` (a data frame, one row per variable, sorted by
+#'   |af_mean| descending) and `details` (the full per-variable result lists,
+#'   including the complete posterior draws for each, for custom plotting)
+compute_af_table <- function(fit, prep, dlnm_vars = NULL, unlagged_vars = NULL, thin = 1) {
+  w_cb_draws       <- fit$draws("w_cb", format = "matrix")
+  w_unlagged_draws <- fit$draws("w_unlagged", format = "matrix")
+  cases <- prep$stan_data$y
+
+  cb_mats <- prep$cb_mats
+  if (is.null(dlnm_vars)) dlnm_vars <- prep$dlnm_vars
+  cb_ncols   <- sapply(dlnm_vars, function(v) ncol(cb_mats[[v]]))
+  col_starts <- cumsum(c(1L, cb_ncols[-length(cb_ncols)]))
+
+  if (is.null(unlagged_vars)) unlagged_vars <- prep$unlagged_vars
+
+  results <- list()
+
+  for (v in dlnm_vars) {
+    cat("Computing AF for DLNM variable:", v, "...\n")
+    results[[v]] <- compute_af_posterior(
+      v, cb_mats, w_cb_draws, cb_ncols, col_starts,
+      prep$df, prep$dlnm_var_stats, cases, thin = thin
+    )
+  }
+
+  for (v in unlagged_vars) {
+    cat("Computing AF for unlagged variable:", v, "...\n")
+    var_idx <- which(unlagged_vars == v)
+    results[[v]] <- compute_af_posterior_unlagged(
+      v, w_unlagged_draws, unlagged_vars,
+      prep$df, prep$stan_data$X_unlagged[, var_idx], cases, thin = thin
+    )
+  }
+
+  out <- do.call(rbind, lapply(names(results), function(v) {
+    r <- results[[v]]
+    data.frame(
+      variable        = v,
+      af_mean         = r$mean,
+      af_median       = r$median,
+      af_q025         = r$q025,
+      af_q975         = r$q975,
+      reference_level = r$cen
+    )
+  }))
+  out <- out[order(-abs(out$af_mean)), ]
+  rownames(out) <- NULL
+
+  list(table = out, details = results)
+}
+
+#' Compute posterior time series of backward attributable number for a DLNM variable
+#'
+#' Analogous to compute_af_posterior(), but returns the per-observation backward
+#' attributable number b-AN_{x,t} (Gasparrini & Leone 2014, Eq 5a-5b) rather than
+#' collapsing it to a single pooled total (Eq 8a-8b) -- i.e. .backward_an() is
+#' used directly, without summing over observations. Aggregated by calendar
+#' month, summed across all CMFs (AN, unlike AF, is directly additive across
+#' observations -- Eq 8a), to produce a time series suitable for plotting
+#' alongside the exposure trend, analogous to Figure 3 (right panel) in that
+#' paper -- adapted here from a single daily time series to a monthly panel
+#' pooled across CMFs. See .backward_an()'s documentation for why attrdl()
+#' isn't used (not part of the installed dlnm package) and for the rare-outcome
+#' (OR-as-RR) caveat, which applies here identically.
+#'
+#' HARVESTING-PARADOX CAVEAT (see the paper's "Harvesting paradox" section):
+#' b-AN can legitimately go negative for specific months. This is an artifact of
+#' the backward counterfactual (observed exposure history vs. a constant
+#' reference) in the presence of any depletion-type dynamic (e.g. a month of
+#' intense breeding-site activity leaving fewer susceptible sites shortly
+#' after) -- it is not a sign of a bug, and should not be read as true
+#' protection at that month. The pooled total from compute_af_posterior()
+#' already nets this out across the whole series; this month-by-month view
+#' will not, by design -- that's the point of looking at it.
+#'
+#' @param var Character; name of the DLNM variable (must be a name in cb_mats)
+#' @param cb_mats Named list of crossbasis matrices, from build_dlnm_stan_data()
+#' @param w_cb_draws Posterior draws matrix for w_cb
+#' @param cb_ncols Integer vector of per-variable crossbasis column counts
+#' @param col_starts Integer vector of per-variable starting column indices into w_cb
+#' @param df Data frame used to build the crossbasis (prep$df); must have a
+#'   `year_month_date` column
+#' @param dlnm_var_stats Named list of list(mean, sd) per DLNM variable
+#' @param cases Numeric vector of observed case counts (e.g. stan_data$y --
+#'   positive houses), same row order as cb_mats/df
+#' @param cen_val Optional fixed reference level (original scale). Defaults to
+#'   the minimum-risk value from the posterior-mean curve, same convention as
+#'   compute_af_posterior(), so both are directly comparable.
+#' @param thin Integer; use every `thin`-th posterior draw (default 1 = all draws)
+#' @return Data frame, one row per calendar month, with columns year_month_date,
+#'   an_mean/an_median/an_q025/an_q975 (monthly attributable number of positive
+#'   houses, summed across CMFs), af_mean (that month's AN / that month's total
+#'   observed cases), and cases (total observed cases that month, for reference)
+compute_af_posterior_timeseries <- function(var, cb_mats, w_cb_draws, cb_ncols, col_starts,
+                                             df, dlnm_var_stats, cases,
+                                             cen_val = NULL, thin = 1) {
+  var_idx  <- which(names(cb_mats) == var)
+  cols     <- col_starts[var_idx] + seq_len(cb_ncols[var_idx]) - 1L
+  cb_names <- colnames(cb_mats[[var]])
+  draws_i  <- w_cb_draws[, cols, drop = FALSE]
+  cb_i     <- cb_mats[[var]]
+
+  stats_i <- dlnm_var_stats[[var]]
+  x_orig  <- df[[var]] * stats_i$sd + stats_i$mean
+
+  coef_mean <- setNames(colMeans(draws_i), cb_names)
+  vcov_mean <- cov(draws_i); dimnames(vcov_mean) <- list(cb_names, cb_names)
+
+  if (is.null(cen_val)) {
+    pred_mean <- dlnm::crosspred(cb_i, coef = coef_mean, vcov = vcov_mean,
+                                  at = seq(min(x_orig), max(x_orig), length.out = 100),
+                                  cen = 0, cumul = TRUE)
+    cen_val <- pred_mean$predvar[which.min(pred_mean$allfit)]
+  }
+
+  months   <- sort(unique(df$year_month_date))
+  draw_idx <- seq(1, nrow(draws_i), by = thin)
+
+  an_mat <- matrix(NA_real_, nrow = length(draw_idx), ncol = length(months))
+  colnames(an_mat) <- as.character(months)
+
+  for (k in seq_along(draw_idx)) {
+    coef_k <- setNames(draws_i[draw_idx[k], ], cb_names)
+    an_obs <- .backward_an(cb_i, coef_k, cen_val, x_orig, cases)
+    # sum across all CMFs within each calendar month -- AN is additive (Eq 8a),
+    # AF is not, so aggregate on the AN scale and only convert to a fraction after
+    an_mat[k, ] <- tapply(an_obs, df$year_month_date, sum, na.rm = TRUE)[as.character(months)]
+  }
+
+  cases_by_month <- tapply(cases, df$year_month_date, sum, na.rm = TRUE)[as.character(months)]
+
+  data.frame(
+    year_month_date = months,
+    an_mean   = colMeans(an_mat),
+    an_median = apply(an_mat, 2, median),
+    an_q025   = apply(an_mat, 2, quantile, 0.025),
+    an_q975   = apply(an_mat, 2, quantile, 0.975),
+    af_mean   = colMeans(an_mat) / cases_by_month,
+    cases     = as.numeric(cases_by_month)
+  )
 }

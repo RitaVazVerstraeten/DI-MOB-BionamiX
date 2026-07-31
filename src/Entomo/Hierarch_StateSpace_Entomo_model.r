@@ -106,16 +106,16 @@ cfg <- list(
   # HFP_urbanization/mean_ndvi/is_WUI/is_WI are removed.
   unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI", "is_WI", "water_shortage", "water_containers"),
 
-  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp","avg_temp", "water_containers", "mean_ndvi", "HFP_urbanization"),
+  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp","water_containers", "mean_ndvi", "HFP_urbanization"),
 
   # DLNM settings (only used when use_dlnm = TRUE)
-  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "avg_temp"),
+  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp"),
 
   dlnm_argvar = list(
     total_precip                = list(fun = "ns", df = 3),
     avg_VPD                     = list(fun = "ns", df = 3),
-    precip_max_day_resid_on_tp = list(fun = "ns", df = 3),
-    avg_temp                     = list(fun = "ns", df = 3)
+    precip_max_day_resid_on_tp = list(fun = "ns", df = 3)
+    # avg_temp                     = list(fun = "ns", df = 3)
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
 
@@ -225,7 +225,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "_spline_modifier")
+run_suffix <- paste0(date_suffix, "_median_standardized")
 if (exists(".hierarch_run_suffix")) run_suffix <- .hierarch_run_suffix
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)

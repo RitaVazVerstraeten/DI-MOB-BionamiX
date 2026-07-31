@@ -1441,7 +1441,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     v_sd   <- stats_i$sd
 
     x_orig_range <- range(df[[var]], na.rm = TRUE) * v_sd + v_mean
-    cat(sprintf("  [%s] original range: [%.3f, %.3f]  cen=mean=%.3f\n",
+    cat(sprintf("  [%s] original range: [%.3f, %.3f]  cen=median=%.3f\n",
                 var, x_orig_range[1], x_orig_range[2], v_mean))
     at_orig_nice <- pretty(x_orig_range, n = 40)
     at_std_nice  <- (at_orig_nice - v_mean) / v_sd
@@ -2175,6 +2175,63 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
 
     cat(sprintf("  Continuous interaction plots saved: %s\n", label))
   }
+}
+
+#' Save Backward Attributable-Number Time Series Plot
+#'
+#' Plots the monthly backward attributable number of positive houses (summed
+#' across all CMFs, with 95% CI ribbon from compute_af_posterior_timeseries()),
+#' alongside the mean observed exposure trend across CMFs for the same months --
+#' analogous to Figure 3 (right panel) in Gasparrini & Leone (2014), adapted
+#' from a single daily time series to a monthly panel pooled across CMFs.
+#'
+#' Note: b-AN can legitimately dip negative for some months (the
+#' harvesting-paradox artifact of the backward counterfactual -- see
+#' compute_af_posterior_timeseries()'s documentation) -- this is expected, not
+#' a bug, and the zero line is drawn explicitly so it's easy to see when/where
+#' it happens.
+#'
+#' @param af_ts Data frame returned by compute_af_posterior_timeseries()
+#' @param df Data frame with year_month_date and the raw (original-scale)
+#'   exposure column for `var`
+#' @param var Character; name of the exposure variable (must be a column in df)
+#' @param output_dir Directory to write the PNG into
+#' @param run_suffix String appended to the filename
+#' @return NULL (saves plot to PNG file)
+save_af_timeseries_plot <- function(af_ts, df, var, output_dir, run_suffix) {
+  exposure_trend <- df %>%
+    group_by(year_month_date) %>%
+    summarise(exposure_mean = mean(.data[[var]], na.rm = TRUE), .groups = "drop")
+
+  plot_df <- af_ts %>% left_join(exposure_trend, by = "year_month_date")
+
+  # Scale the exposure trend onto the AN axis for a dual-axis-style overlay
+  an_range  <- range(c(plot_df$an_q025, plot_df$an_q975), na.rm = TRUE)
+  exp_range <- range(plot_df$exposure_mean, na.rm = TRUE)
+  scale_factor <- diff(an_range) / diff(exp_range)
+  offset       <- an_range[1] - exp_range[1] * scale_factor
+
+  p <- ggplot(plot_df, aes(x = year_month_date)) +
+    geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+    geom_ribbon(aes(ymin = an_q025, ymax = an_q975), fill = "steelblue", alpha = 0.2) +
+    geom_line(aes(y = an_mean), colour = "steelblue", linewidth = 1) +
+    geom_line(aes(y = exposure_mean * scale_factor + offset), colour = "firebrick",
+              linewidth = 0.6, linetype = "dashed") +
+    scale_y_continuous(
+      name     = "Backward attributable number (positive houses), summed across CMFs",
+      sec.axis = sec_axis(~ (. - offset) / scale_factor, name = paste0(var, " (mean across CMFs)"))
+    ) +
+    labs(
+      title    = paste0("Backward attributable number over time -- ", var),
+      subtitle = "Blue: monthly attributable positive-house count (95% CI). Red dashed: mean observed exposure.",
+      caption  = "Dips below zero reflect the backward counterfactual's harvesting-paradox artifact, not true protection.",
+      x = NULL
+    ) +
+    theme_minimal()
+
+  ggsave(file.path(output_dir, paste0("af_timeseries_", var, "_", run_suffix, ".png")),
+         p, width = 12, height = 6, dpi = 150)
+  cat(sprintf("  AF time series plot saved: %s\n", var))
 }
 
 #' Save GLMM Coefficient Forest Plot
