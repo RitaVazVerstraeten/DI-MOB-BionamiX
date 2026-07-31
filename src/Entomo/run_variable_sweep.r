@@ -109,6 +109,9 @@ combinations <- list(
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization","is_WUI")),
 
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("mean_ndvi","is_WUI")),
+
   # minimal model + two extra spatial predictors  
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization","mean_ndvi", "water_containers")),
@@ -202,40 +205,41 @@ combinations <- list(
   # is hard to interpret as anything other than an arbitrary two-point probe
   # of what is actually a continuous effect-modification surface. See
   # build_dlnm_stan_data() in helper_functions.r.
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization", "water_containers", "mean_ndvi"),
-       ix    = list(
-         list(binary_var = "is_urban",        active_level = 0,
-              dlnm_var   = "total_precip",     label = "nonurban_x_tp")
-       )),
+
+  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+  #      unlag = c("HFP_urbanization", "water_containers", "mean_ndvi"),
+  #      ix    = list(
+  #        list(binary_var = "is_urban",        active_level = 0,
+  #             dlnm_var   = "total_precip",     label = "nonurban_x_tp")
+  #      )),
   
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi"),
-       ix    = list(
-         list(binary_var = "is_urban",        active_level = 0,
-              dlnm_var   = "total_precip",     label = "nonurban_x_tp")
-       )),
+  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+  #      unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi"),
+  #      ix    = list(
+  #        list(binary_var = "is_urban",        active_level = 0,
+  #             dlnm_var   = "total_precip",     label = "nonurban_x_tp")
+  #      )),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi", "WS2M"),
-       ix    = list(
-         list(binary_var = "is_urban",        active_level = 0,
-              dlnm_var   = "total_precip",     label = "nonurban_x_tp")
-       )),
+  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+  #      unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi", "WS2M"),
+  #      ix    = list(
+  #        list(binary_var = "is_urban",        active_level = 0,
+  #             dlnm_var   = "total_precip",     label = "nonurban_x_tp")
+  #      )),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "water_shortage", "mean_ndvi", "WS2M"),
-       ix    = list(
-         list(binary_var = "is_urban",        active_level = 0,
-              dlnm_var   = "total_precip",     label = "nonurban_x_tp")
-       )),
+  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+  #      unlag = c("HFP_urbanization", "is_WUI", "water_containers", "water_shortage", "mean_ndvi", "WS2M"),
+  #      ix    = list(
+  #        list(binary_var = "is_urban",        active_level = 0,
+  #             dlnm_var   = "total_precip",     label = "nonurban_x_tp")
+  #      )),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization", "is_WUI","is_WI", "water_containers", "water_shortage", "mean_ndvi", "WS2M"),
-       ix    = list(
-         list(binary_var = "is_urban",        active_level = 0,
-              dlnm_var   = "total_precip",     label = "nonurban_x_tp")
-       ))
+  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+  #      unlag = c("HFP_urbanization", "is_WUI","is_WI", "water_containers", "water_shortage", "mean_ndvi", "WS2M"),
+  #      ix    = list(
+  #        list(binary_var = "is_urban",        active_level = 0,
+  #             dlnm_var   = "total_precip",     label = "nonurban_x_tp")
+  #      ))
 )
 # ─────────────────────────────────────────────────────────────────────────────
 
