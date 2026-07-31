@@ -106,16 +106,16 @@ cfg <- list(
   # HFP_urbanization/mean_ndvi/is_WUI/is_WI are removed.
   unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI", "is_WI", "water_shortage", "water_containers"),
 
-  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp","avg_temp", "water_containers", "mean_ndvi", "HFP_urbanization"),
+  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "mean_ndvi", "HFP_urbanization", "temp_resid_on_tp"),
 
   # DLNM settings (only used when use_dlnm = TRUE)
-  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "avg_temp"),
+  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "temp_resid_on_tp"),
 
   dlnm_argvar = list(
     total_precip                = list(fun = "ns", df = 3),
     avg_VPD                     = list(fun = "ns", df = 3),
     precip_max_day_resid_on_tp = list(fun = "ns", df = 3),
-    avg_temp                     = list(fun = "ns", df = 3)
+    temp_resid_on_tp            = list(fun = "ns", df = 3)
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
 
@@ -133,12 +133,12 @@ cfg <- list(
   #     through a straight line. Defaults to 2 if omitted.
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
 
-  dlnm_ix_vars = list(
-    # list(binary_var = "is_urban", active_level = 1, dlnm_var = "total_precip", label = "tp_x_urban"),
-    # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
-    list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2)
-  ),
-  # dlnm_ix_vars = NULL,
+  # dlnm_ix_vars = list(
+  #   # list(binary_var = "is_urban", active_level = 1, dlnm_var = "total_precip", label = "tp_x_urban"),
+  #   # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
+  #   list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2)
+  # ),
+  dlnm_ix_vars = NULL,
 
   # MCMC
   chains = 4,
@@ -225,7 +225,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "_spline_modifier")
+run_suffix <- paste0(date_suffix)
 if (exists(".hierarch_run_suffix")) run_suffix <- .hierarch_run_suffix
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
