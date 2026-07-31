@@ -133,12 +133,12 @@ cfg <- list(
   #     through a straight line. Defaults to 2 if omitted.
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
 
-  dlnm_ix_vars = list(
-    # list(binary_var = "is_urban", active_level = 1, dlnm_var = "total_precip", label = "tp_x_urban"),
-    # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
-    list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2)
-  ),
-  # dlnm_ix_vars = NULL,
+  # dlnm_ix_vars = list(
+  #   # list(binary_var = "is_urban", active_level = 1, dlnm_var = "total_precip", label = "tp_x_urban"),
+  #   # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
+  #   list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2)
+  # ),
+  dlnm_ix_vars = NULL,
 
   # MCMC
   chains = 4,
