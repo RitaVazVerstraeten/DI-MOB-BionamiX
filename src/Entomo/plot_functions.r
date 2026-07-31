@@ -1384,6 +1384,32 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
   cat("  Time series plots saved to:", timeseries_dir, "\n")
 }
 
+#' Exponentiate a dlnm crosspred/crossreduce object's effect estimates
+#'
+#' Converts a fitted crosspred()/crossreduce() object's log-odds-scale fit/CI
+#' fields to the odds-ratio scale (exp()), leaving everything else (predvar,
+#' lag structure, the model.link="identity" marker, etc.) untouched. Because
+#' model.link stays "identity", the object can still be passed straight to
+#' dlnm's own plot.crosspred()/plot.crossreduce() methods afterward without
+#' those methods applying any further transformation of their own -- they'll
+#' just plot whatever numbers are already sitting in the object.
+#'
+#' Given this project's genuinely rare outcome (pooled positivity ~0.4%), the
+#' resulting odds ratio is also a reasonable approximation to a risk ratio --
+#' the same rare-outcome justification already used for the attributable-
+#' fraction functions (see compute_af_posterior()'s documentation).
+#'
+#' @param obj A crosspred or crossreduce object (from dlnm::crosspred()/crossreduce())
+#' @return The same object, with all fit/low/high (and mat-prefixed) fields
+#'   exponentiated
+exp_crosspred <- function(obj) {
+  for (fld in c("allfit", "alllow", "allhigh", "matfit", "matlow", "mathigh",
+                "fit", "low", "high")) {
+    if (!is.null(obj[[fld]])) obj[[fld]] <- exp(obj[[fld]])
+  }
+  obj
+}
+
 #' Save DLNM Exposure-Response and Lag-Response Plots
 #'
 #' For each DLNM predictor, recovers the bivariate exposure-lag-response surface
@@ -1458,8 +1484,8 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     dimnames(vcov_i) <- list(cb_colnames, cb_colnames)
 
     pred_i <- tryCatch(
-      dlnm::crosspred(cb_mats[[var]], coef = coef_i, vcov = vcov_i,
-                      at = at_std, cen = 0, cumul = TRUE),
+      exp_crosspred(dlnm::crosspred(cb_mats[[var]], coef = coef_i, vcov = vcov_i,
+                      at = at_std, cen = 0, cumul = TRUE)),
       error = function(e) {
         cat(sprintf("  crosspred failed for %s: %s\n", var, conditionMessage(e)))
         NULL
@@ -1497,11 +1523,11 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
          main   = paste("Cumulative effect —", var),
          sub    = "Shaded band: 95% CI",
          xlab   = var,
-         ylab   = "Effect on log-odds of p_bt",
+         ylab   = "Odds ratio of p_bt",
          col    = "steelblue",
          ci.arg = list(col = adjustcolor("steelblue", 0.25), border = NA))
     axis(1, at = at_std, labels = round(at_orig, 2))
-    abline(h = 0, lty = 2, col = "grey50")
+    abline(h = 1, lty = 2, col = "grey50")
     dev.off()
 
     # ── 3-D surface (original x-axis, shared z-scale across predictors) ──────
@@ -1518,7 +1544,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
           zlim     = z_global,
           xlab     = var,
           ylab     = "Lag (months)",
-          zlab     = "Effect on log-odds of p_bt",
+          zlab     = "Odds ratio of p_bt",
           main     = paste("DLNM surface —", var),
           theta    = 40, phi = 25, ltheta = 45,
           col      = facet_col,
@@ -1537,11 +1563,11 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
            main   = paste0("Effect at lag ", l, " — ", var),
            sub    = "Shaded band: 95% CI",
            xlab   = var,
-           ylab   = "Effect on log-odds of p_bt",
+           ylab   = "Odds ratio of p_bt",
            col    = "steelblue",
            ci.arg = list(col = adjustcolor("steelblue", 0.25), border = NA))
       axis(1, at = at_std, labels = round(at_orig, 2))
-      abline(h = 0, lty = 2, col = "grey50")
+      abline(h = 1, lty = 2, col = "grey50")
       dev.off()
     }
 
@@ -1573,7 +1599,8 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
 #' @param run_suffix   String appended to each filename
 #' @param percentiles  Numeric vector in (0,1): exposure percentiles to slice at
 #' @return Invisibly, a data frame (variable, percentile, exposure_value, lag,
-#'   estimate, ci_low, ci_high, significant) — significant = CI excludes 0.
+#'   estimate, ci_low, ci_high, significant) — estimate/ci_low/ci_high are on
+#'   the odds-ratio scale (via exp_crosspred()); significant = CI excludes 1.
 #'   Also written to <output_dir>/dlnm_lagresponse_critical_windows_<run_suffix>.csv
 save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
                                          percentiles = c(0.10, 0.25, 0.50, 0.75, 0.90)) {
@@ -1641,10 +1668,10 @@ save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
         # model.link stays NULL by default -> NULL %in% c(...) is logical(0)
         # -> "argument is of length zero". "identity" routes to the untransformed
         # fit/low/high branch, which is what we want (log-odds scale, no exp()).
-        dlnm::crossreduce(cb_mats[[var]], coef = coef_i, vcov = vcov_i,
+        exp_crosspred(dlnm::crossreduce(cb_mats[[var]], coef = coef_i, vcov = vcov_i,
                           model.link = "identity",
                           type = "var", value = std_val,
-                          lag = c(0, L_val), bylag = 1, cen = 0),
+                          lag = c(0, L_val), bylag = 1, cen = 0)),
         error = function(e) {
           cat(sprintf("  crossreduce failed for %s at p%d: %s\n",
                       var, round(p_val * 100), conditionMessage(e)))
@@ -1656,7 +1683,7 @@ save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
       est <- as.numeric(red_i$fit)
       lo  <- as.numeric(red_i$low)
       hi  <- as.numeric(red_i$high)
-      sig <- (lo > 0 & hi > 0) | (lo < 0 & hi < 0)
+      sig <- (lo > 1 & hi > 1) | (lo < 1 & hi < 1)
 
       summary_rows[[length(summary_rows) + 1]] <- data.frame(
         variable = var, percentile = p_val, exposure_value = orig_val,
@@ -1671,10 +1698,10 @@ save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
                           var, round(p_val * 100), var, orig_val),
            sub  = "Shaded band: 95% CI",
            xlab = "Lag (months)",
-           ylab = "Effect on log-odds of p_bt",
+           ylab = "Odds ratio of p_bt",
            col    = "steelblue",
            ci.arg = list(col = adjustcolor("steelblue", 0.25), border = NA))
-      abline(h = 0, lty = 2, col = "grey50")
+      abline(h = 1, lty = 2, col = "grey50")
       dev.off()
 
       cat(sprintf("  [%s] p%d (%s=%.2f): significant lags = %s\n",
@@ -1791,13 +1818,13 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     at_orig <- at_orig_nice[keep_pts]
 
     pred_ref <- tryCatch(
-      dlnm::crosspred(cb_mats[[dlnm_var]], coef = coef_ref, vcov = vcov_ref,
-                      at = at_std, cen = 0, cumul = TRUE),
+      exp_crosspred(dlnm::crosspred(cb_mats[[dlnm_var]], coef = coef_ref, vcov = vcov_ref,
+                      at = at_std, cen = 0, cumul = TRUE)),
       error = function(e) { cat(sprintf("  crosspred (ref) failed for %s: %s\n", label, conditionMessage(e))); NULL }
     )
     pred_active <- tryCatch(
-      dlnm::crosspred(cb_mats[[dlnm_var]], coef = coef_active, vcov = vcov_active,
-                      at = at_std, cen = 0, cumul = TRUE),
+      exp_crosspred(dlnm::crosspred(cb_mats[[dlnm_var]], coef = coef_active, vcov = vcov_active,
+                      at = at_std, cen = 0, cumul = TRUE)),
       error = function(e) { cat(sprintf("  crosspred (active) failed for %s: %s\n", label, conditionMessage(e))); NULL }
     )
     if (is.null(pred_ref) || is.null(pred_active)) next
@@ -1816,14 +1843,14 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     plot(pred_ref, "overall", xaxt = "n", ylim = y_lim,
          main   = paste("Cumulative effect of", dlnm_var, "—", label),
          sub    = "Shaded band and dashed lines: 95% CI",
-         xlab   = dlnm_var, ylab = "Effect on log-odds of p_bt",
+         xlab   = dlnm_var, ylab = "Odds ratio of p_bt",
          col    = ref_col,
          ci.arg = list(col = adjustcolor(ref_col, 0.20), border = NA))
     lines(at_std, pred_active$allfit, col = active_col, lwd = 2)
     lines(at_std, pred_active$alllow,  col = active_col, lwd = 1, lty = 2)
     lines(at_std, pred_active$allhigh, col = active_col, lwd = 1, lty = 2)
     axis(1, at = at_std, labels = round(at_orig, 2))
-    abline(h = 0, lty = 2, col = "grey50")
+    abline(h = 1, lty = 2, col = "grey50")
     # Continuous modifier (z-scored in build_dlnm_stan_data()): draws_base is
     # the effect at the modifier's mean, draws_active = draws_base + w_ix is
     # the effect at +1 SD -- the same two-draws mechanics as the binary case,
@@ -1848,14 +1875,14 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
       plot(pred_ref, "slices", lag = l, xaxt = "n", ylim = y_lim_lag,
            main   = paste0("Effect at lag ", l, " — ", label),
            sub    = "Shaded band and dashed lines: 95% CI",
-           xlab   = dlnm_var, ylab = "Effect on log-odds of p_bt",
+           xlab   = dlnm_var, ylab = "Odds ratio of p_bt",
            col    = ref_col,
            ci.arg = list(col = adjustcolor(ref_col, 0.20), border = NA))
       lines(at_std, pred_active$matfit[, l + 1], col = active_col, lwd = 2)
       lines(at_std, pred_active$matlow[,  l + 1], col = active_col, lwd = 1, lty = 2)
       lines(at_std, pred_active$mathigh[, l + 1], col = active_col, lwd = 1, lty = 2)
       axis(1, at = at_std, labels = round(at_orig, 2))
-      abline(h = 0, lty = 2, col = "grey50")
+      abline(h = 1, lty = 2, col = "grey50")
       dev.off()
     }
 
@@ -1873,7 +1900,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
           width = 800, height = 700)
       persp(x = at_orig, y = lag_seq, z = z_mat,
             zlim     = z_global_ix,
-            xlab     = dlnm_var, ylab = "Lag (months)", zlab = "Effect on log-odds of p_bt",
+            xlab     = dlnm_var, ylab = "Lag (months)", zlab = "Odds ratio of p_bt",
             main     = paste0("DLNM surface — ", label, " (", grp$name, ")"),
             theta    = 40, phi = 25, ltheta = 45,
             col      = fcol, border = NA, ticktype = "detailed")
@@ -2026,8 +2053,8 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
       vcov_z  <- cov(draws_z)
       dimnames(vcov_z) <- list(cb_names, cb_names)
       tryCatch(
-        dlnm::crosspred(cb_mats[[dlnm_var]], coef = coef_z, vcov = vcov_z,
-                        at = at_std, cen = 0, cumul = TRUE),
+        exp_crosspred(dlnm::crosspred(cb_mats[[dlnm_var]], coef = coef_z, vcov = vcov_z,
+                        at = at_std, cen = 0, cumul = TRUE)),
         error = function(e) NULL
       )
     }
@@ -2067,7 +2094,7 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
       )
 
       p_lines <- ggplot(curve_df, aes(x = exposure, y = fit, group = pct_label)) +
-        geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+        geom_hline(yintercept = 1, linetype = "dashed", colour = "grey50") +
         geom_ribbon(aes(ymin = low, ymax = high, fill = modifier_value), alpha = 0.10) +
         geom_line(aes(colour = modifier_value), linewidth = 1) +
         scale_colour_viridis_c(name = continuous_var, option = "plasma") +
@@ -2076,7 +2103,7 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
           title    = sprintf("Cumulative effect of %s across %s percentiles", dlnm_var, continuous_var),
           subtitle = sprintf("Lines at p%s of %s (not just mean/+1SD); shaded ribbon: 95%% CI",
                               paste(round(percentiles * 100), collapse = "/"), continuous_var),
-          x = dlnm_var, y = "Cumulative effect on log-odds of p_bt"
+          x = dlnm_var, y = "Cumulative odds ratio of p_bt"
         ) +
         theme_minimal()
 
@@ -2119,7 +2146,7 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
       )
 
       p_lag <- ggplot(lag_curve_df, aes(x = exposure, y = fit, group = pct_label)) +
-        geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+        geom_hline(yintercept = 1, linetype = "dashed", colour = "grey50") +
         geom_ribbon(aes(ymin = low, ymax = high, fill = modifier_value), alpha = 0.10) +
         geom_line(aes(colour = modifier_value), linewidth = 1) +
         scale_colour_viridis_c(name = continuous_var, option = "plasma") +
@@ -2128,7 +2155,7 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
           title    = sprintf("Effect of %s at lag %d across %s percentiles", dlnm_var, l, continuous_var),
           subtitle = sprintf("Lines at p%s of %s -- not summed across lags; shaded ribbon: 95%% CI",
                               paste(round(percentiles * 100), collapse = "/"), continuous_var),
-          x = dlnm_var, y = "Effect on log-odds of p_bt"
+          x = dlnm_var, y = "Odds ratio of p_bt"
         ) +
         theme_minimal()
 
@@ -2153,14 +2180,17 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
     if (is.null(heat_df) || nrow(heat_df) == 0) {
       cat(sprintf("  Skipping continuous interaction heatmap for %s: crosspred failed at all grid points.\n", label))
     } else {
-      limit <- max(abs(heat_df$fit), na.rm = TRUE)
+      # Diverging scale centred on OR = 1 (no effect), not 0 -- limit is the
+      # largest deviation from 1 in either direction, so the colour scale
+      # stays symmetric around "no effect" on the ratio scale.
+      limit <- max(abs(heat_df$fit - 1), na.rm = TRUE)
       p_heat <- ggplot(heat_df, aes(x = exposure, y = modifier, fill = fit)) +
         geom_tile() +
         scale_fill_gradient2(low = "firebrick", mid = "white", high = "steelblue",
-                            midpoint = 0, limits = c(-limit, limit), name = "Log-odds") +
+                            midpoint = 1, limits = c(1 - limit, 1 + limit), name = "Odds ratio") +
         labs(
           title    = sprintf("Effect-modification surface: %s x %s", dlnm_var, continuous_var),
-          subtitle = "Colour = cumulative effect on log-odds of p_bt",
+          subtitle = "Colour = cumulative odds ratio of p_bt",
           x = dlnm_var, y = continuous_var
         ) +
         theme_minimal() +
