@@ -243,7 +243,8 @@ combinations <- list(
 )
 # ─────────────────────────────────────────────────────────────────────────────
 
-hostname      <- Sys.info()["nodename"]
+hostname        <- Sys.info()["nodename"]
+is_compute_node <- hostname %in% c("frietjes", "stoofvlees")
 spatial_level <- "CMF"
 stan_dir      <- "/home/rita/PyProjects/DI-MOB-BionamiX/src/Entomo"
 date_suffix   <- format(Sys.Date(), "%Y%m%d")
@@ -251,6 +252,7 @@ date_suffix   <- format(Sys.Date(), "%Y%m%d")
 # ── Base configuration (shared across all runs) ───────────────────────────────
 cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo"
+             else if (hostname == "stoofvlees") "~/entomo_data"
              else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data/",
   data_file_name = if (spatial_level == "CMF")
     "env_epi_entomo_data_per_CMF_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv"
@@ -280,6 +282,8 @@ cfg <- list(
 
   shapefile_path = if (hostname == "frietjes")
     "/home/rita/data/Entomo"
+  else if (hostname == "stoofvlees")
+    "~/entomo_data"
   else
     "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP1_Cartographic_data/Administrative borders",
   sf_block_col = if (spatial_level == "CMF") "Area_CMF" else "CODIGO_",
@@ -294,7 +298,7 @@ cfg <- list(
   iter_sampling   = 1000,
   adapt_delta     = 0.95,
   max_treedepth   = 12,
-  parallel_chains = if (hostname == "frietjes") 4 else 1,
+  parallel_chains = if (is_compute_node) 4 else 1,
 
   fix_phi              = FALSE,
   phi_fixed            = 25,
@@ -434,10 +438,10 @@ if (isTRUE(cfg$use_dlnm)) {
   dlnm_ix_stan_file <- file.path(stan_dir,
     "hierarchical_state_space_AR_perCMF_blockRE_DLNM_ix.stan")
   mod_dlnm_ix <- cmdstan_model(dlnm_ix_stan_file,
-                                force_recompile = hostname == "frietjes")
+                                force_recompile = is_compute_node)
   cat("DLNM-ix Stan model compiled.\n")
 } else {
-  mod <- cmdstan_model(cfg$stan_file, force_recompile = hostname == "frietjes")
+  mod <- cmdstan_model(cfg$stan_file, force_recompile = is_compute_node)
   cat("Stan model compiled.\n")
 }
 
