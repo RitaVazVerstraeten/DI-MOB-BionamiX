@@ -10,6 +10,9 @@
 // AR(1) re-parameterised as (tau, rho): tau = marginal stationary SD of the AR(1)
 // process; sigma_v = tau * sqrt(1 - rho^2) is derived. This avoids the 1/sqrt(1-rho^2)
 // blow-up that caused low E-BFMI in the (sigma_v, rho) form.
+// v is demeaned per block before entering eta (see v_level): only the sum
+// mean(v[b,.]) + u_block[b] was identified by the data, so u_block alone now
+// carries each block's permanent level and v_level carries only within-block dynamics.
 data {
   int<lower=1> N;
   array[N] int<lower=0> y;
@@ -50,6 +53,7 @@ transformed parameters {
   // Derived innovation SD: near rho=1 sigma_v->0 (smooth process), no blow-up.
   real<lower=0> sigma_v = tau * sqrt(fmax(1e-8, 1.0 - rho * rho));
   matrix[B, T] v;                // per-CMF AR(1) states
+  matrix[B, T] v_level;          // v with each block's own temporal mean removed
   vector[B] u_block = sigma_block * u_block_raw;
   vector[N] p_bt;
   vector[N] p_R;
@@ -63,12 +67,16 @@ transformed parameters {
     v[b, 1] = tau * v_raw[b, 1];
     for (t in 2:T)
       v[b, t] = rho * v[b, t-1] + sigma_v * v_raw[b, t];
+    // Demean per block: only u_block may carry a block-constant level, so v's own
+    // level (the one direction that would otherwise be unidentified against u_block)
+    // is stripped here, leaving purely within-block temporal deviations.
+    v_level[b] = v[b] - mean(v[b]);
   }
 
   // 2. Linear predictor
   vector[N] eta;
   for (i in 1:N)
-    eta[i] = alpha + x_effect[i] + v[block[i], time[i]] + u_block[block[i]];
+    eta[i] = alpha + x_effect[i] + v_level[block[i], time[i]] + u_block[block[i]];
   p_bt = inv_logit(eta);
 
   // 3. Reactive surveillance probability
@@ -117,7 +125,8 @@ generated quantities {
   real sigma_v_out = sigma_v;
   vector[N] p_bt_out     = p_bt;
   vector[N] p_R_out      = p_R;
-  matrix[B, T] v_cmf_out = v;
+  matrix[B, T] v_cmf_out = v;         // raw AR path (level direction now driven by prior only, not likelihood)
+  matrix[B, T] v_level_out = v_level; // demeaned AR contribution actually entering eta
   vector[B] u_block_out  = u_block;
 
   array[N] int<lower=0> y_pred;

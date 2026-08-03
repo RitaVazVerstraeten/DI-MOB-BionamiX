@@ -100,10 +100,10 @@ model {
   w_cb         ~ student_t(3, 0, 1.0);
   w_unlagged   ~ student_t(3, 0, 0.5);
   to_vector(v_raw) ~ normal(0, 1);
-  tau          ~ normal(0, 0.5);   
+  tau          ~ normal(0, 1.0);   // prior on marginal SD; posterior ~0.8 in (sigma_v, rho) form
   rho          ~ normal(0.4, 0.1);
   u_block_raw  ~ normal(0, 1);
-  sigma_block  ~ normal(0, 0.25);
+  sigma_block  ~ normal(0, 0.5);
   delta1       ~ normal(0, 0.5);
   if (fix_phi == 0) phi_raw ~ gamma(13, 0.1);
 
