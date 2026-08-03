@@ -151,7 +151,7 @@ combinations <- list(
 
 # full model 
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization", "is_WUI", "is_WI", "water_containers", "water_shortage", "mean_ndvi", "WS2M")),
+       unlag = c("HFP_urbanization", "is_WUI", "is_WI", "water_containers", "water_shortage", "mean_ndvi", "WS2M"))
 
   # # ── Group 2: Add avg_temp ─────────────────────────────────────────────────
   # # avg_temp is the dominant RF predictor (importance 0.307) but correlated
