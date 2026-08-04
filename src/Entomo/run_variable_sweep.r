@@ -206,6 +206,9 @@ combinations <- list(
   # of what is actually a continuous effect-modification surface. See
   # build_dlnm_stan_data() in helper_functions.r.
 
+# completer model no interactions (single and double)
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi")),
 # completer model + interactions (single and double)
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi"),
@@ -225,6 +228,11 @@ combinations <- list(
          list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc",  continuous_df = 2),
          list(continuous_var = "HFP_urbanization",  dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
        )),
+
+# simpler model no interactions (single and double)
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "water_containers"),
+       ),
 
 # simpler model + interactions (single and double)
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
@@ -518,7 +526,8 @@ run_one_combo <- function(combo_i) {
   ))
 
   t_start <- proc.time()["elapsed"]
-  loo_result <- NULL
+  loo_result  <- NULL
+  waic_result <- NULL
 
   status <- tryCatch({
 
@@ -651,11 +660,11 @@ run_one_combo <- function(combo_i) {
       }
     }
     if (!isTRUE(cfg_i$fix_phi)) summary_vars <- c(summary_vars, "phi")
-    model_sum <- if (isTRUE(cfg_i$use_dlnm)) {
-      fit$summary(variables = summary_vars)
-    } else {
-      rename_w_in_summary(fit$summary(variables = summary_vars), prep$lag_vars_expanded, prep$unlagged_vars)
-    }
+    model_sum <- rename_w_in_summary(
+      fit$summary(variables = summary_vars),
+      lag_vars_expanded = if (isTRUE(cfg_i$use_dlnm)) NULL else prep$lag_vars_expanded,
+      unlagged_vars     = prep$unlagged_vars
+    )
     summary_output <- capture.output({
       old_width <- options(width = 10000)
       print(as.data.frame(model_sum), digits = 3, row.names = FALSE)
@@ -762,14 +771,23 @@ run_one_combo <- function(combo_i) {
       }
     }
 
-    # LOO-CV — must run before CSV deletion (fit reads from CSV files)
+    # LOO-CV and WAIC — must run before CSV deletion (fit reads from CSV files).
+    # WAIC is the faster, cruder sibling of LOO (same elpd target, weaker
+    # large-sample approximation) -- kept alongside LOO as a second, near-free
+    # opinion, not a replacement; loo_compare()'s own p_waic diagnostics flag
+    # when WAIC shouldn't be trusted for a given model.
     if (requireNamespace("loo", quietly = TRUE)) {
       log_lik_draws <- fit$draws("log_lik", format = "array")
+      log_lik_mat   <- fit$draws("log_lik", format = "matrix")
       r_eff         <- loo::relative_eff(exp(log_lik_draws))
       loo_result    <- loo::loo(log_lik_draws, r_eff = r_eff)
+      waic_result   <- loo::waic(log_lik_mat)
       loo_output    <- capture.output(print(loo_result))
-      writeLines(loo_output, file.path(run_output_dir, paste0("loo_", predictor_spec, ".txt")))
-      saveRDS(loo_result,    file.path(run_output_dir, paste0("loo_", predictor_spec, ".rds")))
+      waic_output   <- capture.output(print(waic_result))
+      writeLines(loo_output,  file.path(run_output_dir, paste0("loo_",  predictor_spec, ".txt")))
+      writeLines(waic_output, file.path(run_output_dir, paste0("waic_", predictor_spec, ".txt")))
+      saveRDS(loo_result,  file.path(run_output_dir, paste0("loo_",  predictor_spec, ".rds")))
+      saveRDS(waic_result, file.path(run_output_dir, paste0("waic_", predictor_spec, ".rds")))
     }
 
     # Delete chain CSVs — plots and summary already saved, raw draws not needed
@@ -797,7 +815,8 @@ run_one_combo <- function(combo_i) {
     elapsed_min = elapsed_min
   )
 
-  list(predictor_spec = predictor_spec, loo_result = loo_result, log_row = log_row)
+  list(predictor_spec = predictor_spec, loo_result = loo_result,
+       waic_result = waic_result, log_row = log_row)
 }
 
 # ── Main sweep: run all combos one at a time ──────────────────────────────────
@@ -806,8 +825,10 @@ combo_results <- lapply(seq_along(combinations), run_one_combo)
 
 sweep_log <- lapply(combo_results, function(r) r$log_row)
 loo_list  <- list()   # named by predictor_spec
+waic_list <- list()
 for (r in combo_results) {
-  if (!is.null(r$loo_result)) loo_list[[r$predictor_spec]] <- r$loo_result
+  if (!is.null(r$loo_result))  loo_list[[r$predictor_spec]]  <- r$loo_result
+  if (!is.null(r$waic_result)) waic_list[[r$predictor_spec]] <- r$waic_result
 }
 
 # ── Write sweep log ───────────────────────────────────────────────────────────
@@ -817,12 +838,20 @@ write.csv(sweep_log_df, log_path, row.names = FALSE)
 cat("\nSweep complete. Log written to:", log_path, "\n")
 print(sweep_log_df)
 
-# ── LOO comparison across all variable combinations ───────────────────────────
-if (requireNamespace("loo", quietly = TRUE) && length(loo_list) >= 2) {
-  loo_cmp <- loo::loo_compare(loo_list)
-  print(loo_cmp, digits = 2, simplify = FALSE)
+# ── Criterion comparison across all variable combinations ─────────────────────
+# Shared by LOO and WAIC: loo_compare() accepts a list of either loo() or
+# waic() objects (same output structure, elpd_diff/se_diff columns named the
+# same either way) -- called once per criterion below, never mixing the two
+# lists in a single loo_compare() call.
+write_criterion_comparison <- function(result_list, criterion_label, file_stub) {
+  if (!requireNamespace("loo", quietly = TRUE) || length(result_list) < 2) {
+    cat("Fewer than 2 successful", criterion_label, "results — skipping comparison.\n")
+    return(invisible(NULL))
+  }
+  cmp <- loo::loo_compare(result_list)
+  print(cmp, digits = 2, simplify = FALSE)
 
-  cmp_df <- as.data.frame(loo_cmp)
+  cmp_df <- as.data.frame(cmp)
   cmp_df$z_score <- cmp_df$elpd_diff / cmp_df$se_diff
   cmp_df$z_score[cmp_df$elpd_diff == 0] <- 0
   cat("\nz-score (elpd_diff / se_diff):\n")
@@ -832,15 +861,13 @@ if (requireNamespace("loo", quietly = TRUE) && length(loo_list) >= 2) {
   rownames(cmp_out) <- NULL
 
   writeLines(capture.output({
-    print(loo_cmp, digits = 2, simplify = FALSE)
+    print(cmp, digits = 2, simplify = FALSE)
     cat("\nz-score (elpd_diff / se_diff):\n")
     print(cmp_df["z_score"], digits = 2)
-  }), file.path(sweep_dir, "loo_comparison.txt"))
-  writexl::write_xlsx(
-    cmp_out,
-    file.path(sweep_dir, "loo_comparison.xlsx")
-  )
-  cat("LOO comparison saved to:", sweep_dir, "\n")
-} else if (length(loo_list) < 2) {
-  cat("Fewer than 2 successful LOO results — skipping comparison.\n")
+  }), file.path(sweep_dir, paste0(file_stub, "_comparison.txt")))
+  writexl::write_xlsx(cmp_out, file.path(sweep_dir, paste0(file_stub, "_comparison.xlsx")))
+  cat(criterion_label, "comparison saved to:", sweep_dir, "\n")
 }
+
+write_criterion_comparison(loo_list,  "LOO",  "loo")
+write_criterion_comparison(waic_list, "WAIC", "waic")
