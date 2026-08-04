@@ -209,6 +209,7 @@ combinations <- list(
 # completer model no interactions (single and double)
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi")),
+
 # completer model + interactions (single and double)
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi"),
@@ -231,7 +232,7 @@ combinations <- list(
 
 # simpler model no interactions (single and double)
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization", "water_containers"),
+       unlag = c("HFP_urbanization", "water_containers")
        ),
 
 # simpler model + interactions (single and double)
