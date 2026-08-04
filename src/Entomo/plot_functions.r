@@ -1499,10 +1499,32 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
   }
 
   # ── Global z-range for comparable 3-D axes and colour scale ───────────────
-  all_z <- unlist(lapply(preds, function(p) if (!is.null(p)) p$pred$matfit))
+  # One shared range across all predictors (so surfaces are visually
+  # comparable), driven purely by the data -- NOT padded or widened to force
+  # symmetry around 1. White is still anchored exactly at OR = 1 by splitting
+  # the palette into two independent ramps that meet at 1 (steelblue->white
+  # below, white->firebrick above), each sized in proportion to how much of
+  # the (possibly asymmetric) pooled range falls on that side -- rather than
+  # by stretching the range itself to make both sides equal.
+  all_z    <- unlist(lapply(preds, function(p) if (!is.null(p)) p$pred$matfit))
   z_global <- range(all_z, na.rm = TRUE)
-  z_breaks_global <- seq(z_global[1], z_global[2], length.out = 51)
-  pal <- colorRampPalette(c("firebrick", "white", "steelblue"))(50)
+
+  if (z_global[1] < 1 && z_global[2] > 1) {
+    n_below <- max(1, round(50 * (1 - z_global[1]) / diff(z_global)))
+    n_above <- max(1, 50 - n_below)
+    pal <- c(colorRampPalette(c("steelblue", "white"))(n_below),
+             colorRampPalette(c("white", "firebrick"))(n_above))
+    z_breaks_global <- c(seq(z_global[1], 1, length.out = n_below + 1),
+                          seq(1, z_global[2], length.out = n_above + 1)[-1])
+  } else if (z_global[2] <= 1) {
+    # Pooled range never reaches above 1: single blue ramp only.
+    pal <- colorRampPalette(c("steelblue", "white"))(50)
+    z_breaks_global <- seq(z_global[1], z_global[2], length.out = 51)
+  } else {
+    # Pooled range never dips below 1: single red ramp only.
+    pal <- colorRampPalette(c("white", "firebrick"))(50)
+    z_breaks_global <- seq(z_global[1], z_global[2], length.out = 51)
+  }
 
   # ── Pass 2: plot ──────────────────────────────────────────────────────────
   for (i in seq_along(dlnm_vars)) {
