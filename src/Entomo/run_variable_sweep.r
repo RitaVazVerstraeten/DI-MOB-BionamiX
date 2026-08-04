@@ -209,35 +209,42 @@ combinations <- list(
 # completer model + interactions (single and double)
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi"),
-       ix    = list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
-       ),
+       ix    = list(
+         list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
+       )),
 
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi"),
-       ix    = list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2)
-       ),
+       ix    = list(
+         list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2)
+       )),
 
-    list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi"),
-       ix    = list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2, 
-       continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
-       ),
+       ix    = list(
+         list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc",  continuous_df = 2),
+         list(continuous_var = "HFP_urbanization",  dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
+       )),
 
 # simpler model + interactions (single and double)
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization", "water_containers"),
-       ix    = list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
-       ),
+       ix    = list(
+         list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
+       )),
 
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization", "water_containers"),
-       ix    = list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2)
-       ),
+       ix    = list(
+         list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2)
+       )),
+
   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
        unlag = c("HFP_urbanization", "water_containers"),
-       ix    = list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2, 
-       continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
-       )
+       ix    = list(
+         list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc",  continuous_df = 2),
+         list(continuous_var = "HFP_urbanization",  dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
+       ))
 
   # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
   #      unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi"),
