@@ -91,67 +91,67 @@ get_numeric_vars <- function(lag_vars, unlag_vars) {
 # ─────────────────────────────────────────────────────────────────────────────
 combinations <- list(
 
-  # ── Group 1: Precipitation core — no temperature or wind ──────────────────
-  # Establishes the baseline signal from total_precip + VPD alone.
-  # Incrementally adds optional static predictors to test their contribution.
+#   # ── Group 1: Precipitation core — no temperature or wind ──────────────────
+#   # Establishes the baseline signal from total_precip + VPD alone.
+#   # Incrementally adds optional static predictors to test their contribution.
 
-  # minimal model 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization")),
+#   # minimal model 
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization")),
 
-  # minimal model + one extra spatial predictor 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization", "mean_ndvi")),
+#   # minimal model + one extra spatial predictor 
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization", "mean_ndvi")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization","water_containers")),
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization","water_containers")),
   
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization","is_WUI")),
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization","is_WUI")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("mean_ndvi","is_WUI")),
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("mean_ndvi","is_WUI")),
 
-  # minimal model + two extra spatial predictors  
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization","mean_ndvi", "water_containers")),
+#   # minimal model + two extra spatial predictors  
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization","mean_ndvi", "water_containers")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization","mean_ndvi", "water_shortage")),
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization","mean_ndvi", "water_shortage")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization","is_WUI", "water_containers")),
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization","is_WUI", "water_containers")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization","is_WUI", "is_WI")),
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization","is_WUI", "is_WI")),
   
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization","is_WUI", "water_shortage")),
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization","is_WUI", "water_shortage")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization","water_containers", "water_shortage")),
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization","water_containers", "water_shortage")),
 
-  # minimal model + three extra spatial predictors   
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi")),
+#   # minimal model + three extra spatial predictors   
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization", "is_WUI", "water_shortage", "mean_ndvi")),
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization", "is_WUI", "water_shortage", "mean_ndvi")),
   
-  # minimal model + four extra spatial predictors  
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "water_shortage", "mean_ndvi")),
+#   # minimal model + four extra spatial predictors  
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization", "is_WUI", "water_containers", "water_shortage", "mean_ndvi")),
 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization", "is_WUI", "is_WI", "water_containers", "mean_ndvi")),
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization", "is_WUI", "is_WI", "water_containers", "mean_ndvi")),
 
-# full model - 1 predictor 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization", "is_WUI", "is_WI", "water_containers", "water_shortage", "mean_ndvi")),
+# # full model - 1 predictor 
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization", "is_WUI", "is_WI", "water_containers", "water_shortage", "mean_ndvi")),
 
-# full model 
-  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-       unlag = c("HFP_urbanization", "is_WUI", "is_WI", "water_containers", "water_shortage", "mean_ndvi", "WS2M"))
+# # full model 
+#   list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+#        unlag = c("HFP_urbanization", "is_WUI", "is_WI", "water_containers", "water_shortage", "mean_ndvi", "WS2M"))
 
   # # ── Group 2: Add avg_temp ─────────────────────────────────────────────────
   # # avg_temp is the dominant RF predictor (importance 0.307) but correlated
@@ -206,13 +206,39 @@ combinations <- list(
   # of what is actually a continuous effect-modification surface. See
   # build_dlnm_stan_data() in helper_functions.r.
 
-  # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
-  #      unlag = c("HFP_urbanization", "water_containers", "mean_ndvi"),
-  #      ix    = list(
-  #        list(binary_var = "is_urban",        active_level = 0,
-  #             dlnm_var   = "total_precip",     label = "nonurban_x_tp")
-  #      )),
-  
+# completer model + interactions (single and double)
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi"),
+       ix    = list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
+       ),
+
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi"),
+       ix    = list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2)
+       ),
+
+    list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi"),
+       ix    = list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2, 
+       continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
+       ),
+
+# simpler model + interactions (single and double)
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "water_containers"),
+       ix    = list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
+       ),
+
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "water_containers"),
+       ix    = list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2)
+       ),
+  list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
+       unlag = c("HFP_urbanization", "water_containers"),
+       ix    = list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2, 
+       continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
+       )
+
   # list(lag   = c("total_precip", "precip_max_day_resid_on_tp", "avg_VPD"),
   #      unlag = c("HFP_urbanization", "is_WUI", "water_containers", "mean_ndvi"),
   #      ix    = list(
