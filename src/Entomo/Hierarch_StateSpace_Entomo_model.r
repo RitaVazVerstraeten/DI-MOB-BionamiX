@@ -104,13 +104,12 @@ cfg <- list(
   # (total_precip lags + is_urban/water_shortage/water_containers only, no land-use
   # covariates) to test whether the RF-flagged interactions resurrect once
   # HFP_urbanization/mean_ndvi/is_WUI/is_WI are removed.
-  unlagged_vars = c("HFP_urbanization", "is_WUI","water_containers", "mean_ndvi"),
+  # unlagged_vars = c("HFP_urbanization", "is_WUI","water_containers", "mean_ndvi"),
   # unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI","water_shortage", "mean_ndvi", "water_containers", "is_WI"),
-  # unlagged_vars = c("HFP_urbanization",  "water_containers"),
+  unlagged_vars = c("HFP_urbanization",  "water_containers"),
 
-  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization", "mean_ndvi"),
-  # numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "mean_ndvi", "HFP_urbanization"),
-  # numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization"),
+  # numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization", "mean_ndvi"),
+  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization"),
 
   # DLNM settings (only used when use_dlnm = TRUE)
   dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp"),
@@ -137,7 +136,7 @@ cfg <- list(
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
 
   dlnm_ix_vars = list(
-    # list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFPurban", continuous_df = 2),
+    list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2),
     # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
     list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2)
   ),

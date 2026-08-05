@@ -2252,9 +2252,17 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
                   if (any(diff_df$significant[diff_df$lag == "cumulative"])) "CREDIBLE" else "not credible"))
 
       plot_diff_curve <- function(sub_df, title, file_path) {
+        # geom_ribbon groups by the fill *level*, not by contiguous runs -- with
+        # a non-contiguous TRUE region (e.g. significant at low exposure AND
+        # again at high exposure, but not in between) it would otherwise stitch
+        # all TRUE points into a single polygon that bridges straight across
+        # the FALSE gap. run_id breaks the ribbon at every significant/not
+        # transition so each disjoint stretch gets its own polygon.
+        sub_df <- sub_df[order(sub_df$exposure), ]
+        sub_df$run_id <- cumsum(c(TRUE, diff(sub_df$significant) != 0))
         p <- ggplot(sub_df, aes(x = exposure, y = ror)) +
           geom_hline(yintercept = 1, linetype = "dashed", colour = "grey50") +
-          geom_ribbon(aes(ymin = ror_low, ymax = ror_high, fill = significant), alpha = 0.25) +
+          geom_ribbon(aes(ymin = ror_low, ymax = ror_high, fill = significant, group = run_id), alpha = 0.25) +
           geom_line(colour = "black", linewidth = 1) +
           scale_fill_manual(values = c(`TRUE` = "firebrick", `FALSE` = "grey70"),
                              name = "CI excludes 1", guide = "none") +
