@@ -92,7 +92,7 @@ cfg <- list(
   response_start = "2016_01",
   n_blocks = NULL, # set NULL for all blocks/CMFs
 
-  lag_vars = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp"),
+  lag_vars = c("SPI6", "avg_VPD", "precip_max_day_resid_on_tp"),
   # lag_vars = c("total_rainy_days", "avg_VPD"),
 
   max_lag = 6,
@@ -109,12 +109,12 @@ cfg <- list(
   unlagged_vars = c("HFP_urbanization",  "water_containers"),
 
   # numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization", "mean_ndvi"),
-  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization"),
+  numeric_vars = c("SPI6",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization"),
 
   # DLNM settings (only used when use_dlnm = TRUE)
-  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp"),
+  dlnm_vars   = c("SPI6",  "avg_VPD", "precip_max_day_resid_on_tp"),
   dlnm_argvar = list(
-    total_precip                = list(fun = "ns", df = 3),
+    SPI6                        = list(fun = "ns", df = 3),
     avg_VPD                     = list(fun = "ns", df = 3),
     precip_max_day_resid_on_tp = list(fun = "ns", df = 3)
     # temp_resid_on_tp            = list(fun = "ns", df = 3)
@@ -136,9 +136,9 @@ cfg <- list(
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
 
   dlnm_ix_vars = list(
-    list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2),
+    # list(continuous_var = "HFP_urbanization", dlnm_var = "SPI6", label = "spi6_x_HFP", continuous_df = 2),
     # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
-    list(continuous_var = "water_containers", dlnm_var = "total_precip", label = "tp_x_wc", continuous_df = 2)
+    list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
   ),
   dlnm_ix_vars = NULL,
 

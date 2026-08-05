@@ -55,6 +55,9 @@ This document provides descriptive statistics for environmental variables used i
 |rain_sd | Numeric | standard deviation of daily precipitation (mm) for that manzana-month |
 |rel_hum | Numeric | average relative humidity (%) for that manzana-month |
 |hurricane_within_120km | Binary | 1 if a tropical storm or hurricane passed within 120 km of Cienfuegos in that month, 0 otherwise |
+|SPI1 | Numeric | 1-month Standardized Precipitation Index (Mcp Cfgos) for that month; short-term moisture/drought indicator |
+|SPI3 | Numeric | 3-month Standardized Precipitation Index (Mcp Cfgos) for that month; medium-term moisture/drought indicator |
+|SPI6 | Numeric | 6-month Standardized Precipitation Index (Mcp Cfgos) for that month; long-term moisture/drought indicator, most predictive of dengue risk per Lowe et al. (2018) |
 
 ## Setup
 
@@ -125,7 +128,7 @@ Temporal variables that vary over time and are measured consistently across all 
 
 ```{r temporal_overall_summary}
 # temporal_vars <- c("WS2M", "avg_temp", "total_precip", "precip_max_day", "consec_rainy_days", "rel_hum")
-temporal_vars        <- c("WS2M", "avg_temp", "total_precip", "precip_max_day", "consec_rainy_days", "total_rainy_days", "rel_hum", "avg_VPD")
+temporal_vars        <- c("WS2M", "avg_temp", "total_precip", "precip_max_day", "consec_rainy_days", "total_rainy_days", "rel_hum", "avg_VPD", "SPI1", "SPI3", "SPI6")
 spatiotemporal_vars  <- c("mean_ndvi", "mean_ndmi", "mean_ndwi")
 continuous_spatial   <- c("nr_aljibes", "water_containers", "pop_density", "urban_pct", "HFP_urbanization")
 
@@ -344,6 +347,50 @@ combined_plot_hurr <- plot_grid(
 )
 ggsave(file.path(output_dir, "all_env_temporal_all_vars_by_month_hurricanes_lineplot.png"),
        combined_plot_hurr, width = 14, height = 8, dpi = 300)
+```
+
+### Standardized Precipitation Index (SPI)
+
+The Standardized Precipitation Index (SPI-1, SPI-3, SPI-6) quantifies precipitation deficit/excess
+at 1-, 3- and 6-month accumulation scales: monthly precipitation totals are fitted to a gamma
+distribution per calendar month and transformed to the standard normal distribution, so values
+are directly comparable across months and time scales. Negative values indicate drought
+(precipitation deficit) and positive values indicate excess rainfall relative to the local
+climatology, at that time scale.
+
+**Method:** McKee TB, Doesken NJ, Kleist J, others. The relationship of drought frequency and
+duration to time scales. Proceedings of the 8th Conference on Applied Climatology. American
+Meteorological Society Boston, MA; 1993. pp. 179-183.
+
+**Why SPI for dengue:** Lowe R, Gasparrini A, Van Meerbeeck CJ, et al. Nonlinear and delayed
+impacts of climate on dengue risk in Barbados: A modelling study. PLOS Medicine. 2018;15(7):
+e1002613. https://pubmed.ncbi.nlm.nih.gov/30016319/ — drought conditions (captured by SPI) raise
+dengue risk at long lead times of up to 5 months, while excess rainfall raises risk at short lead
+times of 1-2 months, and SPI-6 outperformed raw monthly rainfall as a dengue predictor.
+
+```{r spi_plot, fig.cap="Standardized Precipitation Index (SPI-1/3/6) for the study period", fig.width=12, fig.height=8}
+# Restrict to the years relevant to this analysis (2015-2019); the underlying
+# SPI series (Env_data_cuba/code/Calculate_SPI.py) is calibrated on 2010-2024
+# so that these study-period values aren't affected by gamma-fit spin-up.
+spi_to_plot <- meteo_to_plot %>%
+  filter(year_month_date >= as.Date("2015-01-01") & year_month_date <= as.Date("2019-12-31")) %>%
+  select(year_month_date, SPI1, SPI3, SPI6) %>%
+  pivot_longer(cols = c(SPI1, SPI3, SPI6), names_to = "scale", values_to = "value") %>%
+  mutate(scale = factor(scale, levels = c("SPI1", "SPI3", "SPI6")))
+
+p_spi <- ggplot(spi_to_plot, aes(x = year_month_date, y = value, fill = value >= 0)) +
+  geom_col(width = 25) +
+  geom_hline(yintercept = 0, color = "black", linewidth = 0.4) +
+  scale_fill_manual(values = c("TRUE" = "#3b7dd8", "FALSE" = "#d8663b"), guide = "none") +
+  coord_cartesian(ylim = c(-3, 3)) +
+  facet_wrap(~scale, ncol = 1, strip.position = "right") +
+  labs(title = "Standardized Precipitation Index — Mcp Cfgos (2015-2019)",
+       x = "Month", y = "SPI") +
+  theme_minimal() +
+  theme(strip.text = element_text(face = "bold"))
+
+print(p_spi)
+ggsave(file.path(output_dir, "all_env_temporal_SPI_barplot.png"), p_spi, width = 12, height = 8, dpi = 300)
 ```
 
 ---
@@ -1156,17 +1203,26 @@ for (lvl in c("manzana", "CMF")) {
 
   corr_matrix <- cor(correlation_data, method = "spearman")
 
+  # Scale plot size and label/number text inversely with variable count, so
+  # adding more variables (e.g. SPI1/3/6) doesn't shrink cells until the
+  # correlation coefficients overlap and become unreadable.
+  n_vars     <- ncol(corr_matrix)
+  plot_px    <- max(1000, n_vars * 55)
+  label_cex  <- min(0.7, 14 / n_vars)
+  num_cex    <- min(0.7, 12 / n_vars)
+
   png(file.path(output_dir, paste0(lvl_prefix(lvl), "_env_temporal_numeric_vars_corr.png")),
-      width = 1000, height = 1000, res = 150)
+      width = plot_px, height = plot_px, res = 150)
   corrplot(corr_matrix,
            method = "color", type = "upper", addCoef.col = "black",
-           diag = FALSE, tl.col = "black", tl.cex = 0.7, number.cex = 0.7,
+           diag = FALSE, tl.col = "black", tl.cex = label_cex, number.cex = num_cex,
            mar = c(0, 0, 3.5, 0), title = plot_title)
   dev.off()
 
   corrplot(corr_matrix,
            method = "color", type = "upper", addCoef.col = "black",
-           diag = FALSE, tl.col = "black", tl.cex = 0.8, title = plot_title)
+           diag = FALSE, tl.col = "black", tl.cex = label_cex, number.cex = num_cex,
+           title = plot_title)
 }
 ```
 
@@ -1294,6 +1350,8 @@ cor(env_all_cmf$total_rainy_days, env_all_cmf$precip_max_day_resid_on_trd, use =
 
 ### Correct correlation between avg_temp and total_precip 
 
+#### Categorical variables for temp and precip
+
 Let's create a plot of temp_cat and precip_cat to check the time-series for wett-warm, wett-cold, etc. categories 
 
 ```{r}
@@ -1359,7 +1417,29 @@ print(temp_precip_cats)
 ggsave(file.path(output_dir, "all_env_temporal_temp_precip_categories_mosaic.png"), plot = temp_precip_cats, width = 20, height = 10, dpi = 300)
 ```
 
+#### Residual variable for temp after linearization on total precip
 
+Like `precip_max_day_resid_on_tp`/`_trd` above, `avg_temp` is meaningfully correlated with `total_precip` (Spearman r ≈ 0.65) — Cienfuegos's warm season coincides with its wet season, so the two variables partly track the same annual cycle. Including both raw variables in a downstream model lets them compete for the same shared seasonal signal, which can produce unstable (even sign-reversing) partial effect estimates for either one. `temp_resid_on_tp` residualizes `avg_temp` on `total_precip` (same construction as the precipitation residuals above, built in `Create_entomo+epi_env`), isolating the temperature signal that is independent of the shared wet/dry-season cycle.
+
+```{r residualize avg_temp on total_precip}
+resid_fit <- lm(avg_temp ~ total_precip, data = env_all)
+
+b <- coef(resid_fit)
+cat(sprintf("avg_temp = %.3f + %.3f * total_precip\n", b[1], b[2]))
+
+env_all <- env_all %>%
+  mutate(
+    temp_resid_on_tp = resid(resid_fit)
+  )
+
+# 3) Quick check: should be ~uncorrelated with original variable
+cor(env_all$total_precip, env_all$temp_resid_on_tp, use = "complete.obs")
+
+# Same residualization for CMF data
+env_all_cmf <- env_all_cmf %>%
+  mutate(temp_resid_on_tp = resid(lm(avg_temp ~ total_precip, data = env_all_cmf)))
+cor(env_all_cmf$total_precip, env_all_cmf$temp_resid_on_tp, use = "complete.obs")
+```
 
 Re-check the correlation plot with the new variable.
 
@@ -1375,13 +1455,21 @@ Re-check the correlation plot with the new variable.
 
 Cells with \* = p < 0.05 (Spearman, two-sided).
 
+
 ```{r pairwise_plot_numeric_vars after correction, fig.cap="Corrected correlation plots split by spatiotemporal structure"}
-all_numeric <- c(all_numeric, "precip_max_day_resid_on_tp", "precip_max_day_resid_on_trd")
+all_numeric <- c(all_numeric, "precip_max_day_resid_on_tp", "precip_max_day_resid_on_trd", "temp_resid_on_tp")
 
 # Variable lists for each block
+# avg_temp is kept alongside temp_resid_on_tp (unlike precip_max_day, which is
+# fully replaced by its residual above) because this exact plot
+# (cmf_env_corr_meteo_x_meteo.png / mz_...) is cited directly in
+# RF_predictor_screen_explained.tex, with prose describing avg_temp's r=0.65
+# correlation with total_precip as shown in this figure -- removing avg_temp
+# would desync the figure from that write-up.
 temporal_vars_nc <- c("avg_temp", "avg_VPD", "total_precip", "total_rainy_days",
                        "consec_rainy_days", "WS2M", "hurricane_within_120km",
-                       "precip_max_day_resid_on_tp", "precip_max_day_resid_on_trd")
+                       "precip_max_day_resid_on_tp", "precip_max_day_resid_on_trd",
+                       "temp_resid_on_tp")
 spatial_cont_nc  <- c("nr_aljibes", "water_containers", "pop_density", "urban_pct", "HFP_urbanization")
 
 # Helper: Spearman p-value matrix
@@ -1525,6 +1613,146 @@ for (lvl in c("manzana", "CMF")) {
 }
 ```
 
+### Generalised Variance Inflation Factors
+
+In addition to the pairwise correlations above, the generalised variance inflation factor (GVIF)
+was calculated to assess multicollinearity across the full predictor set (Fox & Monette, 1992).
+The GVIF extends the conventional variance inflation factor to categorical predictors represented
+by several indicator variables (here, `landcover`), quantifying how much the joint variance of a
+term's coefficients is inflated by its association with the remaining predictors. Because raw GVIF
+values are not directly comparable across terms with different degrees of freedom, the rescaled
+measure $\mathrm{GVIF}^{1/(2\,\mathrm{Df})}$ is used; this places every term on the same scale as
+the square root of an ordinary VIF, compared against $\sqrt{10} \approx 3.16$ — equivalent to the
+conventional VIF > 10 threshold (Zuur et al., 2009).
+
+```{r gvif_helper}
+# Generalised VIF (Fox & Monette 1992), rescaled to GVIF^(1/(2*Df)). Implemented
+# directly from the determinant formula rather than car::vif() -- `car` isn't
+# currently an renv dependency of this project -- using the same term/column
+# mapping (model.matrix()'s "assign" attribute) car::vif() relies on
+# internally, so results match car::vif() exactly.
+# NOTE: unlike the Spearman correlations used elsewhere in this doc, GVIF is
+# inherently a linear-model (OLS design-matrix) diagnostic, so it is computed
+# from Pearson correlations of the *expanded* design matrix -- that follows
+# from what GVIF measures, not a stylistic inconsistency with the rest of the doc.
+compute_gvif <- function(df, formula = NULL) {
+  if (is.null(formula)) formula <- as.formula(paste("~", paste(names(df), collapse = " + ")))
+  X      <- model.matrix(formula, data = df)
+  assign <- attr(X, "assign")
+  if (assign[1] == 0) { X <- X[, -1, drop = FALSE]; assign <- assign[-1] }  # drop intercept
+
+  term_labels <- attr(terms(formula), "term.labels")
+  R    <- cor(X)
+  detR <- det(R)
+
+  out <- lapply(seq_along(term_labels), function(j) {
+    cols <- which(assign == j)
+    df_j <- length(cols)
+    gvif <- det(R[cols, cols, drop = FALSE]) * det(R[-cols, -cols, drop = FALSE]) / detR
+    data.frame(variable = term_labels[j], Df = df_j, GVIF = gvif)
+  })
+  tbl <- do.call(rbind, out)
+
+  # Mirrors car::vif(): only report the generalised GVIF/Df/rescaled form when
+  # at least one term actually spans more than one design-matrix column (e.g.
+  # a factor with 3+ levels). When every term is Df = 1, GVIF^(1/(2*1)) is
+  # just sqrt(VIF) for every row -- the "generalised" machinery isn't doing
+  # anything a plain VIF wouldn't, so report plain VIF instead, exactly as
+  # car::vif() itself falls back to a plain named vector in that case.
+  if (max(tbl$Df) == 1) {
+    data.frame(variable = tbl$variable, VIF = tbl$GVIF)
+  } else {
+    tbl$`GVIF^(1/(2*Df))` <- tbl$GVIF^(1 / (2 * tbl$Df))
+    tbl
+  }
+}
+gvif_threshold <- sqrt(10)  # ~3.16, equivalent to conventional VIF > 10
+
+# Prints a compute_gvif() table and flags terms above threshold, auto-
+# labelling as VIF or GVIF depending on which form compute_gvif() returned
+# for this particular table (see the max(Df) == 1 branch above).
+print_gvif_table <- function(tbl, sublabel, n) {
+  is_plain <- "VIF" %in% names(tbl)
+  cat("\n**", if (is_plain) "VIF" else "GVIF", "—", sublabel, "**  (N =", n, "rows)\n\n")
+  print(knitr::kable(tbl, digits = 2, row.names = FALSE))
+  if (is_plain) {
+    flagged <- tbl$variable[tbl$VIF > 10]
+    cat("\nFlagged (VIF > 10):",
+        if (length(flagged)) paste(flagged, collapse = ", ") else "none", "\n\n")
+  } else {
+    flagged <- tbl$variable[tbl$`GVIF^(1/(2*Df))` > gvif_threshold]
+    cat("\nFlagged (GVIF^(1/(2*Df)) >", round(gvif_threshold, 2), "):",
+        if (length(flagged)) paste(flagged, collapse = ", ") else "none", "\n\n")
+  }
+}
+```
+
+```{r gvif_initial_vars}
+# GVIF on the initial candidate predictor set, before any residualisation
+# (avg_temp/total_precip collinearity, precip_max_day vs. total_precip, etc.
+# -- see the "Correct correlation between..." sections above) was applied.
+# Computed on the full manzana-month / cmf-month panel: static spatial
+# predictors repeat across months and meteo repeats across spatial units
+# within a month, exactly as they appear in the Stan model's own design
+# matrix, so this is the collinearity structure the fitted model actually
+# contends with -- not an artificially deduplicated snapshot.
+gvif_initial_vars <- c("total_precip", "avg_temp", "mean_ndvi", "avg_VPD", "rel_hum",
+                        "landcover", "is_WUI", "is_WI", "water_containers",
+                        "water_shortage", "HFP_urbanization", "WS2M",
+                        "hurricane_within_120km", "has_aljibes", "pop_density",
+                        "precip_max_day")
+
+for (lvl in c("manzana", "CMF")) {
+  dat <- if (lvl == "manzana") env_all else env_all_cmf
+  lbl <- lvl_label(lvl)
+
+  gvif_df <- dat %>%
+    select(all_of(gvif_initial_vars)) %>%
+    drop_na() %>%
+    mutate(across(c(is_WUI, is_WI, water_shortage, has_aljibes), as.logical),
+           landcover = factor(landcover))
+
+  gvif_tbl <- compute_gvif(gvif_df)
+  print_gvif_table(gvif_tbl, paste0(lbl, " — initial variables"), nrow(gvif_df))
+}
+```
+
+avg_VPD and rel_hum clearly come up as two variables to flag for collinearity. This is not unexpected given that both variables are calculated based on temperature. 
+
+Let's test the same table, but this time leaving avg_temp out: 
+
+```{r gvif_initial_vars temp removed}
+# GVIF on the initial candidate predictor set, before any residualisation
+# (avg_temp/total_precip collinearity, precip_max_day vs. total_precip, etc.
+# -- see the "Correct correlation between..." sections above) was applied.
+# Computed on the full manzana-month / cmf-month panel: static spatial
+# predictors repeat across months and meteo repeats across spatial units
+# within a month, exactly as they appear in the Stan model's own design
+# matrix, so this is the collinearity structure the fitted model actually
+# contends with -- not an artificially deduplicated snapshot.
+gvif_initial_vars <- c("total_precip", "mean_ndvi", "avg_VPD", "rel_hum",
+                        "landcover", "is_WUI", "is_WI", "water_containers",
+                        "water_shortage", "HFP_urbanization", "WS2M",
+                        "hurricane_within_120km", "has_aljibes", "pop_density",
+                        "precip_max_day")
+
+for (lvl in c("manzana", "CMF")) {
+  dat <- if (lvl == "manzana") env_all else env_all_cmf
+  lbl <- lvl_label(lvl)
+
+  gvif_df <- dat %>%
+    select(all_of(gvif_initial_vars)) %>%
+    drop_na() %>%
+    mutate(across(c(is_WUI, is_WI, water_shortage, has_aljibes), as.logical),
+           landcover = factor(landcover))
+
+  gvif_tbl <- compute_gvif(gvif_df)
+  print_gvif_table(gvif_tbl, paste0(lbl, " — initial variables"), nrow(gvif_df))
+}
+```
+
+Without temperature this issue is resolved. 
+
 
 ```{r pairwise_plot_numeric_vars without collinearity, fig.cap="Pairwise scatterplot matrix of numeric explanatory variables"}
 all_numeric_no_colin <- all_numeric[!all_numeric %in% c("precip_max_day", "mean_ndmi", "mean_ndwi", "WS2M", "water_containers", "nr_aljibes")]
@@ -1562,8 +1790,23 @@ env_all_clim <- env_all_clim %>%
 env_all_cmf_clim <- env_all_cmf_clim %>%
   mutate(precip_max_day_resid_on_trd = resid(lm(precip_max_day ~ total_rainy_days, data = env_all_cmf_clim)))
 
-vars_lag5 <- c("total_rainy_days", "avg_VPD", "WS2M",
-                "precip_max_day_resid_on_trd", "hurricane_within_120km")
+# temp_resid_on_tp: same construction as in the earlier "Correct correlation
+# between avg_temp and total_precip" section, recomputed here on the climate-
+# only datasets (temp_resid_on_tp there was built on env_all/env_all_cmf,
+# which cover a different date range). Included alongside total_precip itself
+# (not just total_rainy_days) because temp_resid_on_tp was residualized
+# against total_precip specifically, and total_precip -- not total_rainy_days
+# -- is the DLNM lag variable in the production Stan model; checking the
+# residual's own lag profile only against total_rainy_days wouldn't test
+# whether it's still carrying lagged seasonal collinearity with the variable
+# it actually competes with in that model.
+env_all_clim <- env_all_clim %>%
+  mutate(temp_resid_on_tp = resid(lm(avg_temp ~ total_precip, data = env_all_clim)))
+env_all_cmf_clim <- env_all_cmf_clim %>%
+  mutate(temp_resid_on_tp = resid(lm(avg_temp ~ total_precip, data = env_all_cmf_clim)))
+
+vars_lag5 <- c("total_rainy_days", "total_precip", "avg_VPD", "WS2M",
+                "precip_max_day_resid_on_trd", "temp_resid_on_tp", "hurricane_within_120km")
 max_lag5  <- 5
 
 for (lvl in c("manzana", "CMF")) {

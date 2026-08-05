@@ -52,6 +52,9 @@ Observations table (one row per block-time combination):
 |rain_sd | Numeric | standard deviation of daily precipitation (mm) for that manzana-month |
 |rel_hum | Numeric | average relative humidity (%) for that manzana-month |
 |hurricane_within_120km | Binary | 1 if a tropical storm or hurricane passed within 120 km of Cienfuegos in that month, 0 otherwise |
+|SPI1 | Numeric | 1-month Standardized Precipitation Index (Mcp Cfgos) for that month; short-term moisture/drought indicator |
+|SPI3 | Numeric | 3-month Standardized Precipitation Index (Mcp Cfgos) for that month; medium-term moisture/drought indicator |
+|SPI6 | Numeric | 6-month Standardized Precipitation Index (Mcp Cfgos) for that month; long-term moisture/drought indicator, most predictive of dengue risk per Lowe et al. (2018) |
 
 <!-- |omega |	Numeric	| Reactive bias weight (calculated from C_bt) | -->
 
@@ -873,6 +876,7 @@ pop_density_mz <- mz_pop_raw %>%
   - max_precip_daily -> month
   - humidity -> month
   - wind speed -> month
+  - SPI1/SPI3/SPI6 (Standardized Precipitation Index) -> month
   - WI -> manzana
   - WUI -> manzana
   - LandCover -> manzana
@@ -893,6 +897,7 @@ ndwi <- read_csv(file.path(env_data_path, "NDWI", "NDWI_per_manzana_nobuf_2015_2
 ndmi <- read_csv(file.path(env_data_path, "NDMI", "NDMI_per_manzana_nobuf_2015_2025_all_months.csv"), show_col_types = FALSE)
 windspeed <- read_csv(file.path(env_data_path, "WindSpeed", "wind_speed_2015_2019_monthly.csv"), show_col_types = FALSE)
 hurricane <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/Hurricanes/hurricane_monthly_within_120km.csv", show_col_types = FALSE)
+spi <- read_csv(file.path(env_data_path, "SPI_Mcp_Cfgos_2010-2024.csv"), show_col_types = FALSE)
 landcover <- read_csv(file.path(env_data_path, "LandCover", "LandCover_per_manzana_2021.csv"), show_col_types = FALSE)
 wi <- read_csv(file.path(env_data_path, "WI", "WI_per_manzana_100mBuffer_classification.csv"), show_col_types = FALSE)
 wui <- read_csv(file.path(env_data_path, "WUI", "WUI_per_manzana_NoBuffer_classification.csv"), show_col_types = FALSE)
@@ -1584,6 +1589,7 @@ dev.off()
   - consec_rainy_days -> month 
   - humidity -> month (2016-01 -> 2019-12)
   - wind speed -> month (2016-01 -> 2019-12)
+  - SPI1/SPI3/SPI6 -> month (2016-01 -> 2019-12)
 
 **Spatial variables**
   - WI -> manzana/cmf
@@ -1623,11 +1629,44 @@ cat("Hurricane months with storm (=1):", sum(hurricane_monthly$hurricane_within_
 print(hurricane_monthly %>% filter(hurricane_within_120km == 1))
 ```
 
+### Standardized Precipitation Index (SPI)
+
+The Standardized Precipitation Index (SPI-1, SPI-3, SPI-6) quantifies precipitation deficit/excess
+at 1-, 3- and 6-month accumulation scales by fitting monthly precipitation totals to a gamma
+distribution per calendar month and transforming to the standard normal distribution, so values
+are directly comparable across months and time scales. It is calculated for Mcp Cfgos from the
+weighted-area daily rainfall (`precip_ponderada`) for 2010-2024 (see
+`Env_data_cuba/code/Calculate_SPI.py`), i.e. over a longer record than the 2015-2019 analysis
+window so that the SPI-6 values are not affected by spin-up/edge effects at the start of the
+series. Only the SPI1/SPI3/SPI6 columns are kept here; `precip_monthly` is dropped because it
+duplicates `total_precip` computed above from the same `precip_ponderada` series.
+
+**Method:** McKee TB, Doesken NJ, Kleist J, others. The relationship of drought frequency and
+duration to time scales. Proceedings of the 8th Conference on Applied Climatology. American
+Meteorological Society Boston, MA; 1993. pp. 179-183.
+
+**Why SPI for dengue:** Lowe R, Gasparrini A, Van Meerbeeck CJ, et al. Nonlinear and delayed
+impacts of climate on dengue risk in Barbados: A modelling study. PLOS Medicine. 2018;15(7):
+e1002613. https://pubmed.ncbi.nlm.nih.gov/30016319/ — drought conditions (captured by SPI) raise
+dengue risk at long lead times of up to 5 months, while excess rainfall raises risk at short lead
+times of 1-2 months, and SPI-6 outperformed raw monthly rainfall as a dengue predictor.
+
+```{r process SPI indicator}
+spi_monthly <- spi %>%
+  mutate(year_month = paste0(year, "_", sprintf("%02d", month))) %>%
+  select(year_month, SPI1, SPI3, SPI6) %>%
+  filter(year_month >= "2015_01" & year_month <= "2019_12")
+
+cat("SPI months available (2015-2019):", nrow(spi_monthly), "\n")
+print(colSums(is.na(spi_monthly)))
+```
+
 ```{r aggregate the temporal variables based on year_month}
 environmental_temp <- meteo_monthly %>%
   left_join(windspeed, by = "year_month") %>%
   rename(WS2M = WS2M_mean) %>%
-  left_join(hurricane_monthly, by = "year_month")
+  left_join(hurricane_monthly, by = "year_month") %>%
+  left_join(spi_monthly, by = "year_month")
 
 environmental_temp <- environmental_temp %>%
   filter(year_month >= "2015_01" & year_month <= "2019_12")
@@ -2989,10 +3028,19 @@ resid_fit_2015_tp <- lm(precip_max_day ~ total_precip,
 cat(sprintf("precip_max_day = %.3f + %.3f * total_precip\n",
             coef(resid_fit_2015_tp)[1], coef(resid_fit_2015_tp)[2]))
 
+# avg_temp is also correlated with total_precip (r ~0.65, shared wet/hot season
+# cycle) -- residualize the same way, fit on ALL rows for consistency with the
+# precip_max_day residuals above.
+resid_fit_2015_temp <- lm(avg_temp ~ total_precip,
+                          data = final_dataset_cmf_2015, na.action = na.exclude)
+cat(sprintf("avg_temp = %.3f + %.3f * total_precip\n",
+            coef(resid_fit_2015_temp)[1], coef(resid_fit_2015_temp)[2]))
+
 final_dataset_cmf_2015 <- final_dataset_cmf_2015 %>%
   mutate(
     precip_max_day_resid_on_trd = resid(resid_fit_2015),
-    precip_max_day_resid_on_tp  = resid(resid_fit_2015_tp)
+    precip_max_day_resid_on_tp  = resid(resid_fit_2015_tp),
+    temp_resid_on_tp            = resid(resid_fit_2015_temp)
   )
 ```
 
@@ -3116,10 +3164,19 @@ resid_fit_mz_2015_tp <- lm(precip_max_day ~ total_precip,
 cat(sprintf("precip_max_day = %.3f + %.3f * total_precip\n",
             coef(resid_fit_mz_2015_tp)[1], coef(resid_fit_mz_2015_tp)[2]))
 
+# avg_temp is also correlated with total_precip (r ~0.65, shared wet/hot season
+# cycle) -- residualize the same way, fit on ALL rows for consistency with the
+# precip_max_day residuals above.
+resid_fit_mz_2015_temp <- lm(avg_temp ~ total_precip,
+                             data = final_dataset_mz_2015, na.action = na.exclude)
+cat(sprintf("avg_temp = %.3f + %.3f * total_precip\n",
+            coef(resid_fit_mz_2015_temp)[1], coef(resid_fit_mz_2015_temp)[2]))
+
 final_dataset_mz_2015 <- final_dataset_mz_2015 %>%
   mutate(
     precip_max_day_resid_on_trd = resid(resid_fit_mz_2015),
-    precip_max_day_resid_on_tp  = resid(resid_fit_mz_2015_tp)
+    precip_max_day_resid_on_tp  = resid(resid_fit_mz_2015_tp),
+    temp_resid_on_tp            = resid(resid_fit_mz_2015_temp)
   )
 ```
 
@@ -3175,16 +3232,17 @@ print(knitr::kable(backfill_summary_table, row.names = FALSE))
 ```
 
 # Correcting for colinnearity (check Descriptive Statistics for measures of colinnearity)
-  geom_ribbon(aes(ymin = avg_temp - 1.96 * se_temp, ymax = avg_temp + 1.96 * se_temp), fill = "blue", alpha = 0.2) +
+
+I added a linear reduction of `precip_max_day` onto `total_precip` as well as a linear reduction of `avg_temp` onto `total_precip`. 
 
 ```{r create residuals for precip_max_day in linear relation to total_precip}
 env_epi_ento <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_manzana_2016_01_to_2019_12.csv")
 
 # na.exclude pads residuals with NA for missing rows so lengths match the dataframe
-resid_fit <- lm(precip_max_day ~ precip_cat, data = env_epi_ento, na.action = na.exclude)
+# resid_fit <- lm(precip_max_day ~ precip_cat, data = env_epi_ento, na.action = na.exclude)
 
-env_epi_ento <- env_epi_ento %>%
-  mutate(precip_max_day_resid_on_top = resid(resid_fit))
+# env_epi_ento <- env_epi_ento %>%
+#   mutate(precip_max_day_resid_on_top = resid(resid_fit))
 
 resid_fit <- lm(precip_max_day ~ total_rainy_days, data = env_epi_ento)
 
@@ -3198,6 +3256,13 @@ resid_fit <- lm(precip_max_day ~ total_precip, data = env_epi_ento)
 env_epi_ento <- env_epi_ento %>%
   mutate(
     precip_max_day_resid_on_tp = resid(resid_fit)
+  )
+
+# for temperature
+resid_fit_temp <- lm(avg_temp ~ total_precip, data = env_epi_ento)
+env_epi_ento <- env_epi_ento %>%
+  mutate(
+    temp_resid_on_tp = resid(resid_fit_temp)
   )
 
 env_epi_ento_cmf <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_CMF_2016_01_to_2019_12.csv")
@@ -3220,6 +3285,12 @@ resid_fit <- lm(precip_max_day ~ total_precip, data = env_epi_ento_cmf)
 env_epi_ento_cmf <- env_epi_ento_cmf %>%
   mutate(
     precip_max_day_resid_on_tp = resid(resid_fit)
+  )
+
+resid_fit_temp_cmf <- lm(avg_temp ~ total_precip, data = env_epi_ento_cmf)
+env_epi_ento_cmf <- env_epi_ento_cmf %>%
+  mutate(
+    temp_resid_on_tp = resid(resid_fit_temp_cmf)
   )
 
 ```
@@ -3322,6 +3393,52 @@ print(p_trd / p_max / p_resid)
 ggsave(
   filename = file.path(save_images_to, "precip_max_daily_resid_onTRD_explanation.png"),
   plot = p_trd / p_max / p_resid,
+  width = 12, height = 10, dpi = 300, bg = "white"
+)
+```
+
+```{r 3-panel plot explaining avg_temp residual on total_precip}
+monthly_resid_plot_temp <- env_epi_ento %>%
+  group_by(year_month) %>%
+  summarise(
+    total_precip      = first(total_precip),
+    avg_temp          = first(avg_temp),
+    temp_resid_on_tp  = first(temp_resid_on_tp),
+    .groups = "drop"
+  ) %>%
+  mutate(year_month_date = as.Date(paste0(gsub("_", "-", year_month), "-01")))
+
+p_precip <- ggplot(monthly_resid_plot_temp, aes(x = year_month_date, y = total_precip)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_point(color = "steelblue") +
+  labs(title = "Total precipitation per month", x = NULL, y = "mm") +
+  theme_minimal()
+
+p_temp <- ggplot(monthly_resid_plot_temp, aes(x = year_month_date, y = avg_temp)) +
+  geom_line(color = "firebrick", size = 1) +
+  geom_point(color = "firebrick") +
+  labs(title = "Average temperature per month", x = NULL, y = "°C") +
+  theme_minimal()
+
+resid_fit_plot_temp <- lm(avg_temp ~ total_precip, data = monthly_resid_plot_temp)
+resid_formula_label_temp <- sprintf(
+  "avg_temp = %.2f + %.2f × total_precip",
+  coef(resid_fit_plot_temp)[1], coef(resid_fit_plot_temp)[2]
+)
+
+p_resid_temp <- ggplot(monthly_resid_plot_temp, aes(x = year_month_date, y = temp_resid_on_tp)) +
+  geom_hline(yintercept = 0, linetype = "dotted", color = "grey50") +
+  geom_line(color = "purple", size = 1) +
+  geom_point(color = "purple") +
+  labs(title = "Residual of average temperature on total precipitation",
+       subtitle = resid_formula_label_temp,
+       x = "Month", y = "Residual (°C)") +
+  theme_minimal()
+
+print(p_precip / p_temp / p_resid_temp)
+ggsave(
+  filename = file.path(save_images_to, "avg_temp_resid_onTP_explanation.png"),
+  plot = p_precip / p_temp / p_resid_temp,
   width = 12, height = 10, dpi = 300, bg = "white"
 )
 ```
