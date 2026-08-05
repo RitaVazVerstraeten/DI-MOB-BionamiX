@@ -789,6 +789,66 @@ run_one_combo <- function(combo_i) {
       writeLines(waic_output, file.path(run_output_dir, paste0("waic_", predictor_spec, ".txt")))
       saveRDS(loo_result,  file.path(run_output_dir, paste0("loo_",  predictor_spec, ".rds")))
       saveRDS(waic_result, file.path(run_output_dir, paste0("waic_", predictor_spec, ".rds")))
+
+      # ── Pareto-k diagnostics (reliability of the LOO approximation itself) ──
+      k_values <- loo_result$diagnostics$pareto_k
+      cat("\n--- Pareto k Summary ---\n")
+      cat("Good    (k < 0.5) :", sum(k_values < 0.5),
+          sprintf("(%.1f%%)\n", 100 * mean(k_values < 0.5)))
+      cat("OK      (0.5-0.7) :", sum(k_values >= 0.5 & k_values < 0.7),
+          sprintf("(%.1f%%)\n", 100 * mean(k_values >= 0.5 & k_values < 0.7)))
+      cat("Bad     (0.7-1.0) :", sum(k_values >= 0.7 & k_values < 1.0),
+          sprintf("(%.1f%%)\n", 100 * mean(k_values >= 0.7 & k_values < 1.0)))
+      cat("Very bad (k > 1.0):", sum(k_values >= 1.0),
+          sprintf("(%.1f%%)\n", 100 * mean(k_values >= 1.0)))
+
+      bad_obs <- which(k_values > 0.7)
+      if (length(bad_obs) > 0) {
+        bad_df <- data.frame(
+          obs_idx  = bad_obs,
+          pareto_k = k_values[bad_obs],
+          block    = stan_data$block[bad_obs],
+          time     = stan_data$time[bad_obs],
+          y        = stan_data$y[bad_obs],
+          n_bt     = stan_data$n_bt[bad_obs],
+          C_bt     = stan_data$C_bt[bad_obs]
+        )
+        bad_df <- bad_df[order(-bad_df$pareto_k), ]
+        flagged_base <- file.path(run_output_dir, paste0("pareto_k_flagged_", predictor_spec))
+        if (requireNamespace("writexl", quietly = TRUE)) {
+          writexl::write_xlsx(bad_df, paste0(flagged_base, ".xlsx"))
+        } else {
+          write.csv(bad_df, paste0(flagged_base, ".csv"), row.names = FALSE)
+        }
+        cat("Flagged observations saved to:", run_output_dir, "\n")
+      }
+
+      png(file.path(run_output_dir, paste0("pareto_k_plot_", predictor_spec, ".png")),
+          width = 800, height = 400)
+      plot(loo_result, main = paste("Pareto k —", predictor_spec))
+      abline(h = 0.7, col = "orange", lty = 2)
+      abline(h = 1.0, col = "red",    lty = 2)
+      dev.off()
+
+      # ── Credible interval coverage ───────────────────────────────────────────
+      cat("\n--- Credible Interval Coverage ---\n")
+      y_pred_draws_mat <- fit$draws("y_pred", format = "matrix")
+      y_obs            <- stan_data$y
+
+      coverage_df <- do.call(rbind, lapply(c(0.50, 0.80, 0.90, 0.95), function(prob) {
+        lo <- apply(y_pred_draws_mat, 2, quantile, (1 - prob) / 2)
+        hi <- apply(y_pred_draws_mat, 2, quantile, 1 - (1 - prob) / 2)
+        data.frame(
+          nominal  = prob,
+          observed = mean(y_obs >= lo & y_obs <= hi),
+          diff     = mean(y_obs >= lo & y_obs <= hi) - prob
+        )
+      }))
+      print(coverage_df)
+      write.csv(coverage_df,
+                file.path(run_output_dir, paste0("ci_coverage_", predictor_spec, ".csv")),
+                row.names = FALSE)
+      rm(y_pred_draws_mat); gc()
     }
 
     # Delete chain CSVs — plots and summary already saved, raw draws not needed

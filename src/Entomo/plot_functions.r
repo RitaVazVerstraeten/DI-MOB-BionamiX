@@ -2009,6 +2009,8 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
   })
   ix_col_starts <- cumsum(c(1L, ix_ncols[-length(ix_ncols)]))
 
+  all_diff_results <- list()  # accumulated across every continuous ix spec below
+
   for (k in seq_along(dlnm_ix_vars)) {
     ix <- dlnm_ix_vars[[k]]
     if (is.null(ix$continuous_var)) next  # binary specs: see save_dlnm_interaction_response_plots()
@@ -2188,6 +2190,98 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
                 row.names = FALSE)
     }
 
+    # ── Difference curve: is the modification actually credible? ────────────
+    # The percentile-lines plots above show each percentile's *marginal* CI,
+    # but those share draws_base (identical for every percentile) -- so
+    # eyeballing whether two ribbons overlap is a poor, overly conservative
+    # stand-in for testing whether the modifier changes the curve. The correct
+    # test is the CI of the *difference* between two percentiles' coefficient
+    # draws. Because draws_base is identical in both, it cancels out exactly:
+    #   draws_z_hi - draws_z_lo = sum_j (basis_hi[j]-basis_lo[j]) * draws_ix_blocks[[j]]
+    # -- depending only on the interaction draws, with none of the shared
+    # main-effect noise that inflated the marginal ribbons. Exponentiated,
+    # this is a ratio of odds ratios (ROR): how many times larger/smaller the
+    # dlnm_var effect is at the high vs. low percentile of the modifier.
+    # ROR = 1 (dashed line) is "no effect modification"; a 95% CI excluding 1
+    # is the credible-interaction criterion -- this replaces "do the two
+    # ribbons overlap" with the actual test.
+    p_lo_idx <- 1
+    p_hi_idx <- length(percentiles)
+    basis_row_lo   <- as.numeric(predict(mod_ns_basis, newx = mod_z_at_p[p_lo_idx])) - basis_center
+    basis_row_hi   <- as.numeric(predict(mod_ns_basis, newx = mod_z_at_p[p_hi_idx])) - basis_center
+    basis_row_diff <- basis_row_hi - basis_row_lo
+
+    draws_diff <- draws_ix_blocks[[1]] * 0
+    for (j in seq_len(df_mod)) draws_diff <- draws_diff + basis_row_diff[j] * draws_ix_blocks[[j]]
+    coef_diff <- setNames(colMeans(draws_diff), cb_names)
+    vcov_diff <- cov(draws_diff)
+    dimnames(vcov_diff) <- list(cb_names, cb_names)
+
+    pred_diff <- tryCatch(
+      exp_crosspred(dlnm::crosspred(cb_mats[[dlnm_var]], coef = coef_diff, vcov = vcov_diff,
+                      at = at_std, cen = 0, cumul = TRUE)),
+      error = function(e) NULL
+    )
+
+    if (is.null(pred_diff)) {
+      cat(sprintf("  Skipping continuous interaction difference plot for %s: crosspred failed.\n", label))
+    } else {
+      diff_rows <- c(
+        list(data.frame(lag = "cumulative", exposure = at_orig,
+                         ror = pred_diff$allfit, ror_low = pred_diff$alllow, ror_high = pred_diff$allhigh)),
+        lapply(0:L_val, function(l) data.frame(
+          lag = as.character(l), exposure = at_orig,
+          ror = pred_diff$matfit[, l + 1], ror_low = pred_diff$matlow[, l + 1], ror_high = pred_diff$mathigh[, l + 1]
+        ))
+      )
+      diff_df <- do.call(rbind, diff_rows)
+      diff_df$significant <- (diff_df$ror_low > 1 & diff_df$ror_high > 1) |
+                              (diff_df$ror_low < 1 & diff_df$ror_high < 1)
+      diff_df$label       <- label
+      diff_df$pct_lo      <- round(percentiles[p_lo_idx] * 100)
+      diff_df$pct_hi      <- round(percentiles[p_hi_idx] * 100)
+
+      write.csv(diff_df,
+                file.path(dir_overall, paste0("dlnm_ix_continuous_diff_", label, "_", run_suffix, ".csv")),
+                row.names = FALSE)
+      all_diff_results[[label]] <- diff_df
+
+      cat(sprintf("  [%s] p%d vs p%d of %s: %d/%d (exposure x lag) points with CI excluding ROR=1 (cumulative %s)\n",
+                  label, diff_df$pct_hi[1], diff_df$pct_lo[1], continuous_var,
+                  sum(diff_df$significant), nrow(diff_df),
+                  if (any(diff_df$significant[diff_df$lag == "cumulative"])) "CREDIBLE" else "not credible"))
+
+      plot_diff_curve <- function(sub_df, title, file_path) {
+        p <- ggplot(sub_df, aes(x = exposure, y = ror)) +
+          geom_hline(yintercept = 1, linetype = "dashed", colour = "grey50") +
+          geom_ribbon(aes(ymin = ror_low, ymax = ror_high, fill = significant), alpha = 0.25) +
+          geom_line(colour = "black", linewidth = 1) +
+          scale_fill_manual(values = c(`TRUE` = "firebrick", `FALSE` = "grey70"),
+                             name = "CI excludes 1", guide = "none") +
+          labs(
+            title    = title,
+            subtitle = sprintf("Ratio of odds ratios (p%d vs p%d of %s); red band = 95%% CI excludes ROR = 1",
+                                diff_df$pct_hi[1], diff_df$pct_lo[1], continuous_var),
+            x = dlnm_var, y = "Ratio of odds ratios (high / low modifier)"
+          ) +
+          theme_minimal()
+        ggsave(file_path, p, width = 9, height = 6, dpi = 150)
+      }
+
+      plot_diff_curve(
+        diff_df[diff_df$lag == "cumulative", ],
+        sprintf("Effect modification of %s by %s: cumulative", dlnm_var, continuous_var),
+        file.path(dir_overall, paste0("dlnm_ix_continuous_diff_cumulative_", label, "_", run_suffix, ".png"))
+      )
+      for (l in 0:L_val) {
+        plot_diff_curve(
+          diff_df[diff_df$lag == as.character(l), ],
+          sprintf("Effect modification of %s by %s: lag %d", dlnm_var, continuous_var, l),
+          file.path(dir_perlag, paste0("dlnm_ix_continuous_diff_lag", l, "_", label, "_", run_suffix, ".png"))
+        )
+      }
+    }
+
     # ── Heatmap: full (exposure x modifier) surface ───────────────────────────
     mod_orig_grid <- seq(min(raw_mod, na.rm = TRUE), max(raw_mod, na.rm = TRUE), length.out = grid_n)
     mod_z_grid    <- (mod_orig_grid - mod_mean) / mod_sd
@@ -2227,6 +2321,28 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
 
     cat(sprintf("  Continuous interaction plots saved: %s\n", label))
   }
+
+  # Single combined summary across every continuous interaction spec in this
+  # model -- the "at a glance" artifact for "is there a credible interaction,
+  # and where": filter to significant == TRUE to see exactly which
+  # (label, lag, exposure) combinations have a 95% CI excluding ROR = 1,
+  # rather than having to inspect every per-label/per-lag plot individually.
+  if (length(all_diff_results) > 0) {
+    combined_diff_df <- do.call(rbind, all_diff_results)
+    rownames(combined_diff_df) <- NULL
+    write.csv(combined_diff_df,
+              file.path(dir_overall, paste0("dlnm_ix_continuous_diff_summary_", run_suffix, ".csv")),
+              row.names = FALSE)
+
+    cumul_sig <- combined_diff_df[combined_diff_df$lag == "cumulative" & combined_diff_df$significant, ]
+    any_sig   <- combined_diff_df[combined_diff_df$significant, ]
+    cat(sprintf(
+      "\nContinuous interaction summary: %d/%d labels credible cumulatively; %d/%d labels credible at >=1 lag.\n",
+      length(unique(cumul_sig$label)), length(all_diff_results),
+      length(unique(any_sig$label)), length(all_diff_results)
+    ))
+  }
+  invisible(all_diff_results)
 }
 
 #' Save Backward Attributable-Number Time Series Plot
