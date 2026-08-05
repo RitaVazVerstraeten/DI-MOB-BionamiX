@@ -136,9 +136,9 @@ cfg <- list(
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
 
   dlnm_ix_vars = list(
-    # list(continuous_var = "HFP_urbanization", dlnm_var = "SPI6", label = "spi6_x_HFP", continuous_df = 2),
+    list(continuous_var = "HFP_urbanization", dlnm_var = "SPI6", label = "spi6_x_HFP", continuous_df = 2)
     # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
-    list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
+    # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
   ),
   dlnm_ix_vars = NULL,
 
