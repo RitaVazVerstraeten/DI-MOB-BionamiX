@@ -112,7 +112,7 @@ cfg <- list(
   numeric_vars = c("SPI6",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization", "avg_temp"),
 
   # DLNM settings (only used when use_dlnm = TRUE)
-  dlnm_vars   = c("SPI6",  "avg_VPD", "precip_max_day_resid_on_tp"),
+  dlnm_vars   = c("SPI6",  "avg_VPD", "precip_max_day_resid_on_tp", "avg_temp"),
   dlnm_argvar = list(
     SPI6                        = list(fun = "ns", df = 3),
     avg_VPD                     = list(fun = "ns", df = 3),
