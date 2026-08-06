@@ -1410,6 +1410,66 @@ exp_crosspred <- function(obj) {
   obj
 }
 
+#' Save Unlagged-Variable Effects Forest Plot
+#'
+#' One point + whisker per unlagged predictor (w_unlagged): posterior mean on
+#' the x-axis, variable name on the y-axis, whiskers = 95% credible interval
+#' computed directly from the posterior draws (2.5%/97.5% quantiles) -- not
+#' from a saved model_summary.txt, whose default quantile columns (q5/q95)
+#' are a 90% interval. For plotting from an already-saved summary.txt instead
+#' of a live fit object, see the standalone snippet in the project notes
+#' rather than this function.
+#'
+#' @param fit     CmdStanR fit object (must have a w_unlagged parameter)
+#' @param prep    Return value of build_stan_data()/build_dlnm_stan_data()
+#'   (uses prep$unlagged_vars for the w_unlagged[i] -> variable name mapping)
+#' @param output_dir  Directory to write the PNG into
+#' @param run_suffix  String appended to the filename
+save_unlagged_effects_plot <- function(fit, prep, output_dir, run_suffix) {
+  unlagged_vars <- prep$unlagged_vars
+  if (is.null(unlagged_vars) || length(unlagged_vars) == 0) {
+    cat("No unlagged variables in this model; skipping unlagged effects plot.\n")
+    return(invisible(NULL))
+  }
+
+  draws <- fit$draws("w_unlagged", format = "matrix")
+  idx   <- as.integer(sub("^w_unlagged\\[([0-9]+)\\]$", "\\1", colnames(draws)))
+  colnames(draws) <- unlagged_vars[idx]
+
+  df_plot <- data.frame(
+    variable = colnames(draws),
+    mean     = apply(draws, 2, mean),
+    ci_low   = apply(draws, 2, quantile, probs = 0.025),
+    ci_high  = apply(draws, 2, quantile, probs = 0.975)
+  )
+  # Order by effect size (largest positive at top) rather than alphabetically
+  df_plot$variable <- factor(df_plot$variable,
+                             levels = df_plot$variable[order(df_plot$mean)])
+
+  p <- ggplot2::ggplot(df_plot, ggplot2::aes(x = mean, y = variable)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed",
+                        colour = "gray40", linewidth = 0.5) +
+    ggplot2::geom_errorbar(
+      ggplot2::aes(xmin = ci_low, xmax = ci_high),
+      width = 0.2, linewidth = 0.55, colour = "steelblue",
+      orientation = "y") +
+    ggplot2::geom_point(size = 2.5, colour = "steelblue4") +
+    ggplot2::labs(
+      title    = "Unlagged variable effects",
+      subtitle = "Posterior mean ± 95% credible interval",
+      x        = "β coefficient (log-odds scale)",
+      y        = NULL
+    ) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(plot.title = ggplot2::element_text(face = "bold", size = 12))
+
+  out_file <- file.path(output_dir, paste0("unlagged_effects_", run_suffix, ".png"))
+  ggplot2::ggsave(out_file, p, width = 8,
+                  height = max(3, 0.4 * nrow(df_plot) + 1.5), dpi = 150)
+  cat("Unlagged effects plot saved to:", out_file, "\n")
+  invisible(p)
+}
+
 #' Save DLNM Exposure-Response and Lag-Response Plots
 #'
 #' For each DLNM predictor, recovers the bivariate exposure-lag-response surface
@@ -1493,9 +1553,26 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     )
     if (is.null(pred_i)) next
 
-    preds[[var]] <- list(pred = pred_i, at_std = at_std, at_orig = at_orig,
+    # Second crosspred at a finer lag resolution, used only by the heatmap
+    # below -- the ns() lag basis is continuous, so predicting at fractional
+    # lags (rather than the 3-D surface's/slices' integer 0:L_val) gives the
+    # smooth Lowe-et-al.-style transitions along the lag axis without
+    # changing the resolution of any existing plot.
+    L_val_i     <- as.integer(attr(cb_mats[[var]], "lag")[2])
+    bylag_fine  <- max(L_val_i / 30, 0.05)
+    pred_i_fine <- tryCatch(
+      exp_crosspred(dlnm::crosspred(cb_mats[[var]], coef = coef_i, vcov = vcov_i,
+                      at = at_std, cen = 0, cumul = TRUE, bylag = bylag_fine)),
+      error = function(e) {
+        cat(sprintf("  fine-lag crosspred failed for %s: %s\n", var, conditionMessage(e)))
+        NULL
+      }
+    )
+
+    preds[[var]] <- list(pred = pred_i, pred_fine = pred_i_fine,
+                         at_std = at_std, at_orig = at_orig,
                          v_mean = v_mean, v_sd = v_sd,
-                         L_val = as.integer(attr(cb_mats[[var]], "lag")[2]))
+                         L_val = L_val_i)
   }
 
   # ── Global z-range for comparable 3-D axes and colour scale ───────────────
@@ -1573,6 +1650,41 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
           border   = NA,
           ticktype = "detailed")
     dev.off()
+
+    # ── 2-D heatmap (Lowe et al. 2018-style smooth filled contour) ───────────
+    # Same exposure x lag x OR surface as the 3-D plot above, same shared
+    # colour scheme (pal/z_breaks_global, white anchored at OR = 1), but
+    # rendered as a smooth filled contour (exposure on x, lag on y) rather
+    # than a 3-D surface, using the finer-lag crosspred computed in Pass 1
+    # so transitions along the lag axis aren't blocky at only L_val+1 points.
+    pred_fine_i <- preds[[var]]$pred_fine
+    if (!is.null(pred_fine_i)) {
+      z_mat_fine    <- pred_fine_i$matfit
+      fine_lag_seq  <- seq(pred_fine_i$lag[1], pred_fine_i$lag[2], by = pred_fine_i$bylag)
+
+      png(file.path(dir_overall, paste0("dlnm_heatmap_", var, "_", run_suffix, ".png")),
+          width = 800, height = 600)
+      filled.contour(
+        x      = at_orig,
+        y      = fine_lag_seq,
+        z      = z_mat_fine,
+        levels = z_breaks_global,
+        col    = pal,
+        xlab   = var,
+        ylab   = "Lag (months)",
+        main   = paste("DLNM heatmap —", var),
+        key.title = title(main = "OR", cex.main = 0.9),
+        plot.axes = {
+          axis(1)
+          axis(2)
+          contour(at_orig, fine_lag_seq, z_mat_fine, levels = 1,
+                  add = TRUE, col = "black", lty = 2, lwd = 1, drawlabels = FALSE)
+        }
+      )
+      dev.off()
+    } else {
+      cat(sprintf("  Skipping heatmap for %s: fine-lag crosspred unavailable\n", var))
+    }
 
     # ── Per-lag slice plots (one per lag, same style as cumulative) ──────────
     for (l in lag_seq) {

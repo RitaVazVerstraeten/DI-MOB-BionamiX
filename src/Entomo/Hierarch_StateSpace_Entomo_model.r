@@ -92,10 +92,10 @@ cfg <- list(
   response_start = "2016_01",
   n_blocks = NULL, # set NULL for all blocks/CMFs
 
-  lag_vars = c("SPI6", "avg_temp", "precip_max_day_resid_on_spi6"),
+  lag_vars = c("total_precip", "avg_temp", "precip_max_day_resid_on_tp"),
   # lag_vars = c("total_rainy_days", "avg_VPD"),
 
-  max_lag = 6,
+  max_lag = 5,
   kappa = 4,
 
   # unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
@@ -105,19 +105,23 @@ cfg <- list(
   # covariates) to test whether the RF-flagged interactions resurrect once
   # HFP_urbanization/mean_ndvi/is_WUI/is_WI are removed.
   # unlagged_vars = c("HFP_urbanization", "is_WUI","water_containers", "mean_ndvi"),
-  # unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI","water_shortage", "mean_ndvi", "water_containers", "is_WI"),
-  unlagged_vars = c("HFP_urbanization",  "water_containers"),
+  unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI","water_shortage", "water_containers"),
+  # unlagged_vars = c("HFP_urbanization",  "water_containers"),
 
-  # numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization", "mean_ndvi"),
-  numeric_vars = c("SPI6",  "water_containers", "HFP_urbanization", "avg_temp", "precip_max_day_resid_on_spi6"),
+  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization", "mean_ndvi"),
+  # numeric_vars = c("SPI6",  "water_containers", "HFP_urbanization", "avg_temp", "precip_max_day_resid_on_spi6"),
+
 
   # DLNM settings (only used when use_dlnm = TRUE)
-  dlnm_vars   = c("SPI6",  "avg_temp", "precip_max_day_resid_on_spi6"),
+  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp"),
+  # dlnm_vars   = c("SPI6",  "avg_temp", "precip_max_day_resid_on_spi6"),
   dlnm_argvar = list(
-    SPI6                        = list(fun = "ns", df = 3),
-    # avg_VPD                     = list(fun = "ns", df = 3),
-    precip_max_day_resid_on_spi6 = list(fun = "ns", df = 3),
-    avg_temp            = list(fun = "ns", df = 3)
+    total_precip                = list(fun = "ns", df = 3),
+    avg_VPD                     = list(fun = "ns", df = 3),
+    precip_max_day_resid_on_tp  = list(fun = "ns", df = 3)
+    # SPI6                        = list(fun = "ns", df = 3),
+    # precip_max_day_resid_on_spi6 = list(fun = "ns", df = 3),
+    # avg_temp            = list(fun = "ns", df = 3)
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
 
@@ -938,6 +942,9 @@ if ("u_block_out" %in% model_vars) {
   cat("Generating u_block random effects plot...\n")
   save_u_block_plot(fit, plots_output_dir, model_spec)
 }
+
+cat("Generating unlagged variable effects forest plot...\n")
+save_unlagged_effects_plot(fit, prep, plots_output_dir, model_spec)
 
 if (isTRUE(cfg$use_dlnm)) {
   cat("Generating DLNM exposure-response and lag-response plots...\n")
