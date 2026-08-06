@@ -92,7 +92,7 @@ cfg <- list(
   response_start = "2016_01",
   n_blocks = NULL, # set NULL for all blocks/CMFs
 
-  lag_vars = c("SPI6", "avg_temp", "precip_max_day"),
+  lag_vars = c("SPI6", "avg_temp", "precip_max_day_resid_on_spi6"),
   # lag_vars = c("total_rainy_days", "avg_VPD"),
 
   max_lag = 6,
@@ -109,14 +109,14 @@ cfg <- list(
   unlagged_vars = c("HFP_urbanization",  "water_containers"),
 
   # numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization", "mean_ndvi"),
-  numeric_vars = c("SPI6",  "water_containers", "HFP_urbanization", "avg_temp", "precip_max_day"),
+  numeric_vars = c("SPI6",  "water_containers", "HFP_urbanization", "avg_temp", "precip_max_day_resid_on_spi6"),
 
   # DLNM settings (only used when use_dlnm = TRUE)
-  dlnm_vars   = c("SPI6",  "avg_temp", "precip_max_day"),
+  dlnm_vars   = c("SPI6",  "avg_temp", "precip_max_day_resid_on_spi6"),
   dlnm_argvar = list(
     SPI6                        = list(fun = "ns", df = 3),
     # avg_VPD                     = list(fun = "ns", df = 3),
-    precip_max_day = list(fun = "ns", df = 3),
+    precip_max_day_resid_on_spi6 = list(fun = "ns", df = 3),
     avg_temp            = list(fun = "ns", df = 3)
   ),
   dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
