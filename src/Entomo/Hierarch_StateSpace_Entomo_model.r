@@ -127,11 +127,8 @@ cfg <- list(
     # precip_max_day_resid_on_spi6 = list(fun = "ns", df = 3),
     # avg_temp            = list(fun = "ns", df = 3)
   ),
-  # Log-spaced lag knots (nk=2 -> 3-column ns() basis, same dimensionality as
-  # the old df=3 equal-spaced default): front-loads spline flexibility toward
-  # short lags, where real curvature is expected, and leaves long lags as a
-  # single knot-free stretch so the model can't fit a non-decaying wiggle there.
-  dlnm_arglag = list(fun = "ns", knots = dlnm::logknots(max_lag, nk = 2)),
+  # Log-spaced lag knots (nk=1 -> 3-column ns() basis, same dimensionality as the old df=3 equal-spaced default -- dlnm::crossbasis() builds the lag basis with intercept=TRUE internally, unlike a bare splines::ns() call, so ncol = nk + 1 + intercept = nk + 2, meaning nk=1 not nk=2 matches the old 3-column dimensionality here): front-loads spline flexibility toward short lags, where real curvature is expected, and leaves long lags as a single knot-free stretch so the model can't fit a non-decaying wiggle there.
+  dlnm_arglag = list(fun = "ns", knots = dlnm::logknots(max_lag, nk = 1)),
 
   # Interaction cross-bases: each entry is either
   #   (binary_var, active_level, dlnm_var, label) - a 0/1 indicator modifier,
