@@ -56,6 +56,10 @@ is_compute_node <- hostname %in% c("frietjes", "stoofvlees")
 spatial_level <- "CMF" 
 
 # ========== Output structure and config =============
+# Standalone variable (not just a cfg field) so dlnm_arglag below can compute
+# its log-spaced lag knots from the same value in one place -- see dlnm_arglag.
+max_lag <- 5
+
 cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo" else if (hostname == "stoofvlees") "~/entomo_data" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data",
   # Extended-lag dataset: env 2015-2019 (NDVI/NDMI/NDWI observed 2016-2019, climatology-backfilled for 2015), ento-epi 2016-2019.
@@ -95,7 +99,7 @@ cfg <- list(
   lag_vars = c("total_precip", "avg_temp", "precip_max_day_resid_on_tp"),
   # lag_vars = c("total_rainy_days", "avg_VPD"),
 
-  max_lag = 5,
+  max_lag = max_lag,
   kappa = 4,
 
   # unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
@@ -123,7 +127,11 @@ cfg <- list(
     # precip_max_day_resid_on_spi6 = list(fun = "ns", df = 3),
     # avg_temp            = list(fun = "ns", df = 3)
   ),
-  dlnm_arglag = list(fun = "ns", df = 3),  # shared lag basis across all DLNM vars
+  # Log-spaced lag knots (nk=2 -> 3-column ns() basis, same dimensionality as
+  # the old df=3 equal-spaced default): front-loads spline flexibility toward
+  # short lags, where real curvature is expected, and leaves long lags as a
+  # single knot-free stretch so the model can't fit a non-decaying wiggle there.
+  dlnm_arglag = list(fun = "ns", knots = dlnm::logknots(max_lag, nk = 2)),
 
   # Interaction cross-bases: each entry is either
   #   (binary_var, active_level, dlnm_var, label) - a 0/1 indicator modifier,
@@ -178,7 +186,10 @@ cfg <- list(
 # Allow a calling script to inject cfg overrides before the model runs.
 # Set .hierarch_cfg_override <- list(...) before source()-ing this script.
 if (exists(".hierarch_cfg_override") && is.list(.hierarch_cfg_override))
-  cfg <- modifyList(cfg, .hierarch_cfg_override)
+  cfg <- modifyList(cfg, .hierarch_cfg_override)  # recursive merge: an override's own
+  # dlnm_arglag (e.g. run_exposure_response_functions_sweep.R varying it per config)
+  # replaces the default above field-by-field; untouched fields/configs keep the
+  # log-knot default set inline in cfg$dlnm_arglag.
 
 # ========== Output directory structure =============
 date_suffix <- format(Sys.Date(), "%Y%m%d")
@@ -231,7 +242,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix)
+run_suffix <- paste0(date_suffix, "_logknots")
 if (exists(".hierarch_run_suffix")) run_suffix <- .hierarch_run_suffix
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)

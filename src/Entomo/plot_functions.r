@@ -1420,12 +1420,35 @@ exp_crosspred <- function(obj) {
 #' of a live fit object, see the standalone snippet in the project notes
 #' rather than this function.
 #'
+#' scale = "logodds" (default, alongside "OR"; see below) plots w_unlagged
+#' as-is -- this is the model's actual linear-predictor scale (see
+#' hierarchical_state_space_*.stan: eta includes X_unlagged * w_unlagged,
+#' then p_bt = inv_logit(eta)), NOT an odds ratio, unlike the DLNM lagged-
+#' variable plots (save_dlnm_response_plots() etc.), which do exponentiate
+#' via exp_crosspred(). scale = "OR" exponentiates for a like-for-like
+#' comparison with those. Mirrors save_glmm_coef_forest_plot()'s
+#' scale = c("logodds", "OR") pattern elsewhere in this file.
+#'
+#' Draws are transformed (exp()) BEFORE summarising when scale = "OR", so
+#' mean/CI come directly from the OR-scale draws rather than from
+#' exponentiating an already-computed log-odds mean -- exp() commutes
+#' exactly with quantiles/medians but not with the mean (Jensen's
+#' inequality), so this avoids a biased OR-scale point estimate.
+#'
 #' @param fit     CmdStanR fit object (must have a w_unlagged parameter)
 #' @param prep    Return value of build_stan_data()/build_dlnm_stan_data()
 #'   (uses prep$unlagged_vars for the w_unlagged[i] -> variable name mapping)
 #' @param output_dir  Directory to write the PNG into
 #' @param run_suffix  String appended to the filename
-save_unlagged_effects_plot <- function(fit, prep, output_dir, run_suffix) {
+#' @param scale   "logodds", "OR", or both (default) -- one plot per value
+save_unlagged_effects_plot <- function(fit, prep, output_dir, run_suffix,
+                                       scale = c("logodds", "OR")) {
+  scale <- match.arg(scale, several.ok = TRUE)
+  if (length(scale) > 1) {
+    for (s in scale) save_unlagged_effects_plot(fit, prep, output_dir, run_suffix, scale = s)
+    return(invisible(NULL))
+  }
+
   unlagged_vars <- prep$unlagged_vars
   if (is.null(unlagged_vars) || length(unlagged_vars) == 0) {
     cat("No unlagged variables in this model; skipping unlagged effects plot.\n")
@@ -1435,6 +1458,21 @@ save_unlagged_effects_plot <- function(fit, prep, output_dir, run_suffix) {
   draws <- fit$draws("w_unlagged", format = "matrix")
   idx   <- as.integer(sub("^w_unlagged\\[([0-9]+)\\]$", "\\1", colnames(draws)))
   colnames(draws) <- unlagged_vars[idx]
+
+  if (scale == "OR") {
+    draws    <- exp(draws)
+    x_ref    <- 1
+    x_label  <- "Odds ratio"
+    subtitle <- "Posterior mean ± 95% credible interval (OR scale)"
+    x_scale  <- ggplot2::scale_x_log10()
+    file_tag <- "OR"
+  } else {
+    x_ref    <- 0
+    x_label  <- "β coefficient (log-odds scale)"
+    subtitle <- "Posterior mean ± 95% credible interval"
+    x_scale  <- ggplot2::scale_x_continuous()
+    file_tag <- "logodds"
+  }
 
   df_plot <- data.frame(
     variable = colnames(draws),
@@ -1447,26 +1485,27 @@ save_unlagged_effects_plot <- function(fit, prep, output_dir, run_suffix) {
                              levels = df_plot$variable[order(df_plot$mean)])
 
   p <- ggplot2::ggplot(df_plot, ggplot2::aes(x = mean, y = variable)) +
-    ggplot2::geom_vline(xintercept = 0, linetype = "dashed",
+    ggplot2::geom_vline(xintercept = x_ref, linetype = "dashed",
                         colour = "gray40", linewidth = 0.5) +
     ggplot2::geom_errorbar(
       ggplot2::aes(xmin = ci_low, xmax = ci_high),
       width = 0.2, linewidth = 0.55, colour = "steelblue",
       orientation = "y") +
     ggplot2::geom_point(size = 2.5, colour = "steelblue4") +
+    x_scale +
     ggplot2::labs(
       title    = "Unlagged variable effects",
-      subtitle = "Posterior mean ± 95% credible interval",
-      x        = "β coefficient (log-odds scale)",
+      subtitle = subtitle,
+      x        = x_label,
       y        = NULL
     ) +
     ggplot2::theme_minimal(base_size = 11) +
     ggplot2::theme(plot.title = ggplot2::element_text(face = "bold", size = 12))
 
-  out_file <- file.path(output_dir, paste0("unlagged_effects_", run_suffix, ".png"))
+  out_file <- file.path(output_dir, paste0("unlagged_effects_", file_tag, "_", run_suffix, ".png"))
   ggplot2::ggsave(out_file, p, width = 8,
                   height = max(3, 0.4 * nrow(df_plot) + 1.5), dpi = 150)
-  cat("Unlagged effects plot saved to:", out_file, "\n")
+  cat("Unlagged effects plot (", scale, ") saved to:", out_file, "\n")
   invisible(p)
 }
 
