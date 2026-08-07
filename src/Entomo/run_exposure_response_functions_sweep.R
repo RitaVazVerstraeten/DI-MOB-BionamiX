@@ -78,6 +78,11 @@ max_lag <- 5
 # 8-9 below for the direct log-knots vs. equal-spaced-knots comparison.
 logknots_lag <- list(fun = "ns", knots = dlnm::logknots(max_lag, nk = 1))
 
+# nk=2 -> 4-column ns() basis (same dimensionality as the df=4 equal-spaced
+# arglag tested manually), two log-spaced interior knots instead of one --
+# see configs 14-15 for the direct nk=1 vs. nk=2 log-knots comparison.
+logknots_lag2 <- list(fun = "ns", knots = dlnm::logknots(max_lag, nk = 2))
+
 # =============================================================================
 # Configuration grid
 # =============================================================================
@@ -155,6 +160,16 @@ configs <- list(
       precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
       avg_VPD                    = list(fun = "ns", df = 3)
     )
+  ),
+
+  list(
+    dlnm_argvar = list(
+      total_precip               = list(fun = "ns", df = 3),
+      precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
+      avg_VPD                    = list(fun = "ns", df = 2)
+    ),
+    dlnm_arglag = list(fun = "ns", df = 3)
+
   ),
 
   # 8 — log-knots counterpart of config 5 (ns3 all argvar): same argvar spec,
@@ -240,6 +255,56 @@ configs <- list(
       avg_VPD                    = list(fun = "ns", df = 3)
     ),
     dlnm_arglag = list(fun = "ns", df = 3)
+  ),
+
+  # 14 — nk=2 log-knots counterpart of config 8 (same argvar as config 5):
+  # tests whether a second log-spaced interior knot helps over the single-knot
+  # version, direct LOO comparison against config 8 isolates knot count alone.
+  list(
+    dlnm_argvar = list(
+      total_precip               = list(fun = "ns", df = 3),
+      precip_max_day_resid_on_tp = list(fun = "ns", df = 3),
+      avg_VPD                    = list(fun = "ns", df = 3)
+    ),
+    dlnm_arglag = logknots_lag2
+  ),
+
+  # 15 — nk=2 log-knots counterpart of config 9 (same argvar as config 6):
+  # same nk=1 vs. nk=2 comparison as config 14, against config 6/9's argvar
+  # spec instead of config 5/8's.
+  list(
+    dlnm_argvar = list(
+      total_precip               = list(fun = "ns", df = 3),
+      precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
+      avg_VPD                    = list(fun = "ns", df = 3)
+    ),
+    dlnm_arglag = logknots_lag2
+  ), 
+
+  list(
+    dlnm_argvar = list(
+      total_precip               = list(fun = "ns", df = 3),
+      precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
+      avg_VPD                    = list(fun = "ns", df = 3)
+    ),
+    dlnm_arglag = list(
+      total_precip               = logknots_lag2,
+      precip_max_day_resid_on_tp = list(fun = "ns", df = 3),
+      avg_VPD                    = list(fun = "ns", df = 3)
+    )
+  ),
+  
+  list(
+    dlnm_argvar = list(
+      total_precip               = list(fun = "ns", df = 3),
+      precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
+      avg_VPD                    = list(fun = "ns", df = 3)
+    ),
+    dlnm_arglag = list(
+      total_precip               = logknots_lag2,
+      precip_max_day_resid_on_tp = logknots_lag2,
+      avg_VPD                    = list(fun = "ns", df = 3)
+    )
   )
 )
 
