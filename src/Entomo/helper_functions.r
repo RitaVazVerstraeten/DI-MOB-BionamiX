@@ -1279,3 +1279,82 @@ bootstrap_elpd_comparison <- function(result_list, cluster_ids = NULL,
   attr(out, "n_boot")       <- n_boot
   out
 }
+
+#' Describe One Resolved DLNM Basis Spec (fun, knots, intercept, boundary)
+#'
+#' Internal helper for describe_dlnm_basis(). `spec` is the resolved
+#' argvar/arglag list dlnm::crossbasis() stores as an attribute on its output
+#' -- fields confirmed empirically: fun, knots, intercept, Boundary.knots
+#' (knots/Boundary.knots absent for fun = "lin"; different fields again for
+#' "thr"/"strata", handled generically here by just reporting n_knots = 0).
+#' `back_transform`, if supplied (list(mean=, sd=)), converts knots/boundary
+#' from z-score units back to the original data scale -- needed for argvar,
+#' which is fit on standardized values; arglag needs no transform (already in
+#' raw lag-month units).
+describe_one_dlnm_spec <- function(spec, var, dimension, back_transform = NULL) {
+  knots_raw    <- spec$knots
+  boundary_raw <- spec$Boundary.knots
+  if (!is.null(back_transform)) {
+    if (!is.null(knots_raw))
+      knots_raw    <- knots_raw * back_transform$sd + back_transform$mean
+    if (!is.null(boundary_raw))
+      boundary_raw <- boundary_raw * back_transform$sd + back_transform$mean
+  }
+  intercept_val <- if (!is.null(spec$intercept)) spec$intercept else NA
+  n_knots       <- if (!is.null(knots_raw)) length(knots_raw) else 0L
+  # ns()/bs(): ncol = n_knots + 1 + intercept (see the intercept discussion --
+  # this is the formula that made nk=1 the arglag equivalent of the old df=3).
+  df_val <- if (identical(spec$fun, "ns") || identical(spec$fun, "bs"))
+    n_knots + 1L + as.integer(isTRUE(intercept_val)) else NA_integer_
+
+  data.frame(
+    variable      = var,
+    dimension     = dimension,
+    fun           = spec$fun,
+    n_knots       = n_knots,
+    df            = df_val,
+    intercept     = intercept_val,
+    knots         = if (n_knots > 0) paste(round(knots_raw, 3), collapse = "; ") else "",
+    boundary_low  = if (!is.null(boundary_raw)) round(boundary_raw[1], 3) else NA_real_,
+    boundary_high = if (!is.null(boundary_raw)) round(boundary_raw[2], 3) else NA_real_,
+    stringsAsFactors = FALSE
+  )
+}
+
+#' Save a Summary of Resolved DLNM Basis Settings (shape, df, knots, intercept)
+#'
+#' dlnm::crossbasis() resolves knot positions internally even when only `df`
+#' is specified (not explicit `knots=`) -- this pulls the fully resolved spec
+#' back off each cross-basis matrix's own attributes (the same attributes
+#' the counterfactual-crossbasis rebuilding code elsewhere in this file
+#' already relies on), rather than re-deriving it from cfg, so it's
+#' guaranteed to match what dlnm actually built -- including cases where
+#' equal-spaced df= was used and the exact knot positions were never
+#' explicitly chosen.
+#'
+#' @param prep Return value of build_dlnm_stan_data() (needs cb_mats,
+#'   dlnm_vars, dlnm_var_stats)
+#' @return data.frame, one row per (variable, dimension in {argvar, arglag}):
+#'   variable, dimension, fun, n_knots, df, intercept, knots (semicolon-
+#'   separated, original data units for argvar / lag-months for arglag),
+#'   boundary_low, boundary_high
+describe_dlnm_basis <- function(prep) {
+  cb_mats   <- prep$cb_mats
+  dlnm_vars <- prep$dlnm_vars
+  var_stats <- prep$dlnm_var_stats
+
+  rows <- lapply(dlnm_vars, function(var) {
+    spec_argvar <- attr(cb_mats[[var]], "argvar")
+    spec_arglag <- attr(cb_mats[[var]], "arglag")
+    stats_i <- if (!is.null(var_stats) && var %in% names(var_stats))
+      var_stats[[var]] else list(mean = 0, sd = 1)
+
+    rbind(
+      describe_one_dlnm_spec(spec_argvar, var, "argvar", back_transform = stats_i),
+      describe_one_dlnm_spec(spec_arglag, var, "arglag", back_transform = NULL)
+    )
+  })
+  out <- do.call(rbind, rows)
+  rownames(out) <- NULL
+  out
+}
