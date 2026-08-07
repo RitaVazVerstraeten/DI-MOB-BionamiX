@@ -96,7 +96,7 @@ cfg <- list(
   response_start = "2016_01",
   n_blocks = NULL, # set NULL for all blocks/CMFs
 
-  lag_vars = c("total_precip", "avg_temp", "precip_max_day_resid_on_tp"),
+  lag_vars = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp", "max_VPD_resid_on_avg"),
   # lag_vars = c("total_rainy_days", "avg_VPD"),
 
   max_lag = max_lag,
@@ -112,17 +112,18 @@ cfg <- list(
   unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI","water_shortage", "water_containers"),
   # unlagged_vars = c("HFP_urbanization",  "water_containers"),
 
-  numeric_vars = c("total_precip",  "avg_temp", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization", "mean_ndvi"),
+  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp","max_VPD_resid_on_avg", "water_containers", "HFP_urbanization", "mean_ndvi"),
   # numeric_vars = c("SPI6",  "water_containers", "HFP_urbanization", "avg_temp", "precip_max_day_resid_on_spi6"),
 
 
   # DLNM settings (only used when use_dlnm = TRUE)
-  dlnm_vars   = c("total_precip",  "avg_temp", "precip_max_day_resid_on_tp"),
+  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "max_VPD_resid_on_avg"),
   # dlnm_vars   = c("SPI6",  "avg_temp", "precip_max_day_resid_on_spi6"),
   dlnm_argvar = list(
     total_precip                = list(fun = "ns", df = 3),
     avg_temp                     = list(fun = "ns", df = 3),
-    precip_max_day_resid_on_tp  = list(fun = "ns", df = 3)
+    precip_max_day_resid_on_tp  = list(fun = "ns", df = 3), 
+    max_VPD_resid_on_avg  = list(fun = "ns", df = 3)
     # SPI6                        = list(fun = "ns", df = 3),
     # precip_max_day_resid_on_spi6 = list(fun = "ns", df = 3),
     # avg_temp            = list(fun = "ns", df = 3)
@@ -130,7 +131,7 @@ cfg <- list(
   # Log-spaced lag knots (nk=1 -> 3-column ns() basis, same dimensionality as the old df=3 equal-spaced default -- dlnm::crossbasis() builds the lag basis with intercept=TRUE internally, unlike a bare splines::ns() call, so ncol = nk + 1 + intercept = nk + 2, meaning nk=1 not nk=2 matches the old 3-column dimensionality here): front-loads spline flexibility toward short lags, where real curvature is expected, and leaves long lags as a single knot-free stretch so the model can't fit a non-decaying wiggle there.
   # dlnm_arglag = list(fun = "ns", knots = dlnm::logknots(max_lag, nk = 1)),
 
-  dlnm_arglag = list(fun = "ns", df = 4),
+  dlnm_arglag = list(fun = "ns", df = 3),
 
 
   # Interaction cross-bases: each entry is either
@@ -242,7 +243,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "_arglag_ns_4df")
+run_suffix <- paste0(date_suffix)
 if (exists(".hierarch_run_suffix")) run_suffix <- .hierarch_run_suffix
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
