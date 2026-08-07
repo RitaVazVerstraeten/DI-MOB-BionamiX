@@ -34,6 +34,8 @@ hostname    <- Sys.info()["nodename"]
 
 test_output_dir <- if (hostname == "frietjes") {
   "/home/rita/data/Entomo/fitting/stan/test_exposure_response_functions_noHurr"
+} else if (hostname == "stoofvlees") {
+  "~/entomo_data/fitting/stan/test_exposure_response_functions"
 } else {
   "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan/test_exposure_response_functions"
 }
@@ -349,10 +351,7 @@ for (i in seq_along(configs)) {
     lag_vars     = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp"),
     dlnm_vars    = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp"),
     numeric_vars = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp", "water_containers"),
-    dlnm_ix_vars = list(
-      list(binary_var = "is_urban", active_level = 0,
-           dlnm_var   = "total_precip", label = "nonurban_x_tp")
-    ),
+    dlnm_ix_vars = NULL,
     dlnm_argvar  = cfg_i$dlnm_argvar,
     dlnm_arglag  = cfg_i$dlnm_arglag,
     output_dir   = test_output_dir
