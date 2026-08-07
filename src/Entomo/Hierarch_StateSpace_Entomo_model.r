@@ -104,7 +104,7 @@ cfg <- list(
   # (total_precip lags + is_urban/water_shortage/water_containers only, no land-use
   # covariates) to test whether the RF-flagged interactions resurrect once
   # HFP_urbanization/mean_ndvi/is_WUI/is_WI are removed.
-  unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI", "is_WI", "water_shortage", "water_containers"),
+  unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI", "water_shortage", "water_containers"),
 
   numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp","water_containers", "mean_ndvi", "HFP_urbanization"),
 
@@ -143,7 +143,7 @@ cfg <- list(
   # MCMC
   chains = 4,
   iter_warmup = 1000,
-  iter_sampling = 1500,
+  iter_sampling = 1000,
   adapt_delta = 0.95, # target average acceptance probability for the NUTS sampler in stan
   max_treedepth = 12, # caps how many steps the NUTS sampler can take in a single iteration.
   parallel_chains = if (is_compute_node) 4 else 1,
