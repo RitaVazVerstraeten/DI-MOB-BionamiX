@@ -1182,3 +1182,100 @@ compute_af_posterior_timeseries <- function(var, cb_mats, w_cb_draws, cb_ncols, 
     cases     = as.numeric(cases_by_month)
   )
 }
+
+#' Bootstrap Comparison of Pointwise LOO/WAIC Between Models
+#'
+#' loo_compare()'s se_diff is a normal approximation to the sampling
+#' uncertainty of the total elpd difference -- it can be misleading when the
+#' N pointwise differences are skewed or heavy-tailed (often driven by the
+#' same high-Pareto-k points already flagged elsewhere in this pipeline).
+#' This resamples the pointwise differences directly (no refitting -- the
+#' pointwise values are already stored in each loo()/waic() object) to build
+#' an empirical distribution of the total elpd difference against a
+#' reference model, giving:
+#'   - a percentile CI that reflects the actual shape (skew, tails) of that
+#'     distribution instead of assuming symmetry, and
+#'   - the bootstrap "win probability": the proportion of replicates where a
+#'     model's resampled total elpd exceeds the reference's -- a data-driven
+#'     measure of how often the evidence favours this model over the
+#'     reference, not a formal posterior probability.
+#'
+#' Resampling unit: individual observations by default, or whole clusters
+#' (e.g. block) if cluster_ids is supplied. Cluster resampling is strongly
+#' recommended whenever the model has group-level structure (block random
+#' effects, per-block AR(1), etc.) -- pointwise elpd values within the same
+#' cluster share that cluster's random-effect draw and are not independent,
+#' so resampling individual observations understates the true uncertainty.
+#'
+#' @param result_list Named list of loo() or waic() objects (same objects
+#'   passed to loo::loo_compare()), one per model, all computed on the exact
+#'   same N observations in the exact same row order.
+#' @param cluster_ids Optional length-N vector (e.g. stan_data$block) to
+#'   resample by cluster instead of by individual observation. NULL (default)
+#'   resamples individual observations.
+#' @param reference Name of the model in result_list to compare every other
+#'   model against. NULL (default) uses whichever model has the highest
+#'   total elpd -- the same model loo_compare() would rank first.
+#' @param n_boot Number of bootstrap replicates (default 4000).
+#' @param ci_prob Central CI width (default 0.95).
+#' @param seed RNG seed, for reproducibility across runs.
+#' @return data.frame (one row per model, sorted best to worst): model,
+#'   elpd_diff (point estimate, matches loo_compare()'s elpd_diff), ci_low,
+#'   ci_high (bootstrap percentile CI on elpd_diff), prob_better (bootstrap
+#'   win probability against the reference model).
+bootstrap_elpd_comparison <- function(result_list, cluster_ids = NULL,
+                                       reference = NULL, n_boot = 4000,
+                                       ci_prob = 0.95, seed = 1) {
+  stopifnot(length(result_list) >= 2)
+  set.seed(seed)
+
+  get_pointwise <- function(x) {
+    pw  <- x$pointwise
+    col <- intersect(c("elpd_loo", "elpd_waic"), colnames(pw))
+    if (length(col) == 0) stop("Neither elpd_loo nor elpd_waic found in pointwise matrix")
+    pw[, col[1]]
+  }
+  pw_list <- lapply(result_list, get_pointwise)
+  n_obs   <- length(pw_list[[1]])
+  if (!all(vapply(pw_list, length, integer(1)) == n_obs))
+    stop("bootstrap_elpd_comparison: all models must have the same N observations, ",
+         "in the same order -- pointwise lengths differ across result_list.")
+
+  if (is.null(reference)) {
+    totals    <- vapply(pw_list, sum, numeric(1))
+    reference <- names(pw_list)[which.max(totals)]
+  }
+  ref_pw   <- pw_list[[reference]]
+  diff_mat <- sapply(pw_list, function(pw) pw - ref_pw)  # N x n_models
+
+  # iid bootstrap is the special case of cluster bootstrap where every
+  # observation is its own singleton cluster.
+  clusters   <- if (is.null(cluster_ids)) seq_len(n_obs) else cluster_ids
+  if (length(clusters) != n_obs)
+    stop("cluster_ids must have length N (", n_obs, "), got ", length(clusters))
+  uclusters  <- unique(clusters)
+  idx_by_clu <- split(seq_len(n_obs), clusters)
+
+  boot_totals <- matrix(NA_real_, nrow = n_boot, ncol = ncol(diff_mat),
+                         dimnames = list(NULL, colnames(diff_mat)))
+  for (b in seq_len(n_boot)) {
+    sampled <- sample(uclusters, length(uclusters), replace = TRUE)
+    idx     <- unlist(idx_by_clu[as.character(sampled)], use.names = FALSE)
+    boot_totals[b, ] <- colSums(diff_mat[idx, , drop = FALSE])
+  }
+
+  alpha <- c((1 - ci_prob) / 2, 1 - (1 - ci_prob) / 2)
+  out <- data.frame(
+    model       = colnames(diff_mat),
+    elpd_diff   = colSums(diff_mat),
+    ci_low      = apply(boot_totals, 2, quantile, probs = alpha[1]),
+    ci_high     = apply(boot_totals, 2, quantile, probs = alpha[2]),
+    prob_better = colMeans(boot_totals > 0),
+    row.names   = NULL
+  )
+  out <- out[order(-out$elpd_diff), ]
+  attr(out, "reference")    <- reference
+  attr(out, "clustered")    <- !is.null(cluster_ids)
+  attr(out, "n_boot")       <- n_boot
+  out
+}

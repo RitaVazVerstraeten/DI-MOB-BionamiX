@@ -44,16 +44,18 @@ argspec_label <- function(spec) {
   if (!is.list(spec) || is.null(spec$fun)) return("default")
   if (spec$fun == "lin")    return("lin")
   if (spec$fun == "strata") return("strata")
+  # Explicit knots (e.g. dlnm::logknots()) rather than df-based equal spacing:
+  # spec$df is NULL here, so label by knot count instead of "nsNAdf".
+  if (!is.null(spec$knots)) return(paste0(spec$fun, "LogK", length(spec$knots)))
   paste0(spec$fun, spec$df, "df")
 }
 
 # Helper to build per-variable arglag label
 pervar_arglag_label <- function(named_arglag) {
   abbrevs <- c(
-    total_precip               = "TP",
-    precip_max_day_resid_on_tp = "RESID",
-    avg_VPD                    = "VPD"
-    # hurricane_within_120km     = "HURR"
+    total_precip               = "tp",
+    precip_max_day_resid_on_tp = "resid",
+    avg_VPD                    = "vpd"
   )
   parts <- sapply(names(named_arglag), function(v) {
     short <- if (v %in% names(abbrevs)) abbrevs[[v]] else v
@@ -62,7 +64,19 @@ pervar_arglag_label <- function(named_arglag) {
   paste0("lag_", paste(parts, collapse = "_"))
 }
 
-hurr_argvar <- list(fun = "strata", breaks = 0.5)
+
+# max_lag isn't overridden by this script's .hierarch_cfg_override, so it
+# stays whatever Hierarch_StateSpace_Entomo_model.r's own cfg$max_lag is --
+# keep this in sync with that value (currently 5) so the log-knot positions
+# computed here match what actually gets fit.
+max_lag <- 5
+
+# Log-spaced lag knots (nk=1 -> 3-column ns() basis, same dimensionality as
+# the df=3 equal-spaced configs below -- dlnm::crossbasis() builds the lag
+# basis with intercept=TRUE internally, so ncol = nk + 2). Front-loads spline
+# flexibility toward short lags instead of spreading it evenly; see configs
+# 8-9 below for the direct log-knots vs. equal-spaced-knots comparison.
+logknots_lag <- list(fun = "ns", knots = dlnm::logknots(max_lag, nk = 1))
 
 # =============================================================================
 # Configuration grid
@@ -75,7 +89,6 @@ configs <- list(
       total_precip               = list(fun = "ns", df = 2),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
       avg_VPD                    = list(fun = "lin")
-      # hurricane_within_120km     = hurr_argvar
     ),
     dlnm_arglag = list(fun = "lin")
   ),
@@ -86,7 +99,6 @@ configs <- list(
       total_precip               = list(fun = "ns", df = 3),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
       avg_VPD                    = list(fun = "ns", df = 3)
-      # hurricane_within_120km     = hurr_argvar
     ),
     dlnm_arglag = list(fun = "lin")
   ),
@@ -97,7 +109,6 @@ configs <- list(
       total_precip               = list(fun = "ns", df = 3),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 3),
       avg_VPD                    = list(fun = "ns", df = 3)
-      # hurricane_within_120km     = hurr_argvar
     ),
     dlnm_arglag = list(fun = "lin")
   ),
@@ -108,7 +119,6 @@ configs <- list(
       total_precip               = list(fun = "ns", df = 3),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 3),
       avg_VPD                    = list(fun = "ns", df = 3)
-      # hurricane_within_120km     = hurr_argvar
     ),
     dlnm_arglag = list(fun = "ns", df = 2)
   ),
@@ -119,7 +129,6 @@ configs <- list(
       total_precip               = list(fun = "ns", df = 3),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 3),
       avg_VPD                    = list(fun = "ns", df = 3)
-      # hurricane_within_120km     = hurr_argvar
     ),
     dlnm_arglag = list(fun = "ns", df = 3)
   ),
@@ -130,7 +139,6 @@ configs <- list(
       total_precip               = list(fun = "ns", df = 3),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
       avg_VPD                    = list(fun = "ns", df = 3)
-      # hurricane_within_120km     = hurr_argvar
     ),
     dlnm_arglag = list(fun = "ns", df = 3)
   ),
@@ -141,14 +149,97 @@ configs <- list(
       total_precip               = list(fun = "ns", df = 3),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
       avg_VPD                    = list(fun = "ns", df = 3)
-      # hurricane_within_120km     = hurr_argvar
     ),
     dlnm_arglag = list(
       total_precip               = list(fun = "ns", df = 3),
       precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
       avg_VPD                    = list(fun = "ns", df = 3)
-      # hurricane_within_120km     = list(fun = "ns", df = 2)
     )
+  ),
+
+  # 8 — log-knots counterpart of config 5 (ns3 all argvar): same argvar spec,
+  # log-spaced lag knots instead of equal-spaced df=3, same 3-column
+  # dimensionality -- direct LOO comparison against config 5 isolates the
+  # effect of knot placement alone.
+  list(
+    dlnm_argvar = list(
+      total_precip               = list(fun = "ns", df = 3),
+      precip_max_day_resid_on_tp = list(fun = "ns", df = 3),
+      avg_VPD                    = list(fun = "ns", df = 3)
+    ),
+    dlnm_arglag = logknots_lag
+  ),
+
+  # 9 — log-knots counterpart of config 6 (ns3 TP+VPD, ns2 RESID argvar):
+  # same pairing logic as config 8, against config 6 instead of config 5.
+  list(
+    dlnm_argvar = list(
+      total_precip               = list(fun = "ns", df = 3),
+      precip_max_day_resid_on_tp = list(fun = "ns", df = 2),
+      avg_VPD                    = list(fun = "ns", df = 3)
+    ),
+    dlnm_arglag = logknots_lag
+  ),
+
+  # 10 — ns4 all argvar (more exposure-response flexibility than configs
+  # 3/5/8's ns3), equal-spaced df=3 lag. Same lag basis as config 5, so this
+  # isolates the effect of exposure-dimension df alone (3 vs. 4).
+  list(
+    dlnm_argvar = list(
+      total_precip               = list(fun = "ns", df = 4),
+      precip_max_day_resid_on_tp = list(fun = "ns", df = 4),
+      avg_VPD                    = list(fun = "ns", df = 4)
+    ),
+    dlnm_arglag = list(fun = "ns", df = 3)
+  ),
+
+  # 11 — ns4 all argvar with log-knots lag: completes the 2x2 grid
+  # {argvar df 3, 4} x {equal-spaced, log-spaced lag knots} formed by
+  # configs 5, 8, 10, 11.
+  list(
+    dlnm_argvar = list(
+      total_precip               = list(fun = "ns", df = 4),
+      precip_max_day_resid_on_tp = list(fun = "ns", df = 4),
+      avg_VPD                    = list(fun = "ns", df = 4)
+    ),
+    dlnm_arglag = logknots_lag
+  ),
+
+  # 12 — per-variable log-knots counterpart of config 7 (same argvar spec):
+  # total_precip keeps the standard equal-spaced df=3 lag (its effect is
+  # expected to build gradually as breeding sites develop over several
+  # weeks, so it may need flexibility across the full lag window), while
+  # avg_VPD and precip_max_day_resid_on_tp switch to log-knots (their
+  # effects are expected to act more acutely -- desiccation stress /
+  # extreme-rainfall response -- so long-lag flexibility is more likely
+  # noise than signal for these two). Direct LOO comparison against config
+  # 7 isolates the effect of asymmetric (per-variable) knot placement.
+  list(
+    dlnm_argvar = list(
+      total_precip               = list(fun = "ns", df = 3),
+      precip_max_day_resid_on_tp = list(fun = "ns", df = 3),
+      avg_VPD                    = list(fun = "ns", df = 3)
+    ),
+    dlnm_arglag = list(
+      total_precip               = list(fun = "ns", df = 3),
+      precip_max_day_resid_on_tp = logknots_lag,
+      avg_VPD                    = logknots_lag
+    )
+  ),
+
+  # 13 — linear baseline for precip_max_day_resid_on_tp: total_precip and
+  # avg_VPD stay at ns3 (same as configs 5/6), RESID drops from ns2/ns3 down
+  # to a plain linear exposure-response. Completes the argvar-flexibility
+  # ladder for RESID (lin < ns2 < ns3 < ns4, i.e. configs 13, 6, 5, 10) --
+  # if LOO doesn't favour the spline over this, RESID's effect is basically
+  # linear and the extra flexibility isn't earning its keep.
+  list(
+    dlnm_argvar = list(
+      total_precip               = list(fun = "ns", df = 3),
+      precip_max_day_resid_on_tp = list(fun = "lin"),
+      avg_VPD                    = list(fun = "ns", df = 3)
+    ),
+    dlnm_arglag = list(fun = "ns", df = 3)
   )
 )
 
@@ -177,6 +268,7 @@ make_run_suffix <- function(cfg_i, date_suffix) {
 # Run all configurations
 # =============================================================================
 loo_list   <- list()
+waic_list  <- list()
 run_labels <- character(length(configs))
 
 for (i in seq_along(configs)) {
@@ -202,10 +294,11 @@ for (i in seq_along(configs)) {
   )
   .hierarch_run_suffix <- run_label
   loo_result           <- NULL   # clear stale value; Hierarch will overwrite if fit succeeds
+  waic_result          <- NULL
 
   tryCatch(
     source(file.path(script_dir, "Hierarch_StateSpace_Entomo_model.r"), local = FALSE),
-    error = function(e) cat("ERROR in config", i, "post-processing:", conditionMessage(e), "\n(loo_result collected before error if LOO completed)\n")
+    error = function(e) cat("ERROR in config", i, "post-processing:", conditionMessage(e), "\n(loo_result/waic_result collected before error if LOO/WAIC completed)\n")
   )
 
   if (exists("loo_result") && !is.null(loo_result)) {
@@ -215,39 +308,109 @@ for (i in seq_along(configs)) {
   } else {
     cat("WARNING: loo_result not found after config", i, "— skipping LOO for this run.\n")
   }
+  if (exists("waic_result") && !is.null(waic_result)) {
+    waic_list[[run_label]] <- waic_result
+    cat("WAIC stored for:", run_label, "\n")
+    saveRDS(waic_list, file.path(test_output_dir, "waic_list_partial.rds"))
+  } else {
+    cat("WARNING: waic_result not found after config", i, "— skipping WAIC for this run.\n")
+  }
+
+  # Capture block ids once, for the cluster bootstrap comparison at the end.
+  # All 13 configs share the same lag_vars/dlnm_vars/response data (only the
+  # argvar/arglag basis choice varies), so block assignment and row order
+  # are identical across configs -- safe to capture from the first one that
+  # succeeds rather than re-capturing (and overwriting) every iteration.
+  if (!exists("block_ids_for_bootstrap") && exists("stan_data") && !is.null(stan_data$block))
+    block_ids_for_bootstrap <- stan_data$block
 
   # Clean up override variables
   rm(".hierarch_cfg_override", ".hierarch_run_suffix", envir = globalenv())
 }
 
 # =============================================================================
-# LOO comparison
+# Criterion comparison (LOO, then WAIC)
 # =============================================================================
-if (length(loo_list) >= 2) {
+# Shared by both: loo_compare() accepts a list of either loo() or waic()
+# objects (same output structure, elpd_diff/se_diff columns named the same
+# either way) -- called once per criterion below, never mixing the two lists
+# in a single loo_compare() call. z_score makes the |z|>2 "meaningfully
+# better" rule of thumb explicit instead of leaving elpd_diff/se_diff for the
+# reader to divide by hand.
+write_criterion_comparison <- function(result_list, criterion_label, file_stub) {
+  if (length(result_list) < 2) {
+    cat("Fewer than 2 successful", criterion_label, "results — skipping comparison.\n")
+    return(invisible(NULL))
+  }
   cat("\n", strrep("=", 70), "\n")
-  cat("LOO COMPARISON\n")
+  cat(criterion_label, "COMPARISON\n")
   cat(strrep("=", 70), "\n\n")
 
-  loo_comp <- loo_compare(loo_list)
-  print(loo_comp, simplify = FALSE, digits = 2)
+  comp <- loo_compare(result_list)
+  print(comp, simplify = FALSE, digits = 2)
 
-  comp_dir <- file.path(test_output_dir, paste0("loo_comparison_", date_suffix))
+  cmp_df <- as.data.frame(comp)
+  cmp_df$z_score <- cmp_df$elpd_diff / cmp_df$se_diff
+  cmp_df$z_score[cmp_df$elpd_diff == 0] <- 0
+  cat("\nz-score (elpd_diff / se_diff):\n")
+  print(cmp_df["z_score"], digits = 2)
+
+  comp_dir <- file.path(test_output_dir, paste0(file_stub, "_comparison_", date_suffix))
   dir.create(comp_dir, recursive = TRUE, showWarnings = FALSE)
 
-  comp_file <- file.path(comp_dir, paste0("loo_comparison_", date_suffix, ".txt"))
+  comp_file <- file.path(comp_dir, paste0(file_stub, "_comparison_", date_suffix, ".txt"))
   comp_output <- capture.output({
-    cat("LOO comparison —", date_suffix, "\n\n")
+    cat(criterion_label, "comparison —", date_suffix, "\n\n")
     cat("Models (in order):\n")
     for (i in seq_along(run_labels)) cat(sprintf("  %d. %s\n", i, run_labels[i]))
     cat("\n")
-    print(loo_comp, simplify = FALSE, digits = 2)
+    print(comp, simplify = FALSE, digits = 2)
+    cat("\nz-score (elpd_diff / se_diff):\n")
+    print(cmp_df["z_score"], digits = 2)
   })
   writeLines(comp_output, comp_file)
-  cat("\nLOO comparison saved to:", comp_file, "\n")
+  cat("\n", criterion_label, "comparison saved to:", comp_file, "\n")
 
-  saveRDS(loo_list, file.path(comp_dir, paste0("loo_list_", date_suffix, ".rds")))
-  cat("LOO objects saved to:", file.path(comp_dir, paste0("loo_list_", date_suffix, ".rds")), "\n")
-  invisible(file.remove(file.path(test_output_dir, "loo_list_partial.rds")))
-} else {
-  cat("Fewer than 2 successful LOO results — skipping comparison.\n")
+  saveRDS(result_list, file.path(comp_dir, paste0(file_stub, "_list_", date_suffix, ".rds")))
+  cat(criterion_label, "objects saved to:",
+      file.path(comp_dir, paste0(file_stub, "_list_", date_suffix, ".rds")), "\n")
+  invisible(file.remove(file.path(test_output_dir, paste0(file_stub, "_list_partial.rds"))))
 }
+
+write_criterion_comparison(loo_list,  "LOO",  "loo")
+write_criterion_comparison(waic_list, "WAIC", "waic")
+
+# =============================================================================
+# Bootstrap comparison: shape-preserving CI + win probability
+# =============================================================================
+# Complements the se_diff-based comparison above with a resampling-based
+# view that doesn't assume the total elpd difference is normally
+# distributed -- see bootstrap_elpd_comparison() in helper_functions.r.
+# Cluster (block) bootstrap if block ids were captured during the loop;
+# falls back to per-observation resampling otherwise (understates
+# uncertainty if the model has block-level structure, which this one does).
+write_bootstrap_comparison <- function(result_list, criterion_label, file_stub) {
+  if (length(result_list) < 2) {
+    cat("Fewer than 2 successful", criterion_label, "results — skipping bootstrap comparison.\n")
+    return(invisible(NULL))
+  }
+  cat("\n", strrep("=", 70), "\n")
+  cat(criterion_label, "BOOTSTRAP COMPARISON (", if (exists("block_ids_for_bootstrap")) "block-clustered" else "per-observation, no block ids captured", ")\n")
+  cat(strrep("=", 70), "\n\n")
+
+  boot_cmp <- bootstrap_elpd_comparison(
+    result_list,
+    cluster_ids = if (exists("block_ids_for_bootstrap")) block_ids_for_bootstrap else NULL,
+    n_boot = 4000
+  )
+  print(boot_cmp, digits = 3, row.names = FALSE)
+
+  comp_dir <- file.path(test_output_dir, paste0(file_stub, "_comparison_", date_suffix))
+  dir.create(comp_dir, recursive = TRUE, showWarnings = FALSE)
+  boot_file <- file.path(comp_dir, paste0(file_stub, "_bootstrap_comparison_", date_suffix, ".csv"))
+  write.csv(boot_cmp, boot_file, row.names = FALSE)
+  cat("\n", criterion_label, "bootstrap comparison saved to:", boot_file, "\n")
+}
+
+write_bootstrap_comparison(loo_list,  "LOO",  "loo")
+write_bootstrap_comparison(waic_list, "WAIC", "waic")

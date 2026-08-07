@@ -539,7 +539,13 @@ run_one_combo <- function(combo_i) {
         lapply(combo_vars$lag, function(v) list(fun = "ns", df = 3)),
         combo_vars$lag
       )
-      cfg_i$dlnm_arglag  <- list(fun = "ns", df = 3)
+      # Log-spaced lag knots (nk=1 -> same 3-column basis as the previous
+      # df=3 equal-spaced default, just front-loaded toward short lags --
+      # dlnm::crossbasis() builds the lag basis with intercept=TRUE
+      # internally, so ncol = nk + 2, meaning nk=1 not nk=2 matches the old
+      # dimensionality here. See Hierarch_StateSpace_Entomo_model.r's
+      # matching cfg$dlnm_arglag setup for the full rationale.)
+      cfg_i$dlnm_arglag  <- list(fun = "ns", knots = dlnm::logknots(cfg_i$max_lag, nk = 1))
       cfg_i$dlnm_ix_vars <- combo$ix   # NULL when !has_ix -> P_ix = 0, handled by the Stan model
       prep <- build_dlnm_stan_data(cfg_i)
     } else {
@@ -722,6 +728,9 @@ run_one_combo <- function(combo_i) {
     # Per-CMF AR(1) trajectory plot (all runs)
     save_v_bt_plot(fit, df, stan_data, plots_output_dir, model_spec)
 
+    # Unlagged variable effects forest plot (all runs)
+    save_unlagged_effects_plot(fit, prep, plots_output_dir, model_spec)
+
     # Traceplots
     if (cfg_i$plot_traceplots && requireNamespace("bayesplot", quietly = TRUE)) {
       library(bayesplot)
@@ -877,7 +886,9 @@ run_one_combo <- function(combo_i) {
   )
 
   list(predictor_spec = predictor_spec, loo_result = loo_result,
-       waic_result = waic_result, log_row = log_row)
+       waic_result = waic_result, log_row = log_row,
+       n_obs = if (exists("stan_data")) length(stan_data$block) else NA_integer_,
+       block_ids = if (exists("stan_data")) stan_data$block else NULL)
 }
 
 # ── Main sweep: run all combos one at a time ──────────────────────────────────
@@ -890,6 +901,25 @@ waic_list <- list()
 for (r in combo_results) {
   if (!is.null(r$loo_result))  loo_list[[r$predictor_spec]]  <- r$loo_result
   if (!is.null(r$waic_result)) waic_list[[r$predictor_spec]] <- r$waic_result
+}
+
+# Block ids for the cluster bootstrap comparison below, captured from the
+# first combo with a successful fit. UNLIKE run_exposure_response_functions_
+# sweep.R, combos here can vary *which* lag_vars/unlagged_vars are included,
+# so it's possible (if unlikely, given the curated/backfilled input data)
+# for combos to differ in N or row identity -- warn loudly rather than
+# silently risk misaligning pointwise elpd comparisons across combos.
+successful_n <- vapply(combo_results, function(r) if (!is.null(r$loo_result)) r$n_obs else NA_integer_, integer(1))
+successful_n <- successful_n[!is.na(successful_n)]
+block_ids_for_bootstrap <- NULL
+if (length(successful_n) > 0) {
+  first_ok <- Find(function(r) !is.null(r$loo_result) && !is.null(r$block_ids), combo_results)
+  if (!is.null(first_ok)) block_ids_for_bootstrap <- first_ok$block_ids
+  if (length(unique(successful_n)) > 1) {
+    cat("WARNING: combos have differing N (", paste(unique(successful_n), collapse = ", "),
+        ") -- cluster bootstrap below assumes matching row identity across all combos in a",
+        "comparison, which is NOT guaranteed when N differs. Verify before trusting those results.\n")
+  }
 }
 
 # ── Write sweep log ───────────────────────────────────────────────────────────
@@ -932,3 +962,27 @@ write_criterion_comparison <- function(result_list, criterion_label, file_stub) 
 
 write_criterion_comparison(loo_list,  "LOO",  "loo")
 write_criterion_comparison(waic_list, "WAIC", "waic")
+
+# ── Bootstrap comparison: shape-preserving CI + win probability ───────────────
+# Complements the se_diff-based comparison above with a resampling-based view
+# that doesn't assume the total elpd difference is normally distributed --
+# see bootstrap_elpd_comparison() in helper_functions.r. Cluster (block)
+# bootstrap if block ids were captured above; falls back to per-observation
+# resampling otherwise (understates uncertainty given this model's block-
+# level structure).
+write_bootstrap_comparison <- function(result_list, criterion_label, file_stub) {
+  if (length(result_list) < 2) {
+    cat("Fewer than 2 successful", criterion_label, "results — skipping bootstrap comparison.\n")
+    return(invisible(NULL))
+  }
+  cat("\n", criterion_label, "bootstrap comparison (",
+      if (!is.null(block_ids_for_bootstrap)) "block-clustered" else "per-observation, no block ids captured",
+      "):\n")
+  boot_cmp <- bootstrap_elpd_comparison(result_list, cluster_ids = block_ids_for_bootstrap, n_boot = 4000)
+  print(boot_cmp, digits = 3, row.names = FALSE)
+  write.csv(boot_cmp, file.path(sweep_dir, paste0(file_stub, "_bootstrap_comparison.csv")), row.names = FALSE)
+  cat(criterion_label, "bootstrap comparison saved to:", sweep_dir, "\n")
+}
+
+write_bootstrap_comparison(loo_list,  "LOO",  "loo")
+write_bootstrap_comparison(waic_list, "WAIC", "waic")
