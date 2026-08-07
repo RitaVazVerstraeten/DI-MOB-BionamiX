@@ -1462,13 +1462,15 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     }
 
     stats_i <- if (!is.null(dlnm_var_stats) && var %in% names(dlnm_var_stats))
-      dlnm_var_stats[[var]] else list(mean = 0, sd = 1)
-    v_mean <- stats_i$mean
-    v_sd   <- stats_i$sd
+      dlnm_var_stats[[var]] else list(mean = 0, sd = 1, cen_ref = 0)
+    v_mean  <- stats_i$mean
+    v_sd    <- stats_i$sd
+    v_cen_ref <- stats_i$cen_ref
+    cen_std <- if (!is.null(v_cen_ref) && is.finite(v_cen_ref)) (v_cen_ref - v_mean) / v_sd else 0
 
     x_orig_range <- range(df[[var]], na.rm = TRUE) * v_sd + v_mean
-    cat(sprintf("  [%s] original range: [%.3f, %.3f]  cen=median=%.3f\n",
-                var, x_orig_range[1], x_orig_range[2], v_mean))
+    cat(sprintf("  [%s] original range: [%.3f, %.3f]  cen=%.3f\n",
+                var, x_orig_range[1], x_orig_range[2], if (!is.null(v_cen_ref)) v_cen_ref else v_mean))
     at_orig_nice <- pretty(x_orig_range, n = 40)
     at_std_nice  <- (at_orig_nice - v_mean) / v_sd
 
@@ -1485,7 +1487,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
 
     pred_i <- tryCatch(
       exp_crosspred(dlnm::crosspred(cb_mats[[var]], coef = coef_i, vcov = vcov_i,
-                      at = at_std, cen = 0, cumul = TRUE)),
+                      at = at_std, cen = cen_std, cumul = TRUE)),
       error = function(e) {
         cat(sprintf("  crosspred failed for %s: %s\n", var, conditionMessage(e)))
         NULL
@@ -1636,9 +1638,11 @@ save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
     }
 
     stats_i <- if (!is.null(dlnm_var_stats) && var %in% names(dlnm_var_stats))
-      dlnm_var_stats[[var]] else list(mean = 0, sd = 1)
-    v_mean <- stats_i$mean
-    v_sd   <- stats_i$sd
+      dlnm_var_stats[[var]] else list(mean = 0, sd = 1, cen_ref = 0)
+    v_mean  <- stats_i$mean
+    v_sd    <- stats_i$sd
+    v_cen_ref <- stats_i$cen_ref
+    cen_std <- if (!is.null(v_cen_ref) && is.finite(v_cen_ref)) (v_cen_ref - v_mean) / v_sd else 0
 
     # Target percentiles, computed on the original (back-transformed) scale,
     # then converted to the standardized scale the cross-basis was built on
@@ -1671,7 +1675,7 @@ save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
         exp_crosspred(dlnm::crossreduce(cb_mats[[var]], coef = coef_i, vcov = vcov_i,
                           model.link = "identity",
                           type = "var", value = std_val,
-                          lag = c(0, L_val), bylag = 1, cen = 0)),
+                          lag = c(0, L_val), bylag = 1, cen = cen_std)),
         error = function(e) {
           cat(sprintf("  crossreduce failed for %s at p%d: %s\n",
                       var, round(p_val * 100), conditionMessage(e)))
@@ -1805,9 +1809,11 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
 
     # x-axis back-transformation
     stats_i  <- if (!is.null(dlnm_var_stats) && dlnm_var %in% names(dlnm_var_stats))
-      dlnm_var_stats[[dlnm_var]] else list(mean = 0, sd = 1)
+      dlnm_var_stats[[dlnm_var]] else list(mean = 0, sd = 1, cen_ref = 0)
     v_mean   <- stats_i$mean
     v_sd     <- stats_i$sd
+    v_cen_ref <- stats_i$cen_ref
+    cen_std  <- if (!is.null(v_cen_ref) && is.finite(v_cen_ref)) (v_cen_ref - v_mean) / v_sd else 0
 
     x_orig_range <- range(df[[dlnm_var]], na.rm = TRUE) * v_sd + v_mean
     at_orig_nice <- pretty(x_orig_range, n = 40)
@@ -1819,12 +1825,12 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
 
     pred_ref <- tryCatch(
       exp_crosspred(dlnm::crosspred(cb_mats[[dlnm_var]], coef = coef_ref, vcov = vcov_ref,
-                      at = at_std, cen = 0, cumul = TRUE)),
+                      at = at_std, cen = cen_std, cumul = TRUE)),
       error = function(e) { cat(sprintf("  crosspred (ref) failed for %s: %s\n", label, conditionMessage(e))); NULL }
     )
     pred_active <- tryCatch(
       exp_crosspred(dlnm::crosspred(cb_mats[[dlnm_var]], coef = coef_active, vcov = vcov_active,
-                      at = at_std, cen = 0, cumul = TRUE)),
+                      at = at_std, cen = cen_std, cumul = TRUE)),
       error = function(e) { cat(sprintf("  crosspred (active) failed for %s: %s\n", label, conditionMessage(e))); NULL }
     )
     if (is.null(pred_ref) || is.null(pred_active)) next
@@ -2030,9 +2036,11 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
 
     # DLNM variable's x-axis back-transform (same pattern as elsewhere)
     stats_i <- if (!is.null(dlnm_var_stats) && dlnm_var %in% names(dlnm_var_stats))
-      dlnm_var_stats[[dlnm_var]] else list(mean = 0, sd = 1)
+      dlnm_var_stats[[dlnm_var]] else list(mean = 0, sd = 1, cen_ref = 0)
     v_mean <- stats_i$mean
     v_sd   <- stats_i$sd
+    v_cen_ref <- stats_i$cen_ref
+    cen_std <- if (!is.null(v_cen_ref) && is.finite(v_cen_ref)) (v_cen_ref - v_mean) / v_sd else 0
     x_orig_range <- range(df[[dlnm_var]], na.rm = TRUE) * v_sd + v_mean
     at_orig_nice <- pretty(x_orig_range, n = grid_n)
     at_std_nice  <- (at_orig_nice - v_mean) / v_sd
@@ -2054,7 +2062,7 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
       dimnames(vcov_z) <- list(cb_names, cb_names)
       tryCatch(
         exp_crosspred(dlnm::crosspred(cb_mats[[dlnm_var]], coef = coef_z, vcov = vcov_z,
-                        at = at_std, cen = 0, cumul = TRUE)),
+                        at = at_std, cen = cen_std, cumul = TRUE)),
         error = function(e) NULL
       )
     }

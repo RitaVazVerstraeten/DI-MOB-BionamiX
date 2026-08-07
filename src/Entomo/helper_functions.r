@@ -309,26 +309,33 @@ build_dlnm_stan_data <- function(cfg) {
   # diverges from what's saved in dlnm_var_stats/returned in `df`.
   vars_to_std <- intersect(cfg$dlnm_vars, names(idx$df))
 
-  # Save median/MAD for DLNM vars BEFORE standardizing (needed for
-  # back-transformation in plots). NOTE: the list fields are still named
-  # `mean`/`sd` (not renamed to `median`/`mad`) so every consumer throughout
-  # plot_functions.r and the compute_af_posterior*() functions -- which all
-  # do `x_orig <- z * stats_i$sd + stats_i$mean` -- keeps working unchanged;
-  # the centering/scaling formula is generic and doesn't care which summary
-  # statistic populates it, as long as it's used consistently here and at
-  # standardization time below. See standardize_matrix_median()'s docs for
-  # why median/MAD replaced mean/SD for these variables.
+  # Save mean/SD for DLNM vars BEFORE standardizing (needed for
+  # back-transformation in plots). Reverted from median/MAD back to plain
+  # mean/SD: the earlier median/MAD switch existed only to pull the
+  # crosspred() cen= reference off the mean for skewed variables, but that's
+  # now handled directly and more precisely by the `p10` field below (see
+  # plot_functions.r's cen_std), which makes the median/MAD standardization
+  # change redundant -- reverting avoids having two overlapping fixes for the
+  # same problem.
+  # `p10` (raw-scale 10th percentile) is stored alongside for reference/
+  # diagnostics. `cen_ref` is the value plot_functions.r's crosspred() calls
+  # actually center on: p10 for avg_VPD only (its mean/median both sit at an
+  # already-stressful ~1.1 kPa, not a useful "low exposure" baseline -- see
+  # cen_std in plot_functions.r), mean for every other DLNM variable.
   dlnm_var_stats <- setNames(lapply(cfg$dlnm_vars, function(v) {
     if (v %in% vars_to_std) {
       x <- idx$df[[v]][is.finite(idx$df[[v]])]
-      s <- mad(x)
-      list(mean = median(x), sd = if (s == 0 | is.na(s)) 1 else s)
+      s <- sd(x)
+      m   <- mean(x)
+      p10 <- unname(quantile(x, 0.10, na.rm = TRUE))
+      list(mean = m, sd = if (s == 0 | is.na(s)) 1 else s,
+           p10 = p10, cen_ref = if (v == "avg_VPD") p10 else m)
     } else {
-      list(mean = 0, sd = 1)   # not standardized; original = standardized
+      list(mean = 0, sd = 1, p10 = 0, cen_ref = 0)   # not standardized; original = standardized
     }
   }), cfg$dlnm_vars)
 
-  idx$df[, vars_to_std] <- standardize_matrix_median(as.matrix(idx$df[, vars_to_std]))
+  idx$df[, vars_to_std] <- standardize_matrix(as.matrix(idx$df[, vars_to_std]))
 
   B      <- idx$B
   L      <- cfg$max_lag
