@@ -112,16 +112,16 @@ cfg <- list(
   unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI","water_shortage", "water_containers"),
   # unlagged_vars = c("HFP_urbanization",  "water_containers"),
 
-  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization", "mean_ndvi"),
+  numeric_vars = c("total_precip",  "avg_temp", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization", "mean_ndvi"),
   # numeric_vars = c("SPI6",  "water_containers", "HFP_urbanization", "avg_temp", "precip_max_day_resid_on_spi6"),
 
 
   # DLNM settings (only used when use_dlnm = TRUE)
-  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp"),
+  dlnm_vars   = c("total_precip",  "avg_temp", "precip_max_day_resid_on_tp"),
   # dlnm_vars   = c("SPI6",  "avg_temp", "precip_max_day_resid_on_spi6"),
   dlnm_argvar = list(
     total_precip                = list(fun = "ns", df = 3),
-    avg_VPD                     = list(fun = "ns", df = 3),
+    avg_temp                     = list(fun = "ns", df = 3),
     precip_max_day_resid_on_tp  = list(fun = "ns", df = 3)
     # SPI6                        = list(fun = "ns", df = 3),
     # precip_max_day_resid_on_spi6 = list(fun = "ns", df = 3),
@@ -339,6 +339,19 @@ cat("Model variant:" , "Predictors: ", predictor_spec, "\n","level, RE and AR: "
 prep <- if (isTRUE(cfg$use_dlnm)) build_dlnm_stan_data(cfg) else build_stan_data(cfg)
 stan_data <- prep$stan_data
 df <- prep$df
+
+# Record the resolved DLNM basis settings (shape, df, knot count, intercept,
+# and where the knots actually fall) -- dlnm::crossbasis() resolves knots
+# internally even for equal-spaced df= specs, so this reflects what was
+# actually built, not just what cfg requested.
+if (isTRUE(cfg$use_dlnm)) {
+  dlnm_basis_summary <- describe_dlnm_basis(prep)
+  write.csv(dlnm_basis_summary,
+            file.path(run_output_dir, paste0("dlnm_basis_settings_", model_spec, ".csv")),
+            row.names = FALSE)
+  cat("\nDLNM basis settings:\n")
+  print(dlnm_basis_summary, row.names = FALSE)
+}
 
 
 # =========================
