@@ -1651,6 +1651,27 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     z_breaks_global <- seq(z_global[1], z_global[2], length.out = 51)
   }
 
+  # Log-space companions of the above, for the log-scale 3-D/heatmap variants
+  # below -- same proportional below/above split as the linear version, just
+  # computed in log units so it meets exactly at log(OR) = 0 instead of OR = 1.
+  log_all_z    <- log(all_z[all_z > 0])
+  log_z_global <- range(log_all_z, na.rm = TRUE)
+
+  if (log_z_global[1] < 0 && log_z_global[2] > 0) {
+    n_below_log <- max(1, round(50 * (0 - log_z_global[1]) / diff(log_z_global)))
+    n_above_log <- max(1, 50 - n_below_log)
+    pal_log <- c(colorRampPalette(pal_below)(n_below_log),
+                 colorRampPalette(pal_above)(n_above_log))
+    log_z_breaks_global <- c(seq(log_z_global[1], 0, length.out = n_below_log + 1),
+                              seq(0, log_z_global[2], length.out = n_above_log + 1)[-1])
+  } else if (log_z_global[2] <= 0) {
+    pal_log <- colorRampPalette(pal_below)(50)
+    log_z_breaks_global <- seq(log_z_global[1], log_z_global[2], length.out = 51)
+  } else {
+    pal_log <- colorRampPalette(pal_above)(50)
+    log_z_breaks_global <- seq(log_z_global[1], log_z_global[2], length.out = 51)
+  }
+
   # ── Pass 2: plot ──────────────────────────────────────────────────────────
   for (i in seq_along(dlnm_vars)) {
     var <- dlnm_vars[i]
@@ -1673,6 +1694,26 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
          ylab   = "Odds ratio of p_bt",
          col    = "steelblue",
          ci.arg = list(col = adjustcolor("steelblue", 0.25), border = NA))
+    axis(1, at = at_std, labels = round(at_orig, 2))
+    abline(h = 1, lty = 2, col = "grey50")
+    dev.off()
+
+    # ── Overall cumulative effect, log-y-axis version ─────────────────────────
+    # Equal-magnitude effects in opposite directions (e.g. OR=2 vs OR=0.5) are
+    # equidistant from 1 on a log scale but wildly asymmetric on the linear OR
+    # scale above -- this makes the two tails directly, visually comparable
+    # instead of the high side dwarfing the low side just from the scale.
+    png(file.path(dir_overall, paste0("dlnm_overall_", var, "_logscale_", run_suffix, ".png")),
+        width = 800, height = 500)
+    or_range <- range(c(pred_i$alllow, pred_i$allhigh), na.rm = TRUE)
+    plot(at_std, pred_i$allfit, type = "n", log = "y",
+         xaxt = "n", ylim = or_range,
+         main = paste("Cumulative effect (log scale) —", var),
+         sub  = "Shaded band: 95% CI",
+         xlab = var, ylab = "Odds ratio of p_bt (log scale)")
+    polygon(c(at_std, rev(at_std)), c(pred_i$alllow, rev(pred_i$allhigh)),
+            col = adjustcolor("steelblue", 0.25), border = NA)
+    lines(at_std, pred_i$allfit, col = "steelblue", lwd = 2)
     axis(1, at = at_std, labels = round(at_orig, 2))
     abline(h = 1, lty = 2, col = "grey50")
     dev.off()
@@ -1732,6 +1773,57 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
       dev.off()
     } else {
       cat(sprintf("  Skipping heatmap for %s: fine-lag crosspred unavailable\n", var))
+    }
+
+    # ── 3-D surface and heatmap, log-y-axis versions ──────────────────────────
+    # log() taken per-cell before averaging corners for facet colour (not
+    # log(mean of corners)) -- log() and averaging don't commute (Jensen's
+    # inequality), so this avoids the same order-of-operations bias flagged
+    # elsewhere in this codebase for back-transformations.
+    z_mat_log <- log(z_mat)
+    z_mid_log <- (z_mat_log[-1, -1] + z_mat_log[-1, -ncol(z_mat_log)] +
+                  z_mat_log[-nrow(z_mat_log), -1] + z_mat_log[-nrow(z_mat_log), -ncol(z_mat_log)]) / 4
+    facet_col_log <- pal_log[cut(z_mid_log, breaks = log_z_breaks_global, include.lowest = TRUE)]
+
+    png(file.path(dir_overall, paste0("dlnm_3d_", var, "_logscale_", run_suffix, ".png")),
+        width = 800, height = 700)
+    persp(x        = at_orig,
+          y        = lag_seq,
+          z        = z_mat_log,
+          zlim     = log_z_global,
+          xlab     = var,
+          ylab     = "Lag (months)",
+          zlab     = "log(Odds ratio) of p_bt",
+          main     = paste("DLNM surface (log scale) —", var),
+          theta    = 40, phi = 25, ltheta = 45,
+          col      = facet_col_log,
+          border   = NA,
+          ticktype = "detailed")
+    dev.off()
+
+    if (!is.null(pred_fine_i)) {
+      z_mat_fine_log <- log(z_mat_fine)
+
+      png(file.path(dir_overall, paste0("dlnm_heatmap_", var, "_logscale_", run_suffix, ".png")),
+          width = 800, height = 600)
+      filled.contour(
+        x      = at_orig,
+        y      = fine_lag_seq,
+        z      = z_mat_fine_log,
+        levels = log_z_breaks_global,
+        col    = pal_log,
+        xlab   = var,
+        ylab   = "Lag (months)",
+        main   = paste("DLNM heatmap (log scale) —", var),
+        key.title = title(main = "log(OR)", cex.main = 0.9),
+        plot.axes = {
+          axis(1)
+          axis(2)
+          contour(at_orig, fine_lag_seq, z_mat_fine_log, levels = 0,
+                  add = TRUE, col = "black", lty = 2, lwd = 1, drawlabels = FALSE)
+        }
+      )
+      dev.off()
     }
 
     # ── Per-lag slice plots (one per lag, same style as cumulative) ──────────
