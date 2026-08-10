@@ -187,10 +187,10 @@ cfg <- list(
 # Allow a calling script to inject cfg overrides before the model runs.
 # Set .hierarch_cfg_override <- list(...) before source()-ing this script.
 if (exists(".hierarch_cfg_override") && is.list(.hierarch_cfg_override))
-  cfg <- modifyList(cfg, .hierarch_cfg_override)  # recursive merge: an override's own
-  # dlnm_arglag (e.g. run_exposure_response_functions_sweep.R varying it per config)
-  # replaces the default above field-by-field; untouched fields/configs keep the
-  # log-knot default set inline in cfg$dlnm_arglag.
+  cfg <- modifyList(cfg, .hierarch_cfg_override)
+  # Recursive merge: an override's own dlnm_arglag (e.g. run_exposure_response_functions_sweep.R
+  # varying it per config) replaces the default above field-by-field; untouched
+  # fields/configs keep whatever's currently set in cfg$dlnm_arglag above.
 
 # ========== Output directory structure =============
 date_suffix <- format(Sys.Date(), "%Y%m%d")
