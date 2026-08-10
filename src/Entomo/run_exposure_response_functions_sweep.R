@@ -168,9 +168,8 @@ make_run_suffix <- function(cfg_i, date_suffix) {
     "_TP_",    argspec_label(av$total_precip),
     "_RESID_", argspec_label(av$precip_max_day_resid_on_tp),
     "_VPD_",   argspec_label(av$avg_VPD),
-    "_",       lag_label,
-    "_ix_nonurban_x_tp"
-  )
+    "_",       lag_label
+    )
 }
 
 # =============================================================================
