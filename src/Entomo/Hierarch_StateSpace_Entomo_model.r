@@ -109,7 +109,7 @@ cfg <- list(
   # covariates) to test whether the RF-flagged interactions resurrect once
   # HFP_urbanization/mean_ndvi/is_WUI/is_WI are removed.
   # unlagged_vars = c("HFP_urbanization", "is_WUI","water_containers", "mean_ndvi"),
-  unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI","water_shortage", "water_containers"),
+  unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI","water_shortage", "water_containers", "is_rainy_season"),
   # unlagged_vars = c("HFP_urbanization",  "water_containers"),
 
   numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp","water_containers", "HFP_urbanization", "mean_ndvi"),
@@ -148,12 +148,13 @@ cfg <- list(
   #     through a straight line. Defaults to 2 if omitted.
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
 
-  # dlnm_ix_vars = list(
-  #   list(continuous_var = "HFP_urbanization", dlnm_var = "SPI6", label = "spi6_x_HFP", continuous_df = 2)
-  #   # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
-  #   # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
-  # ),
-  dlnm_ix_vars = NULL,
+  dlnm_ix_vars = list(
+    # list(continuous_var = "HFP_urbanization", dlnm_var = "SPI6", label = "spi6_x_HFP", continuous_df = 2)
+    # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
+    # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
+    list(binary_var = "is_rainy_season", active_level = 1, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_season"),
+  ),
+  # dlnm_ix_vars = NULL,
 
   # MCMC
   chains = 4,
@@ -762,14 +763,24 @@ if (exists("loo_result")) {
   # Save flagged observations for inspection
   bad_obs <- which(k_values > 0.7)
   if (length(bad_obs) > 0) {
+    # block/time in stan_data are just integer ranks (match() into sorted
+    # unique block ids / dates, see index_and_subset()) -- not interpretable
+    # on their own. Look up the actual CMF/manzana id and year_month each
+    # rank corresponds to from df (= prep$df), which still carries both the
+    # raw id column and the integer block/time columns side by side.
+    block_lookup <- df %>% distinct(block, block_id = .data[[cfg$block_col]])
+    time_lookup  <- df %>% distinct(time, year_month)
+
     bad_df <- data.frame(
-      obs_idx   = bad_obs,
-      pareto_k  = k_values[bad_obs],
-      block     = stan_data$block[bad_obs],
-      time      = stan_data$time[bad_obs],
-      y         = stan_data$y[bad_obs],
-      n_bt      = stan_data$n_bt[bad_obs],
-      C_bt      = stan_data$C_bt[bad_obs]
+      obs_idx    = bad_obs,
+      pareto_k   = k_values[bad_obs],
+      block      = stan_data$block[bad_obs],
+      block_id   = block_lookup$block_id[match(stan_data$block[bad_obs], block_lookup$block)],
+      time       = stan_data$time[bad_obs],
+      year_month = time_lookup$year_month[match(stan_data$time[bad_obs], time_lookup$time)],
+      y          = stan_data$y[bad_obs],
+      n_bt       = stan_data$n_bt[bad_obs],
+      C_bt       = stan_data$C_bt[bad_obs]
     )
     bad_df <- bad_df[order(-bad_df$pareto_k), ]
     flagged_base <- file.path(run_output_dir, paste0("pareto_k_flagged_", model_spec))

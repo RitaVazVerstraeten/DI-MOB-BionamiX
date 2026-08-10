@@ -55,6 +55,7 @@ Observations table (one row per block-time combination):
 |SPI1 | Numeric | 1-month Standardized Precipitation Index (Mcp Cfgos) for that month; short-term moisture/drought indicator |
 |SPI3 | Numeric | 3-month Standardized Precipitation Index (Mcp Cfgos) for that month; medium-term moisture/drought indicator |
 |SPI6 | Numeric | 6-month Standardized Precipitation Index (Mcp Cfgos) for that month; long-term moisture/drought indicator, most predictive of dengue risk per Lowe et al. (2018) |
+|is_rainy_season | Binary | 1 if the manzana-month falls in the wet season (May-Oct), 0 if dry season (Nov-Apr); fixed calendar-month rule per Garcia-Moya et al. (2021), not a data-driven percentile split |
 
 <!-- |omega |	Numeric	| Reactive bias weight (calculated from C_bt) | -->
 
@@ -1452,6 +1453,7 @@ meteo_monthly <- meteo_monthly %>%
  select(-year_month_date)
 ```
 
+
 ```{r create total rainy days categories}
 # divide precipitation into 3 categories based on percentiles
 q <- quantile(meteo_monthly$total_rainy_days, probs = c(0, 0.3, 0.6, 1), na.rm = TRUE)
@@ -1469,6 +1471,97 @@ meteo_monthly <- meteo_monthly %>%
     )
   )
 print(q_rainy_days)
+```
+
+### Dry/rainy season start and end dates by year (p60 total_rainy_days split)
+
+Each row below is one *contiguous run* of months sharing the same `rainy_days_cat` ("dry" = below the 60th percentile of `total_rainy_days`, "wett" = at or above it), in chronological order across the whole 2016-2019 span -- not grouped by calendar year -- so a season that crosses a year boundary (e.g. a dry season running Nov-Apr) shows up as a single run instead of being artificially split into two. Scanning down the table lets you compare start/end months and duration across years directly, and also surfaces any short "interruption" runs (e.g. a stray wet month inside an otherwise dry stretch) rather than assuming each season is perfectly clean.
+
+```{r dry and rainy season start/end table}
+meteo_monthly <- meteo_monthly %>%
+  mutate(year_month_date = as.Date(paste0(year_month, "_01"), format = "%Y_%m_%d"))
+
+season_runs <- meteo_monthly %>%
+  arrange(year_month_date) %>%
+  mutate(run_id = cumsum(rainy_days_cat != lag(rainy_days_cat, default = first(rainy_days_cat)))) %>%
+  group_by(run_id) %>%
+  summarise(
+    season      = first(rainy_days_cat),
+    start_month = min(year_month_date),
+    end_month   = max(year_month_date),
+    n_months    = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(start_month) %>%
+  transmute(
+    season,
+    start = format(start_month, "%b %Y"),
+    end   = format(end_month, "%b %Y"),
+    n_months
+  )
+
+print(season_runs, n = Inf)
+```
+
+### What's the best cutoff? A climatology view instead of an arbitrary percentile
+
+The p60 split above is a defensible-but-arbitrary choice -- there's no reason the boundary has to sit at exactly the 60th percentile of the pooled 2016-2019 monthly values, and picking a percentile this way ignores the actual shape of the seasonal cycle. A more principled way to find the cutoff: average `total_rainy_days` by *calendar month* across all years (the climatology), and mark any month whose long-term average sits above the overall (all-months) mean as "wet" and any below as "dry" -- this is the standard way a seasonal boundary is defined (the same logic behind e.g. Köppen climate classification), driven by the actual annual cycle rather than a percentile chosen without reference to it. The error bars also show you directly how *sharp* that boundary is -- calendar months where the bar and its error bar clearly separate from the overall-mean line are unambiguous; months where the error bar straddles the line are the ones where year-to-year variability makes the dry/wet call genuinely uncertain, which a single percentile-based table can't show you.
+
+```{r climatological seasonal cutoff}
+meteo_monthly <- meteo_monthly %>%
+  mutate(month_num = as.integer(format(year_month_date, "%m")))
+
+overall_mean_rainy_days <- mean(meteo_monthly$total_rainy_days, na.rm = TRUE)
+
+climatology <- meteo_monthly %>%
+  group_by(month_num) %>%
+  summarise(
+    mean_rainy_days = mean(total_rainy_days, na.rm = TRUE),
+    se_rainy_days   = sd(total_rainy_days, na.rm = TRUE) / sqrt(sum(!is.na(total_rainy_days))),
+    n_years         = sum(!is.na(total_rainy_days)),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    month_name = factor(month.abb[month_num], levels = month.abb),
+    season     = if_else(mean_rainy_days >= overall_mean_rainy_days, "wet", "dry"),
+    # a month's error bar not crossing the overall mean = an unambiguous call
+    unambiguous = (mean_rainy_days - se_rainy_days > overall_mean_rainy_days) |
+                  (mean_rainy_days + se_rainy_days < overall_mean_rainy_days)
+  )
+
+print(climatology %>% select(month_name, mean_rainy_days, se_rainy_days, season, unambiguous))
+
+p_climatology <- ggplot(climatology, aes(x = month_name, y = mean_rainy_days, fill = season)) +
+  geom_col() +
+  geom_errorbar(aes(ymin = mean_rainy_days - se_rainy_days, ymax = mean_rainy_days + se_rainy_days),
+                width = 0.2, color = "grey30") +
+  geom_hline(yintercept = overall_mean_rainy_days, linetype = "dashed", color = "grey30") +
+  annotate("text", x = 0.6, y = overall_mean_rainy_days, label = "overall mean",
+           vjust = -0.6, hjust = 0, size = 3, color = "grey30") +
+  scale_fill_manual(values = c(dry = "#d7191c", wet = "#2c7bb6"), name = "Season\n(climatology-based)") +
+  labs(title    = "Climatological seasonal cycle: mean rainy days per calendar month",
+       subtitle = "Averaged across 2016-2019; error bars = SE across years; dashed li
+       ne = overall mean",
+       x = "Month", y = "Mean total rainy days") +
+  theme_minimal()
+
+print(p_climatology)
+ggsave(file.path(save_images_to, "rainy_days_climatology_seasonal_cutoff.png"),
+       p_climatology, width = 9, height = 5, dpi = 300, bg = "white")
+```
+
+Wet season is defined as May - October, while the Dry season is from November - April. This is also in line with the publication by Garcia-Moya et al (2021) (https://www.nature.com/articles/s41597-024-04178-z).
+
+```{r create is_rainy_season binary variable}
+# Fixed calendar-month rule (May-Oct wet, Nov-Apr dry) rather than a
+# per-observation percentile split -- every May is "rainy season" regardless
+# of that particular May's actual rainy-day count, which is what you want for
+# a structural seasonal covariate/interaction rather than a data-driven
+# threshold that could shift between runs.
+meteo_monthly <- meteo_monthly %>%
+  mutate(is_rainy_season = as.integer(month_num %in% 5:10))
+
+table(meteo_monthly$month_num, meteo_monthly$is_rainy_season)
 ```
 
 ```{r plot the precipitation categories based on rainy days}
@@ -3514,6 +3607,13 @@ cor_tp_rd  <- round(cor(monthly_precip_components$total_precip,
                         monthly_precip_components$precip_max_day_resid_on_tp,
                         use = "complete.obs"), 2)
 
+# Refit locally (rather than reusing `resid_fit`, which gets reassigned by
+# several other lm() calls earlier in the notebook) so these coefficients are
+# guaranteed to match precip_max_day_resid_on_tp exactly.
+precip_md_fit <- lm(precip_max_day ~ total_precip, data = env_epi_ento)
+precip_md_eq  <- sprintf("precip_max_day = %.3f + %.4f × total_precip",
+                          coef(precip_md_fit)[1], coef(precip_md_fit)[2])
+
 p_tp_md <- ggplot(monthly_precip_components, aes(x = year_month_date)) +
   geom_line(aes(y = total_precip, color = "Total precip"), size = 1) +
   geom_point(aes(y = total_precip, color = "Total precip")) +
@@ -3538,7 +3638,7 @@ p_rd <- ggplot(monthly_precip_components, aes(x = year_month_date, y = precip_ma
   geom_line(color = "coral3", size = 1) +
   geom_point(color = "coral3") +
   labs(title = "Max daily precip — residual on total precipitation",
-       subtitle = paste0("r(total precip, residual) = ", cor_tp_rd),
+       subtitle = paste0("r(total precip, residual) = ", cor_tp_rd, "   |   ", precip_md_eq),
        x = "Month", y = "Residual (mm)") +
   theme_minimal()
 
@@ -3547,5 +3647,112 @@ ggsave(
   filename = file.path(save_images_to, "precip_components_total_maxday_resid_temporal.png"),
   plot     = p_tp_md / p_rd,
   width = 12, height = 4, dpi = 300, bg = "white"
+)
+```
+
+### When is precip_max_day_resid_on_tp high or low, and what were total_precip/precip_max_day at those times?
+
+Diagnostic for the flushing-vs-total_precip separability question: `precip_max_day_resid_on_tp` is uncorrelated with `total_precip` by construction (it's an OLS residual), but that only rules out a straight-line relationship -- it doesn't rule out the biggest residuals specifically co-occurring with the highest `total_precip` months (plausible here since `precip_max_day` is a component of `total_precip`, not an independent quantity). The table and panels below make that co-occurrence, its seasonality, and its year-to-year pattern visible directly.
+
+```{r precip residual diagnostic overview}
+monthly_precip_components <- monthly_precip_components %>%
+  mutate(
+    year  = as.integer(substr(year_month, 1, 4)),
+    month = as.integer(substr(year_month, 6, 7))
+  )
+
+# Most extreme residual months in either direction, alongside the raw values
+# that produced them -- the direct answer to "what were total_precip/
+# precip_max_day doing when the residual was largest?"
+extreme_resid <- monthly_precip_components %>%
+  arrange(desc(abs(precip_max_day_resid_on_tp))) %>%
+  select(year_month, total_precip, precip_max_day, precip_max_day_resid_on_tp) %>%
+  head(15)
+print(extreme_resid)
+
+# Scatter of the two raw components, coloured by residual: if high-|residual|
+# points cluster in the high-total_precip region rather than spreading evenly
+# across it, that's the co-occurrence pattern discussed above, made visible.
+p_scatter <- ggplot(monthly_precip_components,
+                     aes(x = total_precip, y = precip_max_day, color = precip_max_day_resid_on_tp)) +
+  geom_point(size = 3) +
+  scale_color_gradient2(low = "steelblue", mid = "grey85", high = "coral3", midpoint = 0,
+                        name = "Residual (mm)") +
+  labs(title = "Do large residuals cluster at high total_precip?",
+       x = "Total precip (mm)", y = "Max daily precip (mm)") +
+  theme_minimal()
+
+# Seasonality: which calendar months produce the flushing events (large
+# positive residual) vs. the "spread-out rain, no single big day" months
+# (large negative residual)?
+p_season <- ggplot(monthly_precip_components, aes(x = factor(month), y = precip_max_day_resid_on_tp)) +
+  geom_hline(yintercept = 0, linetype = "dotted", color = "grey50") +
+  geom_boxplot(outlier.shape = NA, fill = "grey90") +
+  geom_jitter(aes(color = year), width = 0.15, size = 2) +
+  scale_color_viridis_c(name = "Year") +
+  labs(title = "Residual by calendar month", x = "Month", y = "Residual (mm)") +
+  theme_minimal()
+
+# Year: were the extremes concentrated in specific years?
+p_year <- ggplot(monthly_precip_components, aes(x = factor(year), y = precip_max_day_resid_on_tp)) +
+  geom_hline(yintercept = 0, linetype = "dotted", color = "grey50") +
+  geom_boxplot(outlier.shape = NA, fill = "grey90") +
+  geom_jitter(width = 0.15, size = 2, color = "coral3") +
+  labs(title = "Residual by year", x = "Year", y = "Residual (mm)") +
+  theme_minimal()
+
+print((p_scatter | p_season) / p_year)
+ggsave(
+  filename = file.path(save_images_to, "precip_max_day_resid_on_tp_diagnostic_overview.png"),
+  plot     = (p_scatter | p_season) / p_year,
+  width = 12, height = 8, dpi = 300, bg = "white"
+)
+```
+
+### Precip totals and residuals, background shaded by season
+
+Same time series as the total_precip/max-daily-precip-residual panels earlier, but with the plot background shaded by `is_rainy_season` (blue = rainy season, red = dry season, per the May-Oct/Nov-Apr rule) instead of a plain white background -- makes it easy to see at a glance whether the extreme residual months line up with a particular season, alongside the by-calendar-month boxplot already shown above.
+
+```{r precip totals and residual coloured by season}
+monthly_precip_components <- monthly_precip_components %>%
+  mutate(is_rainy_season = as.integer(month %in% 5:10))
+
+season_rects <- monthly_precip_components %>%
+  mutate(
+    xmin   = year_month_date - 15,
+    xmax   = year_month_date + 15,
+    season = factor(if_else(is_rainy_season == 1, "rainy", "dry"), levels = c("dry", "rainy"))
+  )
+
+season_fill <- scale_fill_manual(values = c(dry = "firebrick", rainy = "steelblue"), name = "Season")
+
+p_tp_season <- ggplot(monthly_precip_components, aes(x = year_month_date)) +
+  geom_rect(data = season_rects,
+            aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf, fill = season),
+            alpha = 0.15, inherit.aes = FALSE) +
+  geom_line(aes(y = total_precip), color = "steelblue4", size = 1) +
+  geom_point(aes(y = total_precip), color = "steelblue4") +
+  season_fill +
+  labs(title = "Total precip, background shaded by season",
+       x = NULL, y = "Total precip (mm)") +
+  theme_minimal()
+
+p_rd_season <- ggplot(monthly_precip_components, aes(x = year_month_date)) +
+  geom_rect(data = season_rects,
+            aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf, fill = season),
+            alpha = 0.15, inherit.aes = FALSE) +
+  geom_hline(yintercept = 0, linetype = "dotted", color = "grey30") +
+  geom_line(aes(y = precip_max_day_resid_on_tp), color = "coral4", size = 1) +
+  geom_point(aes(y = precip_max_day_resid_on_tp), color = "coral4") +
+  season_fill +
+  labs(title = "Max daily precip — residual on total precipitation, background shaded by season",
+       x = "Month", y = "Residual (mm)") +
+  theme_minimal()
+
+print(p_tp_season / p_rd_season)
+ggsave(
+  filename = file.path(save_images_to, "precip_totals_resid_by_season.png"),
+  plot     = p_tp_season / p_rd_season,
+  width = 12, height = 8, dpi = 300, bg = "white"
 )
 ```
