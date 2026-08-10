@@ -1520,6 +1520,12 @@ save_unlagged_effects_plot <- function(fit, prep, output_dir, run_suffix,
 #' column counts stored in prep$cb_mats, so it is robust to different df
 #' settings across predictors.
 #'
+# Diverging colour scale shared by every DLNM OR plot below: "heatmap2" from
+# the ltc-color-palettes explorer (https://loukesio.github.io/ltc-color-palettes/
+# palette-explorer.html), a ColorBrewer RdBu-5 palette. Low->high = blue->white->red;
+# individual call sites reverse it where their existing convention runs the other way.
+dlnm_diverging_pal <- c("#0571b0", "#92c5de", "#f7f7f7", "#f4a582", "#ca0020")
+
 #' @param fit     CmdStanR fit object
 #' @param prep    Return value of build_dlnm_stan_data() (contains cb_mats, dlnm_vars, df)
 #' @param output_dir  Directory to write PNGs into
@@ -1618,27 +1624,30 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
   # One shared range across all predictors (so surfaces are visually
   # comparable), driven purely by the data -- NOT padded or widened to force
   # symmetry around 1. White is still anchored exactly at OR = 1 by splitting
-  # the palette into two independent ramps that meet at 1 (steelblue->white
-  # below, white->firebrick above), each sized in proportion to how much of
+  # the palette into two independent ramps that meet at 1 (dlnm_diverging_pal's
+  # blue half below, red half above), each sized in proportion to how much of
   # the (possibly asymmetric) pooled range falls on that side -- rather than
   # by stretching the range itself to make both sides equal.
+  pal_below <- dlnm_diverging_pal[1:3]  # blue -> light blue -> white
+  pal_above <- dlnm_diverging_pal[3:5]  # white -> light red -> red
+
   all_z    <- unlist(lapply(preds, function(p) if (!is.null(p)) p$pred$matfit))
   z_global <- range(all_z, na.rm = TRUE)
 
   if (z_global[1] < 1 && z_global[2] > 1) {
     n_below <- max(1, round(50 * (1 - z_global[1]) / diff(z_global)))
     n_above <- max(1, 50 - n_below)
-    pal <- c(colorRampPalette(c("steelblue", "white"))(n_below),
-             colorRampPalette(c("white", "firebrick"))(n_above))
+    pal <- c(colorRampPalette(pal_below)(n_below),
+             colorRampPalette(pal_above)(n_above))
     z_breaks_global <- c(seq(z_global[1], 1, length.out = n_below + 1),
                           seq(1, z_global[2], length.out = n_above + 1)[-1])
   } else if (z_global[2] <= 1) {
     # Pooled range never reaches above 1: single blue ramp only.
-    pal <- colorRampPalette(c("steelblue", "white"))(50)
+    pal <- colorRampPalette(pal_below)(50)
     z_breaks_global <- seq(z_global[1], z_global[2], length.out = 51)
   } else {
     # Pooled range never dips below 1: single red ramp only.
-    pal <- colorRampPalette(c("white", "firebrick"))(50)
+    pal <- colorRampPalette(pal_above)(50)
     z_breaks_global <- seq(z_global[1], z_global[2], length.out = 51)
   }
 
@@ -2062,7 +2071,9 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     # ── 3-D surfaces (reference and active, shared z-scale) ──────────────────
     z_global_ix <- range(pred_ref$matfit, pred_active$matfit, na.rm = TRUE)
     z_breaks_ix <- seq(z_global_ix[1], z_global_ix[2], length.out = 51)
-    pal         <- colorRampPalette(c("firebrick", "white", "steelblue"))(50)
+    # rev(): this plot's existing convention runs low=red/high=blue (opposite of
+    # the blue-low/red-high convention elsewhere), preserved here unchanged.
+    pal         <- colorRampPalette(rev(dlnm_diverging_pal))(50)
 
     for (grp in list(list(pred = pred_ref, name = "ref"), list(pred = pred_active, name = "active"))) {
       z_mat   <- grp$pred$matfit
@@ -2461,8 +2472,11 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
       limit <- max(abs(heat_df$fit - 1), na.rm = TRUE)
       p_heat <- ggplot(heat_df, aes(x = exposure, y = modifier, fill = fit)) +
         geom_tile() +
-        scale_fill_gradient2(low = "firebrick", mid = "white", high = "steelblue",
-                            midpoint = 1, limits = c(1 - limit, 1 + limit), name = "Odds ratio") +
+        # rev(): matches this plot's existing low=red/high=blue convention (see
+        # the 3-D surface above); limits are symmetric around 1 by construction,
+        # so gradientn's evenly-spaced default stops put white exactly at 1.
+        scale_fill_gradientn(colours = rev(dlnm_diverging_pal),
+                            limits = c(1 - limit, 1 + limit), name = "Odds ratio") +
         labs(
           title    = sprintf("Effect-modification surface: %s x %s", dlnm_var, continuous_var),
           subtitle = "Colour = cumulative odds ratio of p_bt",
