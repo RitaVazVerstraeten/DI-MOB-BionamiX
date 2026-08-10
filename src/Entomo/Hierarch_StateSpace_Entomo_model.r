@@ -96,7 +96,7 @@ cfg <- list(
   response_start = "2016_01",
   n_blocks = NULL, # set NULL for all blocks/CMFs
 
-  lag_vars = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp",
+  lag_vars = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp"),
   # lag_vars = c("total_rainy_days", "avg_VPD"),
 
   max_lag = max_lag,
