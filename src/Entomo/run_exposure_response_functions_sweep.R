@@ -333,6 +333,13 @@ make_run_suffix <- function(cfg_i, date_suffix) {
 # =============================================================================
 # Run all configurations
 # =============================================================================
+# Parsed once, up front: each config below re-runs this same parsed expression
+# via eval() rather than re-source()-ing the file from disk on every iteration.
+# Re-source()-ing per iteration is vulnerable to catching the model file mid-
+# save (e.g. an editor autosave while the sweep is running), which throws a
+# spurious parse error for whichever configs happen to run during that window.
+model_exprs <- parse(file.path(script_dir, "Hierarch_StateSpace_Entomo_model.r"))
+
 loo_list   <- list()
 waic_list  <- list()
 run_labels <- character(length(configs))
@@ -360,7 +367,7 @@ for (i in seq_along(configs)) {
   waic_result          <- NULL
 
   tryCatch(
-    source(file.path(script_dir, "Hierarch_StateSpace_Entomo_model.r"), local = FALSE),
+    eval(model_exprs, envir = globalenv()),
     error = function(e) cat("ERROR in config", i, "post-processing:", conditionMessage(e), "\n(loo_result/waic_result collected before error if LOO/WAIC completed)\n")
   )
 
