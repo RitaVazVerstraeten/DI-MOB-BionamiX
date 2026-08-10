@@ -319,15 +319,14 @@ make_run_suffix <- function(cfg_i, date_suffix) {
 
   arglag_is_per_var <- !is.null(names(al)) && any(names(al) %in% names(av))
 
-  lag_label <- if (arglag_is_per_var) pervar_arglag_label(al) else paste0("lag_", argspec_label(al))
+  lag_label <- if (arglag_is_per_var) pervar_arglag_label(al) else paste0("LAG_", argspec_label(al))
 
   paste0(
     date_suffix,
     "_TP_",    argspec_label(av$total_precip),
     "_RESID_", argspec_label(av$precip_max_day_resid_on_tp),
     "_VPD_",   argspec_label(av$avg_VPD),
-    "_",       lag_label,
-    "_ix_nonurban_x_tp"
+    "_",       lag_label
   )
 }
 
