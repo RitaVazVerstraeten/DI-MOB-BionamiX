@@ -152,7 +152,7 @@ cfg <- list(
     # list(continuous_var = "HFP_urbanization", dlnm_var = "SPI6", label = "spi6_x_HFP", continuous_df = 2)
     # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
     # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
-    list(binary_var = "is_rainy_season", active_level = 1, dlnm_var = "total_precip", label = "tp_x_season")
+    list(binary_var = "is_rainy_season", active_level = 0, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_rainyseason")
   ),
   # dlnm_ix_vars = NULL,
 
