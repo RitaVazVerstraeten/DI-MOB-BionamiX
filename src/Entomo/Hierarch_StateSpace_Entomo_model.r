@@ -65,7 +65,7 @@ cfg <- list(
   # Extended-lag dataset: env 2015-2019 (NDVI/NDMI/NDWI observed 2016-2019, climatology-backfilled for 2015), ento-epi 2016-2019.
   # 2015 rows serve as lag lead-in; response_start below marks the observation period.
   data_file_name = if (spatial_level == "CMF")"env_epi_entomo_data_per_CMF_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv" else "env_epi_entomo_data_per_manzana_2015_01_to_2019_12_NDXIbackfilled_noColinnearity.csv",
-  output_dir = if (hostname == "frietjes") "/home/rita/data/Entomo/fitting/stan" else "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
+  output_dir = if (hostname == "frietjes") "/home/rita/data/Entomo/fitting/stan" else if (hostname == "stoofvlees") "~/data/entomo/results/fitting/stan" else "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan",
 
   # model variant
   use_time_RE          = FALSE,  # TRUE = iid time RE + iid block RE (no AR1, no GP); overrides others
@@ -131,7 +131,7 @@ cfg <- list(
   # Log-spaced lag knots (nk=1 -> 3-column ns() basis, same dimensionality as the old df=3 equal-spaced default -- dlnm::crossbasis() builds the lag basis with intercept=TRUE internally, unlike a bare splines::ns() call, so ncol = nk + 1 + intercept = nk + 2, meaning nk=1 not nk=2 matches the old 3-column dimensionality here): front-loads spline flexibility toward short lags, where real curvature is expected, and leaves long lags as a single knot-free stretch so the model can't fit a non-decaying wiggle there.
   # dlnm_arglag = list(fun = "ns", knots = dlnm::logknots(max_lag, nk = 1)),
 
-  dlnm_arglag = list(fun = "ns", df = 3),
+  dlnm_arglag = list(fun = "ns", df = 4),
 
 
   # Interaction cross-bases: each entry is either
@@ -148,13 +148,13 @@ cfg <- list(
   #     through a straight line. Defaults to 2 if omitted.
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
 
-  # dlnm_ix_vars = list(
-  #   # list(continuous_var = "HFP_urbanization", dlnm_var = "SPI6", label = "spi6_x_HFP", continuous_df = 2)
-  #   # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
-  #   # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
-  #   list(binary_var = "is_rainy_season", active_level = 0, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_rainyseason")
-  # ),
-  dlnm_ix_vars = NULL,
+  dlnm_ix_vars = list(
+    # list(continuous_var = "HFP_urbanization", dlnm_var = "SPI6", label = "spi6_x_HFP", continuous_df = 2)
+    # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
+    # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
+    list(binary_var = "is_rainy_season", active_level = 0, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_rainyseason")
+  ),
+  # dlnm_ix_vars = NULL,
 
   # MCMC
   chains = 4,
@@ -244,7 +244,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "_arglag_ns_3df")
+run_suffix <- paste0(date_suffix, "_arglag_ns_4df")
 if (exists(".hierarch_run_suffix")) run_suffix <- .hierarch_run_suffix
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
