@@ -2161,11 +2161,26 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     }
 
     # ── 3-D surfaces (reference and active, shared z-scale) ──────────────────
+    # Same blue-low/red-high convention, white anchored exactly at OR = 1, as
+    # the non-interaction surfaces in save_dlnm_response_plots().
+    pal_below   <- dlnm_diverging_pal[1:3]  # blue -> light blue -> white
+    pal_above   <- dlnm_diverging_pal[3:5]  # white -> light red -> red
     z_global_ix <- range(pred_ref$matfit, pred_active$matfit, na.rm = TRUE)
-    z_breaks_ix <- seq(z_global_ix[1], z_global_ix[2], length.out = 51)
-    # rev(): this plot's existing convention runs low=red/high=blue (opposite of
-    # the blue-low/red-high convention elsewhere), preserved here unchanged.
-    pal         <- colorRampPalette(rev(dlnm_diverging_pal))(50)
+
+    if (z_global_ix[1] < 1 && z_global_ix[2] > 1) {
+      n_below <- max(1, round(50 * (1 - z_global_ix[1]) / diff(z_global_ix)))
+      n_above <- max(1, 50 - n_below)
+      pal <- c(colorRampPalette(pal_below)(n_below),
+               colorRampPalette(pal_above)(n_above))
+      z_breaks_ix <- c(seq(z_global_ix[1], 1, length.out = n_below + 1),
+                        seq(1, z_global_ix[2], length.out = n_above + 1)[-1])
+    } else if (z_global_ix[2] <= 1) {
+      pal <- colorRampPalette(pal_below)(50)
+      z_breaks_ix <- seq(z_global_ix[1], z_global_ix[2], length.out = 51)
+    } else {
+      pal <- colorRampPalette(pal_above)(50)
+      z_breaks_ix <- seq(z_global_ix[1], z_global_ix[2], length.out = 51)
+    }
 
     for (grp in list(list(pred = pred_ref, name = "ref"), list(pred = pred_active, name = "active"))) {
       z_mat   <- grp$pred$matfit
