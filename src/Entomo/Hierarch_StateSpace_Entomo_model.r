@@ -148,13 +148,13 @@ cfg <- list(
   #     through a straight line. Defaults to 2 if omitted.
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
 
-  # dlnm_ix_vars = list(
-  #   # list(continuous_var = "HFP_urbanization", dlnm_var = "SPI6", label = "spi6_x_HFP", continuous_df = 2)
-  #   # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
-  #   # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
-  #   list(binary_var = "is_rainy_season", active_level = 0, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_rainyseason")
-  # ),
-  dlnm_ix_vars = NULL,
+  dlnm_ix_vars = list(
+    # list(continuous_var = "HFP_urbanization", dlnm_var = "SPI6", label = "spi6_x_HFP", continuous_df = 2)
+    # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
+    # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
+    list(binary_var = "is_rainy_season", active_level = 0, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_rainyseason")
+  ),
+  # dlnm_ix_vars = NULL,
 
   # MCMC
   chains = 4,
