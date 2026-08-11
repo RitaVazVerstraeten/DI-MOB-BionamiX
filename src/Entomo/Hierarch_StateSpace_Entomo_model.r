@@ -58,7 +58,7 @@ spatial_level <- "CMF"
 # ========== Output structure and config =============
 # Standalone variable (not just a cfg field) so dlnm_arglag below can compute
 # its log-spaced lag knots from the same value in one place -- see dlnm_arglag.
-max_lag <- 5
+max_lag <- 6
 
 cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo" else if (hostname == "stoofvlees") "~/entomo_data" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data",
@@ -109,7 +109,7 @@ cfg <- list(
   # covariates) to test whether the RF-flagged interactions resurrect once
   # HFP_urbanization/mean_ndvi/is_WUI/is_WI are removed.
   # unlagged_vars = c("HFP_urbanization", "is_WUI","water_containers", "mean_ndvi"),
-  unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI","water_shortage", "water_containers", "is_rainy_season"),
+  unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI","water_shortage", "water_containers"),
   # unlagged_vars = c("HFP_urbanization",  "water_containers"),
 
   numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp","water_containers", "HFP_urbanization", "mean_ndvi"),
@@ -148,13 +148,13 @@ cfg <- list(
   #     through a straight line. Defaults to 2 if omitted.
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
 
-  dlnm_ix_vars = list(
-    # list(continuous_var = "HFP_urbanization", dlnm_var = "SPI6", label = "spi6_x_HFP", continuous_df = 2)
-    # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
-    # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
-    list(binary_var = "is_rainy_season", active_level = 0, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_rainyseason")
-  ),
-  # dlnm_ix_vars = NULL,
+  # dlnm_ix_vars = list(
+  #   # list(continuous_var = "HFP_urbanization", dlnm_var = "SPI6", label = "spi6_x_HFP", continuous_df = 2)
+  #   # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
+  #   # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
+  #   list(binary_var = "is_rainy_season", active_level = 0, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_rainyseason")
+  # ),
+  dlnm_ix_vars = NULL,
 
   # MCMC
   chains = 4,
