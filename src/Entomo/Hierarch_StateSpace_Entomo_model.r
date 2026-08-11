@@ -58,7 +58,7 @@ spatial_level <- "CMF"
 # ========== Output structure and config =============
 # Standalone variable (not just a cfg field) so dlnm_arglag below can compute
 # its log-spaced lag knots from the same value in one place -- see dlnm_arglag.
-max_lag <- 6
+max_lag <- 5
 
 cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo" else if (hostname == "stoofvlees") "~/entomo_data" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data",
@@ -131,7 +131,7 @@ cfg <- list(
   # Log-spaced lag knots (nk=1 -> 3-column ns() basis, same dimensionality as the old df=3 equal-spaced default -- dlnm::crossbasis() builds the lag basis with intercept=TRUE internally, unlike a bare splines::ns() call, so ncol = nk + 1 + intercept = nk + 2, meaning nk=1 not nk=2 matches the old 3-column dimensionality here): front-loads spline flexibility toward short lags, where real curvature is expected, and leaves long lags as a single knot-free stretch so the model can't fit a non-decaying wiggle there.
   # dlnm_arglag = list(fun = "ns", knots = dlnm::logknots(max_lag, nk = 1)),
 
-  dlnm_arglag = list(fun = "ns", df = 4),
+  dlnm_arglag = list(fun = "ns", df = 3),
 
 
   # Interaction cross-bases: each entry is either
@@ -244,7 +244,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "_arglag_ns_4df")
+run_suffix <- paste0(date_suffix, "_arglag_ns_3df")
 if (exists(".hierarch_run_suffix")) run_suffix <- .hierarch_run_suffix
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
