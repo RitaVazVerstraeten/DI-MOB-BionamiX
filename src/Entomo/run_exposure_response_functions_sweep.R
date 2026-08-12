@@ -35,7 +35,7 @@ hostname    <- Sys.info()["nodename"]
 test_output_dir <- if (hostname == "frietjes") {
   "/home/rita/data/Entomo/fitting/stan/test_exposure_response_functions_noHurr"
 } else if (hostname == "stoofvlees") {
-  "~/entomo_data/fitting/stan/test_exposure_response_functions"
+  "~/data/entomo/results/fitting/stan/test_exposure_response_functions"
 } else {
   "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan/test_exposure_response_functions"
 }
