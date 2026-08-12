@@ -32,6 +32,7 @@ data {
   int<lower=0,upper=1> fix_phi;
   real<lower=0> phi_data;
   real<lower=0> kappa;
+  int<lower=1,upper=3> shrinkage_prior_type; // 1=student_t(3,.), 2=normal, 3=laplace (double_exponential)
 }
 
 parameters {
@@ -105,9 +106,24 @@ transformed parameters {
 
 model {
   alpha        ~ normal(-7.0, 1.5);
-  w_cb         ~ student_t(3, 0, 1.0);
-  w_ix         ~ student_t(3, 0, 0.5);  // tighter than w_cb: interactions expected smaller
-  w_unlagged   ~ student_t(3, 0, 0.5);
+  // Shrinkage prior family for the coefficient blocks -- same nominal scale
+  // (1.0 for w_cb, 0.5 for w_ix/w_unlagged) across all three families, so
+  // the comparison isolates tail-shape (heavy-tailed student_t vs
+  // light-tailed normal vs sharply-peaked-but-heavier-tailed-than-normal
+  // laplace) rather than a confound from differing scale.
+  if (shrinkage_prior_type == 1) {
+    w_cb         ~ student_t(3, 0, 1.0);
+    w_ix         ~ student_t(3, 0, 0.5);  // tighter than w_cb: interactions expected smaller
+    w_unlagged   ~ student_t(3, 0, 0.5);
+  } else if (shrinkage_prior_type == 2) {
+    w_cb         ~ normal(0, 1.0);
+    w_ix         ~ normal(0, 0.5);
+    w_unlagged   ~ normal(0, 0.5);
+  } else {
+    w_cb         ~ double_exponential(0, 1.0);
+    w_ix         ~ double_exponential(0, 0.5);
+    w_unlagged   ~ double_exponential(0, 0.5);
+  }
   to_vector(v_raw) ~ normal(0, 1);
   tau          ~ normal(0, 1.0);
   rho          ~ normal(0.4, 0.1);

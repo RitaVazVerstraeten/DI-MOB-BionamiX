@@ -58,7 +58,7 @@ spatial_level <- "CMF"
 # ========== Output structure and config =============
 # Standalone variable (not just a cfg field) so dlnm_arglag below can compute
 # its log-spaced lag knots from the same value in one place -- see dlnm_arglag.
-max_lag <- 6
+max_lag <- 5
 
 cfg <- list(
   data_dir = if (hostname == "frietjes") "~/data/Entomo" else if (hostname == "stoofvlees") "~/entomo_data" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data",
@@ -101,6 +101,11 @@ cfg <- list(
 
   max_lag = max_lag,
   kappa = 4,
+
+  # Shrinkage prior family for w_cb/w_ix/w_unlagged (only read by
+  # hierarchical_state_space_AR_perCMF_blockRE_DLNM_ix.stan). One of
+  # "student_t" (heavy-tailed, default), "normal", "laplace".
+  shrinkage_prior = "student_t",
 
   # unlagged_vars = c("is_urban", "is_WUI", "is_WI", "has_aljibes", "water_containers", "water_shortage"),
   # unlagged_vars = c("HFP_urbanization", "is_WUI", "is_WI", "water_containers", "mean_ndvi"),
@@ -149,10 +154,10 @@ cfg <- list(
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
 
   dlnm_ix_vars = list(
-    # list(continuous_var = "HFP_urbanization", dlnm_var = "SPI6", label = "spi6_x_HFP", continuous_df = 2)
+    list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
     # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
     # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
-    list(binary_var = "is_rainy_season", active_level = 1, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_season")
+    # list(binary_var = "is_rainy_season", active_level = 1, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_season")
   ),
   # dlnm_ix_vars = NULL,
 
@@ -187,11 +192,25 @@ cfg <- list(
 
 # Allow a calling script to inject cfg overrides before the model runs.
 # Set .hierarch_cfg_override <- list(...) before source()-ing this script.
-if (exists(".hierarch_cfg_override") && is.list(.hierarch_cfg_override))
+if (exists(".hierarch_cfg_override") && is.list(.hierarch_cfg_override)) {
   cfg <- modifyList(cfg, .hierarch_cfg_override)
   # Recursive merge: an override's own dlnm_arglag (e.g. run_exposure_response_functions_sweep.R
   # varying it per config) replaces the default above field-by-field; untouched
   # fields/configs keep whatever's currently set in cfg$dlnm_arglag above.
+
+  # modifyList()'s recursion only matches sublists by NAME, so it correctly
+  # merges named per-variable fields like dlnm_argvar/dlnm_arglag. But a
+  # field like dlnm_ix_vars is an unnamed list of interaction records
+  # (list(list(...), list(...))) -- names(val) is NULL for it, the merge
+  # loop runs zero times, and cfg's original value silently survives instead
+  # of being replaced. Force a full replace for any override field whose
+  # value is an unnamed, non-empty list, so e.g. a sweep script varying
+  # dlnm_ix_vars per config actually takes effect.
+  unnamed_list_fields <- names(.hierarch_cfg_override)[
+    vapply(.hierarch_cfg_override, function(v) is.list(v) && length(v) > 0 && is.null(names(v)), logical(1))
+  ]
+  for (nm in unnamed_list_fields) cfg[[nm]] <- .hierarch_cfg_override[[nm]]
+}
 
 # ========== Output directory structure =============
 date_suffix <- format(Sys.Date(), "%Y%m%d")

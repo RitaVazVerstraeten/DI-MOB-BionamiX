@@ -496,6 +496,15 @@ build_dlnm_stan_data <- function(cfg) {
   binary_unlagged_vars <- setdiff(cfg$unlagged_vars, cfg$numeric_vars)
   unl <- prepare_unlagged(df_filt, cfg$unlagged_vars, binary_unlagged_vars)
 
+  # cfg$shrinkage_prior selects the w_cb/w_ix/w_unlagged prior family in
+  # hierarchical_state_space_AR_perCMF_blockRE_DLNM_ix.stan; defaults to the
+  # original student_t if unset (older cfgs / other Stan files that don't
+  # read this field simply ignore it).
+  shrinkage_prior_codes <- c(student_t = 1L, normal = 2L, laplace = 3L)
+  shrinkage_prior_name  <- if (!is.null(cfg$shrinkage_prior)) cfg$shrinkage_prior else "student_t"
+  if (!shrinkage_prior_name %in% names(shrinkage_prior_codes))
+    stop("cfg$shrinkage_prior must be one of: ", paste(names(shrinkage_prior_codes), collapse = ", "))
+
   list(
     stan_data = list(
       N          = nrow(unl$df),
@@ -512,7 +521,8 @@ build_dlnm_stan_data <- function(cfg) {
       time       = unl$df$time,
       C_bt       = unl$df$C_bt,
       n_bt       = as.integer(unl$df$N_HH + cfg$kappa * unl$df$C_bt),
-      kappa      = cfg$kappa
+      kappa      = cfg$kappa,
+      shrinkage_prior_type = unname(shrinkage_prior_codes[shrinkage_prior_name])
     ),
     df             = unl$df,
     dlnm_vars      = cfg$dlnm_vars,
