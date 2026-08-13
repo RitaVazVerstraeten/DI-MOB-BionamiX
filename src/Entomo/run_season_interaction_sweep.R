@@ -42,7 +42,7 @@ script_dir <- tryCatch({
 date_suffix <- format(Sys.Date(), "%Y%m%d")
 hostname    <- Sys.info()["nodename"]
 
-sweep_output_dir <- if (hostname == "frietjes") {
+sweep_d <- if (hostname == "frietjes") {
   "/home/rita/data/Entomo/fitting/stan/season_interaction_sweep"
 } else if (hostname == "stoofvlees") {
   "~/data/entomo/results/fitting/stan/season_interaction_sweep"

@@ -1750,13 +1750,22 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     if (!is.null(pred_fine_i)) {
       z_mat_fine    <- pred_fine_i$matfit
       fine_lag_seq  <- seq(pred_fine_i$lag[1], pred_fine_i$lag[2], by = pred_fine_i$bylag)
+      # z_breaks_global's range comes from the coarse integer-lag grid
+      # (pred_i$matfit); the finer interpolated grid plotted here can dip
+      # past that range at a fractional lag the coarse grid never sampled,
+      # leaving filled.contour() with no bin for that cell -- rendered as an
+      # unpainted white gap. Clip into range before plotting: those cells are
+      # already in the most extreme colour bin, so clipping is visually
+      # indistinguishable from widening the scale, just without the gap.
+      z_mat_fine_clip <- pmin(pmax(z_mat_fine, z_breaks_global[1]),
+                               z_breaks_global[length(z_breaks_global)])
 
       png(file.path(dir_overall, paste0("dlnm_heatmap_", var, "_", run_suffix, ".png")),
           width = 800, height = 600)
       filled.contour(
         x      = at_orig,
         y      = fine_lag_seq,
-        z      = z_mat_fine,
+        z      = z_mat_fine_clip,
         levels = z_breaks_global,
         col    = pal,
         xlab   = var,
@@ -1802,14 +1811,18 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     dev.off()
 
     if (!is.null(pred_fine_i)) {
+      # Same coarse-vs-fine range mismatch as the linear heatmap above, in
+      # log space -- clip for the same reason.
       z_mat_fine_log <- log(z_mat_fine)
+      z_mat_fine_log_clip <- pmin(pmax(z_mat_fine_log, log_z_breaks_global[1]),
+                                   log_z_breaks_global[length(log_z_breaks_global)])
 
       png(file.path(dir_overall, paste0("dlnm_heatmap_", var, "_logscale_", run_suffix, ".png")),
           width = 800, height = 600)
       filled.contour(
         x      = at_orig,
         y      = fine_lag_seq,
-        z      = z_mat_fine_log,
+        z      = z_mat_fine_log_clip,
         levels = log_z_breaks_global,
         col    = pal_log,
         xlab   = var,
