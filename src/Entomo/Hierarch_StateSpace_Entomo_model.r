@@ -3,18 +3,6 @@
 # Clean calibration script (function-based)
 # =====================================================
 
-if (!require("cmdstanr", quietly = TRUE)) {
-  install.packages("cmdstanr", repos = c("https://mc-stan.org/r-packages/", getOption("repos")))
-}
-
-library(cmdstanr)
-library(dplyr)
-library(ggplot2)
-library(readr)
-library(sf)
-library(lubridate)
-library(spdep)
-
 # =========================
 # 0) LOAD HELPER FUNCTIONS
 # =========================
@@ -39,7 +27,25 @@ script_dir <- tryCatch({
   if (file.exists(file.path(candidate, "helper_functions.r"))) candidate else getwd()
 }))
 
+# Must run before any library() calls below -- a fresh checkout/worktree has
+# nothing installed yet, and renv::restore() is what populates the project
+# library from renv.lock (via the shared package cache). Previously this ran
+# after the library() calls, which only worked because an already-populated
+# library masked the ordering bug; a brand-new environment hits library(dplyr)
+# and fails before ever reaching restore().
 renv::restore(project = script_dir, prompt = FALSE)
+
+if (!require("cmdstanr", quietly = TRUE)) {
+  install.packages("cmdstanr", repos = c("https://mc-stan.org/r-packages/", getOption("repos")))
+}
+
+library(cmdstanr)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(sf)
+library(lubridate)
+library(spdep)
 
 source(file.path(script_dir, "helper_functions.r"))
 source(file.path(script_dir, "plot_functions.r"))
