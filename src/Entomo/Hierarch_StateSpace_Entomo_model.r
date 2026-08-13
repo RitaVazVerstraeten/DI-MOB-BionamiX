@@ -96,7 +96,7 @@ cfg <- list(
   response_start = "2016_01",
   n_blocks = NULL, # set NULL for all blocks/CMFs
 
-  lag_vars = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp"),
+  lag_vars = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp", "mean_ndwi"),
   # lag_vars = c("total_rainy_days", "avg_VPD"),
 
   max_lag = max_lag,
@@ -114,20 +114,21 @@ cfg <- list(
   # covariates) to test whether the RF-flagged interactions resurrect once
   # HFP_urbanization/mean_ndvi/is_WUI/is_WI are removed.
   # unlagged_vars = c("HFP_urbanization", "is_WUI","water_containers", "mean_ndvi"),
-  unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI","water_shortage", "water_containers", "is_rainy_season"),
+  unlagged_vars = c("HFP_urbanization", "is_WUI","water_shortage", "water_containers", "is_rainy_season"),
   # unlagged_vars = c("HFP_urbanization",  "water_containers"),
 
-  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp","water_containers", "HFP_urbanization", "mean_ndvi"),
+  numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp","water_containers", "HFP_urbanization", "mean_ndwi"),
   # numeric_vars = c("SPI6",  "water_containers", "HFP_urbanization", "avg_temp", "precip_max_day_resid_on_spi6"),
 
 
   # DLNM settings (only used when use_dlnm = TRUE)
-  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp"),
+  dlnm_vars   = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp", "mean_ndwi"),
   # dlnm_vars   = c("SPI6",  "avg_temp", "precip_max_day_resid_on_spi6"),
   dlnm_argvar = list(
     total_precip                = list(fun = "ns", df = 3),
     avg_temp                     = list(fun = "ns", df = 3),
-    precip_max_day_resid_on_tp  = list(fun = "ns", df = 3) 
+    precip_max_day_resid_on_tp  = list(fun = "ns", df = 3), 
+    mean_ndwi                   = list(fun= "ns", df = 3) 
     # max_VPD_resid_on_avg  = list(fun = "ns", df = 3)
     # SPI6                        = list(fun = "ns", df = 3),
     # precip_max_day_resid_on_spi6 = list(fun = "ns", df = 3),
@@ -153,13 +154,13 @@ cfg <- list(
   #     through a straight line. Defaults to 2 if omitted.
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
 
-  dlnm_ix_vars = list(
-    list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
-    # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
-    # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
-    # list(binary_var = "is_rainy_season", active_level = 1, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_season")
-  ),
-  # dlnm_ix_vars = NULL,
+  # dlnm_ix_vars = list(
+  #   list(continuous_var = "HFP_urbanization", fdlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
+  #   # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
+  #   # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
+  #   # list(binary_var = "is_rainy_season", active_level = 1, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_season")
+  # ),
+  dlnm_ix_vars = NULL,
 
   # MCMC
   chains = 4,
