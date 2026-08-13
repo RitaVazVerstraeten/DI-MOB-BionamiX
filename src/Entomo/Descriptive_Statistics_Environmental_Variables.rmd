@@ -190,6 +190,48 @@ if ("year_month" %in% colnames(env_all)) {
 }
 ```
 
+### Summary Statistics by Season
+
+```{r temporal_by_season_summary}
+if ("is_rainy_season" %in% colnames(env_all)) {
+  # precip_max_day_resid_on_tp isn't added to env_all until the colinearity-
+  # correction section much later in this notebook -- recomputed locally here
+  # (same construction: residual of precip_max_day on total_precip) so it can
+  # appear in this table without reordering every chunk before it.
+  env_all_season <- env_all %>%
+    mutate(precip_max_day_resid_on_tp = resid(lm(precip_max_day ~ total_precip, data = env_all)))
+
+  temporal_vars_season <- c(temporal_vars, "precip_max_day_resid_on_tp")
+
+  temporal_by_season <- env_all_season %>%
+    select(all_of(c("is_rainy_season", temporal_vars_season))) %>%
+    drop_na() %>%
+    mutate(Season = factor(is_rainy_season, levels = c(0, 1), labels = c("Dry season", "Rainy season"))) %>%
+    group_by(Season) %>%
+    summarise(
+      across(all_of(temporal_vars_season),
+        list(
+          n = ~n(),
+          Mean = ~mean(., na.rm = TRUE),
+          SD = ~sd(., na.rm = TRUE),
+          Min = ~min(., na.rm = TRUE),
+          Median = ~median(., na.rm = TRUE),
+          Max = ~max(., na.rm = TRUE)
+        ),
+        .names = "{.col}_{.fn}"
+      ),
+      .groups = "drop"
+    ) %>%
+    pivot_longer(-Season, names_to = "Stat_Var", values_to = "Value") %>%
+    separate(Stat_Var, into = c("Variable", "Statistic"), sep = "_(?=n$|Mean|SD|Min|Median|Max)") %>%
+    pivot_wider(names_from = "Statistic", values_from = "Value")
+
+  knitr::kable(temporal_by_season, digits = 2, caption = "Temporal Variables - Summary by Season (Dry vs. Rainy)")
+} else {
+  cat("Note: is_rainy_season variable not found in dataset")
+}
+```
+
 ### Temporal Distributions
 
 ```{r temporal_distributions, fig.cap="Distribution of temporal variables (pooled across all locations and months)"}
@@ -209,6 +251,42 @@ p <- ggplot(temporal_data_long, aes(x = Value)) +
        y = "Frequency")
 print(p)
 ggsave(file.path(output_dir, "all_env_temporal_all_vars_distribution.png"), p, width = 12, height = 8, dpi = 300)
+```
+
+### Distributions by Season
+
+```{r temporal_distributions_by_season, fig.cap="Distribution of temporal variables by season (overlaid, dry vs. rainy)"}
+# Categorical colours (season identity): fixed slots 1 (blue) and 2 (orange)
+# from the validated palette (dataviz skill, references/palette.md) -- this
+# pair clears the all-pairs CVD/contrast floors in both light and dark modes.
+season_pal <- c("Dry season" = "#2a78d6", "Rainy season" = "#eb6834")
+
+if ("is_rainy_season" %in% colnames(env_all)) {
+  temporal_data_by_season <- env_all %>%
+    select(all_of(c("is_rainy_season", temporal_vars))) %>%
+    drop_na() %>%
+    mutate(Season = factor(is_rainy_season, levels = c(0, 1), labels = c("Dry season", "Rainy season"))) %>%
+    select(-is_rainy_season) %>%
+    pivot_longer(-Season, names_to = "Variable", values_to = "Value")
+
+  p_season <- ggplot(temporal_data_by_season, aes(x = Value, fill = Season)) +
+    geom_histogram(bins = 30, alpha = 0.55, color = "black", position = "identity") +
+    scale_fill_manual(values = season_pal) +
+    facet_wrap(~Variable, scales = "free", nrow = 2) +
+    theme_minimal() +
+    theme(
+      strip.text = element_text(face = "bold", size = 11),
+      axis.title = element_text(size = 10),
+      legend.position = "top"
+    ) +
+    labs(title = "Distribution of Temporal Variables by Season",
+         x = "Value",
+         y = "Frequency")
+  print(p_season)
+  ggsave(file.path(output_dir, "all_env_temporal_all_vars_distribution_by_season.png"), p_season, width = 12, height = 8, dpi = 300)
+} else {
+  cat("Note: is_rainy_season variable not found in dataset")
+}
 ```
 
 ### Temporal Variation Over Time
@@ -326,7 +404,165 @@ ggsave(file.path(output_dir, "all_env_temporal_all_vars_by_month_lineplot.png"),
 ggsave(file.path(output_dir, "all_env_temporal_temperature_lineplot.png"), p1, width = 14, height = 8, dpi = 300)
 ggsave(file.path(output_dir, "all_env_temporal_precipitation_lineplot.png"), p4, width = 14, height = 8, dpi = 300)
 ggsave(file.path(output_dir, "all_env_temporal_rel_hum_lineplot.png"), p2, width = 14, height = 8, dpi = 300)
+```
 
+### Temporal Variation Over Time — season-shaded, WS2M and rainy-day-count panels removed, entomological curve added
+
+Same temperature/humidity-VPD/precipitation panels as above, with `consec_rainy_days`/`total_rainy_days` (and their secondary "Days" axis) dropped from the precipitation panel and the wind-speed panel dropped entirely, plus a fourth panel showing the mosquito survey positivity rate (same construction as `ento_temporal_trend_plot` later in this notebook). The background of every panel is shaded by season (blue = rainy, red = dry), using the same fixed May-Oct/Nov-Apr calendar rule established in `Create_entomo_epi_env_database.rmd`, with a single shared legend for the season shading rather than one repeated per panel.
+
+```{r temporal_by_month_seasonal, fig.cap="Temporal variables by month, season-shaded, with entomological positivity curve (WS2M and rainy-day-count panels removed)", fig.width=28, fig.height=16}
+# Fixed calendar-month rule, same convention as Create_entomo_epi_env_database.rmd
+# (not read from a column, since meteo_to_plot's source CSV may not carry
+# is_rainy_season depending on which pipeline stage it was saved from).
+meteo_to_plot <- meteo_to_plot %>%
+  mutate(is_rainy_season = as.integer(month(year_month_date) %in% 5:10))
+
+season_rects <- meteo_to_plot %>%
+  distinct(year_month_date, is_rainy_season) %>%
+  mutate(
+    xmin       = year_month_date - 15,
+    xmax       = year_month_date + 15,
+    season     = factor(if_else(is_rainy_season == 1, "rainy", "dry"), levels = c("dry", "rainy")),
+    fill_color = if_else(is_rainy_season == 1, "steelblue", "firebrick")
+  )
+season_colors <- c(dry = "firebrick", rainy = "steelblue")
+# guide = "none" on the scale used inside p2/p4 themselves -- each would
+# otherwise draw its own separate "Season" legend when combined via
+# plot_grid() (unlike patchwork, cowplot doesn't collect/merge legends across
+# panels automatically). A single shared legend is extracted separately below
+# instead, via a small standalone plot built only to hand to get_legend().
+season_fill_scale <- scale_fill_manual(values = season_colors, name = "Season", guide = "none")
+
+# Larger text throughout -- default theme_minimal() sizes read as tiny at
+# this panel's 28x16in output size. Appended (via `+`) after each panel's
+# own theme() call below; ggplot merges successive theme() calls.
+seasonal_text_theme <- theme(
+  plot.title   = element_text(size = 22, face = "bold"),
+  axis.title   = element_text(size = 18),
+  axis.text    = element_text(size = 16),
+  legend.title = element_text(size = 18),
+  legend.text  = element_text(size = 16)
+)
+
+season_legend_plot <- ggplot(season_rects, aes(x = xmin, y = 1, fill = season)) +
+  geom_tile() +
+  scale_fill_manual(values = season_colors, name = "Season") +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  seasonal_text_theme
+season_legend <- cowplot::get_legend(season_legend_plot)
+
+# p1 already has its own scale_fill_manual (temperature CI ribbons use a
+# mapped fill aesthetic) -- ggplot only supports one fill scale per plot, so
+# the season rects here use a fixed colour vector (not aes(fill=...)) to
+# avoid colliding with it.
+p1_seasonal <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
+  geom_rect(data = season_rects, aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+            fill = season_rects$fill_color, alpha = 0.15, inherit.aes = FALSE) +
+  geom_line(aes(y = max_temp, color = "Max Temp")) +
+  geom_point(aes(y = max_temp, color = "Max Temp")) +
+  geom_ribbon(aes(ymin = max_temp - 1.96 * se_max_temp, ymax = max_temp + 1.96 * se_max_temp, fill = "Max Temp"), alpha = 0.2, show.legend = FALSE) +
+  geom_line(aes(y = avg_temp, color = "Med Temp")) +
+  geom_point(aes(y = avg_temp, color = "Med Temp")) +
+  geom_ribbon(aes(ymin = avg_temp - 1.96 * se_avg_temp, ymax = avg_temp + 1.96 * se_avg_temp, fill = "Med Temp"), alpha = 0.2, show.legend = FALSE) +
+  geom_line(aes(y = min_temp, color = "Min Temp")) +
+  geom_point(aes(y = min_temp, color = "Min Temp")) +
+  geom_ribbon(aes(ymin = min_temp - 1.96 * se_min_temp, ymax = min_temp + 1.96 * se_min_temp, fill = "Min Temp"), alpha = 0.2, show.legend = FALSE) +
+  scale_color_manual(name = NULL, values = c("Max Temp" = "red", "Med Temp" = "orange", "Min Temp" = "blue")) +
+  scale_fill_manual(name = NULL, values = c("Max Temp" = "red", "Med Temp" = "orange", "Min Temp" = "blue")) +
+  labs(title = "Average Temperature (95% CI)", x = "Month", y = "Avg Temp") +
+  theme_minimal() +
+  theme(legend.position = "top", legend.justification = c(1, 1),
+        plot.margin = margin(t = 2, r = 10, b = 2, l = 10)) +
+  seasonal_text_theme
+
+p2_seasonal <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
+  geom_rect(data = season_rects, aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf, fill = season),
+            alpha = 0.15, inherit.aes = FALSE) +
+  season_fill_scale +
+  geom_ribbon(aes(ymin = rel_hum - 1.96 * se_hum, ymax = rel_hum + 1.96 * se_hum), fill = "green", alpha = 0.2) +
+  geom_line(aes(y = rel_hum, color = "Relative Humidity"), size = 1) +
+  geom_point(aes(y = rel_hum, color = "Relative Humidity")) +
+  geom_ribbon(aes(ymin = avg_VPD * vpd_scale - 1.96 * se_VPD * vpd_scale,
+                  ymax = avg_VPD * vpd_scale + 1.96 * se_VPD * vpd_scale), fill = "orange", alpha = 0.2) +
+  geom_line(aes(y = avg_VPD * vpd_scale, color = "VPD"), size = 1) +
+  geom_point(aes(y = avg_VPD * vpd_scale, color = "VPD")) +
+  scale_y_continuous(
+    name = "Relative Humidity (%)",
+    sec.axis = sec_axis(~ . / vpd_scale, name = "VPD")
+  ) +
+  scale_color_manual(values = c("Relative Humidity" = "green", "VPD" = "orange")) +
+  labs(title = "Relative Humidity and Vapor Pressure Deficit", x = "Month", y = "Rel Humidity") +
+  theme_minimal() +
+  theme(legend.position = "top", legend.justification = c(1, 1),
+        plot.margin = margin(t = 2, r = 10, b = 2, l = 10)) +
+  seasonal_text_theme
+
+# consec_rainy_days/total_rainy_days (and their secondary "Days" axis) dropped
+p4_seasonal <- ggplot(meteo_to_plot, aes(x = year_month_date)) +
+  geom_rect(data = season_rects, aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf, fill = season),
+            alpha = 0.15, inherit.aes = FALSE) +
+  season_fill_scale +
+  geom_line(aes(y = total_precip, color = "Total Precip"), size = 1) +
+  geom_point(aes(y = total_precip, color = "Total Precip")) +
+  geom_line(aes(y = precip_max_day, color = "Max Daily Precip"), size = 1) +
+  geom_point(aes(y = precip_max_day, color = "Max Daily Precip")) +
+  scale_color_manual(
+    name = NULL,
+    values = c("Total Precip" = "darkblue", "Max Daily Precip" = "lightblue")
+  ) +
+  labs(title = "Precipitation", x = "Month", y = "Precipitation (mm)") +
+  theme_minimal() +
+  theme(legend.position = "top", legend.justification = c(1, 1),plot.margin = margin(t = 2, r = 10, b = 2, l = 10)) +
+  seasonal_text_theme
+
+# Fourth panel: entomological positivity rate (same construction as
+# ento_temporal_trend_plot later in this notebook), same season shading.
+# env_epi_ento only covers 2016-2019 (vs. meteo_to_plot's 2015-2019), so this
+# panel is blank for 2015 -- x-axis limits kept matching the other three
+# panels anyway, so the season shading and any later hurricane markers stay
+# vertically aligned across all four rows.
+env_epi_ento_temporal <- read_csv(
+  "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_manzana_2016_01_to_2019_12.csv",
+  show_col_types = FALSE
+) %>%
+  mutate(year_month_date = as.Date(paste0(gsub("_", "-", as.character(year_month)), "-01")))
+
+temporal_pos_seasonal <- env_epi_ento_temporal %>%
+  select(year_month_date, Houses_pos_IS, Inspected_houses) %>%
+  drop_na() %>%
+  group_by(year_month_date) %>%
+  summarise(
+    Total_Pos = sum(Houses_pos_IS), Total_n = sum(Inspected_houses),
+    Positivity_Rate = Total_Pos / Total_n,
+    se    = sqrt(Positivity_Rate * (1 - Positivity_Rate) / Total_n),
+    lower = Positivity_Rate - 1.96 * se,
+    upper = Positivity_Rate + 1.96 * se,
+    .groups = "drop"
+  )
+
+p5_seasonal <- ggplot(temporal_pos_seasonal, aes(x = year_month_date)) +
+  geom_rect(data = season_rects, aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf, fill = season),
+            alpha = 0.15, inherit.aes = FALSE) +
+  season_fill_scale +
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "darkred", alpha = 0.2) +
+  geom_line(aes(y = Positivity_Rate), color = "darkred", linewidth = 1) +
+  geom_point(aes(y = Positivity_Rate), color = "darkred") +
+  scale_x_date(limits = range(meteo_to_plot$year_month_date)) +
+  labs(title = "Mosquito Survey Positivity Rate", x = "Month", y = "Positivity Rate") +
+  theme_minimal() +
+  theme(plot.margin = margin(t = 2, r = 10, b = 2, l = 10)) +
+  seasonal_text_theme
+
+panels_seasonal <- plot_grid(p1_seasonal, p2_seasonal, p4_seasonal, p5_seasonal, ncol = 1, nrow = 4)
+combined_plot_seasonal <- plot_grid(panels_seasonal, season_legend, ncol = 1, rel_heights = c(1, 0.04))
+print(combined_plot_seasonal)
+
+ggsave(file.path(output_dir, "all_env_temporal_all_vars_by_month_lineplot_seasonal.png"),
+       combined_plot_seasonal, width = 28, height = 16, dpi = 300)
+```
+
+```{r temporal_by_month_hurricane, fig.cap="Temporal variables by month with hurricane timing marked", fig.width=14, fig.height=8}
 # Version with hurricane timing marked on all subplots
 hurricane_dates <- meteo_to_plot %>%
   filter(hurricane_within_120km == 1) %>%
@@ -525,6 +761,84 @@ continuous_summary_cmf <- spatial_unique_cmf %>%
 
 knitr::kable(continuous_summary_cmf, digits = 2,
              caption = "Continuous Spatial Variables - Distribution Across CMFs")
+```
+
+### Water Containers vs. HFP Urbanization, by Urban Status (CMF level)
+
+Both HFP_urbanization and water_containers are continuous, so a cross-table
+would require discretizing both and losing resolution. Instead: a scatter
+plot with a smoother per urban-status group shows the actual shape of the
+relationship, and a linear model with an HFP x urban interaction term tests
+directly whether the HFP-containers slope differs by urban status.
+
+```{r cmf_containers_vs_hfp_prep}
+containers_hfp_cmf <- env_all_cmf %>%
+  select(cmf, HFP_urbanization, water_containers, is_urban) %>%
+  distinct(cmf, .keep_all = TRUE) %>%
+  drop_na() %>%
+  mutate(is_urban = factor(is_urban, levels = c(FALSE, TRUE), labels = c("Non-urban", "Urban")))
+```
+
+```{r cmf_containers_vs_hfp_scatter, fig.cap="Water containers per person vs. HFP urbanization index, by urban status (CMF level)"}
+p_containers_hfp <- ggplot(containers_hfp_cmf, aes(x = HFP_urbanization, y = water_containers, color = is_urban)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(aes(fill = is_urban), method = "loess", se = TRUE, alpha = 0.15) +
+  labs(title = "Water containers vs. HFP urbanization, by urban status",
+       x = "HFP urbanization index", y = "Water containers per person",
+       color = "Urban status", fill = "Urban status") +
+  theme_minimal()
+
+print(p_containers_hfp)
+ggsave(file.path(output_dir, "cmf_water_containers_vs_hfp_by_urban.png"), p_containers_hfp, width = 9, height = 6, dpi = 300)
+```
+
+```{r cmf_containers_vs_hfp_stats}
+cor_overall_p <- cor.test(containers_hfp_cmf$HFP_urbanization, containers_hfp_cmf$water_containers, method = "pearson")
+cor_overall_s <- cor.test(containers_hfp_cmf$HFP_urbanization, containers_hfp_cmf$water_containers, method = "spearman")
+
+cor_by_group <- containers_hfp_cmf %>%
+  group_by(is_urban) %>%
+  summarise(
+    n          = n(),
+    pearson_r  = cor(HFP_urbanization, water_containers, method = "pearson"),
+    spearman_r = cor(HFP_urbanization, water_containers, method = "spearman"),
+    .groups = "drop"
+  ) %>%
+  mutate(is_urban = as.character(is_urban))
+
+cor_summary <- bind_rows(
+  cor_by_group,
+  tibble(is_urban = "Overall", n = nrow(containers_hfp_cmf),
+         pearson_r = unname(cor_overall_p$estimate), spearman_r = unname(cor_overall_s$estimate))
+) %>%
+  rename(Group = is_urban)
+
+knitr::kable(cor_summary, digits = 3,
+             caption = "Correlation of water containers with HFP urbanization, overall and by urban status (CMF level)")
+
+# Cross-table 1: water_containers across HFP urbanization quartiles
+containers_hfp_cmf <- containers_hfp_cmf %>%
+  mutate(HFP_quartile = cut(HFP_urbanization,
+                             breaks = quantile(HFP_urbanization, probs = seq(0, 1, 0.25), na.rm = TRUE),
+                             include.lowest = TRUE,
+                             labels = c("Q1 (low)", "Q2", "Q3", "Q4 (high)")))
+
+crosstab_hfp <- containers_hfp_cmf %>%
+  group_by(HFP_quartile) %>%
+  summarise(n = n(), mean = mean(water_containers), sd = sd(water_containers),
+            median = median(water_containers), .groups = "drop")
+
+knitr::kable(crosstab_hfp, digits = 2,
+             caption = "Water containers per person by HFP urbanization quartile (CMF level)")
+
+# Cross-table 2: water_containers across urban status
+crosstab_urban <- containers_hfp_cmf %>%
+  group_by(is_urban) %>%
+  summarise(n = n(), mean = mean(water_containers), sd = sd(water_containers),
+            median = median(water_containers), .groups = "drop")
+
+knitr::kable(crosstab_urban, digits = 2,
+             caption = "Water containers per person by urban status (CMF level)")
 ```
 
 ### Pop Density Outlier Analysis (CMF level)
@@ -1539,6 +1853,32 @@ for (lvl in c("manzana", "CMF")) {
     subtitle   = paste0("Spearman  ·  N = ", n_t, " months  ·  1 row/month (meteo is municipality-wide)"),
     png_path   = file.path(output_dir, paste0(pfx, "_env_corr_meteo_x_meteo.png")),
     w = 1200, h = 1100
+  )
+
+  # ── BLOCK 1b: Meteo × Meteo (headline subset) ────────────────────────────
+  # Same construction as Block 1 above, restricted to the five variables
+  # central to the precip/temperature collinearity narrative (total_precip,
+  # precip_max_day, avg_temp, rel_hum, avg_VPD) -- a cleaner standalone
+  # figure for write-ups, kept separate from Block 1 so that plot (already
+  # cited with its full 10-variable set in RF_predictor_screen_explained.tex)
+  # is untouched.
+  meteo_headline_vars <- c("total_precip", "precip_max_day", "avg_temp", "rel_hum", "avg_VPD")
+
+  snap_th <- dat %>%
+    distinct(year_month, .keep_all = TRUE) %>%
+    select(all_of(meteo_headline_vars)) %>%
+    drop_na()
+
+  n_th  <- nrow(snap_th)
+  cm_th <- cor(snap_th, method = "spearman")
+  pm_th <- cor_pval_spearman(snap_th)
+
+  plot_corrblock(
+    cm         = cm_th,
+    main_title = paste0(lbl, " — Meteo × Meteo (headline subset)"),
+    subtitle   = paste0("Spearman  ·  N = ", n_th, " months  ·  1 row/month (meteo is municipality-wide)"),
+    png_path   = file.path(output_dir, paste0(pfx, "_env_corr_meteo_headline.png")),
+    w = 900, h = 850
   )
 
   # ── BLOCK 2: Spatial continuous × Spatial continuous ─────────────────────
