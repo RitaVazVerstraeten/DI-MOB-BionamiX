@@ -1860,6 +1860,11 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
 
     cat(sprintf("  DLNM plots saved: %s\n", var))
   }
+
+  # Returned so save_dlnm_interaction_response_plots() can fold this range
+  # into its own, giving every 3-D surface in the model -- interaction or
+  # not -- the same z-axis/colour scale.
+  invisible(list(z_global = z_global, log_z_global = log_z_global))
 }
 
 #' Save DLNM Lag-Response Plots at Fixed Exposure Percentiles
@@ -2028,7 +2033,9 @@ save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
 #' @param prep    Return value of build_dlnm_stan_data() with dlnm_ix_vars field populated
 #' @param output_dir  Directory to write PNGs into
 #' @param run_suffix  String appended to each filename
-save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suffix) {
+save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suffix,
+                                                   external_z_range = NULL,
+                                                   external_log_z_range = NULL) {
   if (!requireNamespace("dlnm", quietly = TRUE)) {
     cat("dlnm not installed; skipping DLNM interaction plots.\n")
     return(invisible(NULL))
@@ -2064,6 +2071,14 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     if (!is.null(ix$continuous_var)) base_n * ix$continuous_df else base_n
   })
   ix_col_starts <- cumsum(c(1L, ix_ncols[-length(ix_ncols)]))
+
+  ref_col    <- "steelblue"
+  active_col <- "firebrick"
+
+  # ── Pass 1: compute pred_ref/pred_active for every binary interaction, and
+  # plot the cumulative + per-lag slice comparisons (unaffected by the
+  # z-range unification below) ───────────────────────────────────────────────
+  ix_preds <- list()
 
   for (k in seq_along(dlnm_ix_vars)) {
     ix <- dlnm_ix_vars[[k]]
@@ -2119,9 +2134,6 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     L_val   <- as.integer(attr(cb_mats[[dlnm_var]], "lag")[2])
     lag_seq <- 0:L_val
 
-    ref_col    <- "steelblue"
-    active_col <- "firebrick"
-
     # ── Cumulative effect comparison ──────────────────────────────────────────
     y_lim <- range(pred_ref$alllow, pred_ref$allhigh,
                    pred_active$alllow, pred_active$allhigh, na.rm = TRUE)
@@ -2173,41 +2185,92 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
       dev.off()
     }
 
-    # ── 3-D surfaces (reference and active, shared z-scale) ──────────────────
-    # Same blue-low/red-high convention, white anchored exactly at OR = 1, as
-    # the non-interaction surfaces in save_dlnm_response_plots().
-    pal_below   <- dlnm_diverging_pal[1:3]  # blue -> light blue -> white
-    pal_above   <- dlnm_diverging_pal[3:5]  # white -> light red -> red
-    z_global_ix <- range(pred_ref$matfit, pred_active$matfit, na.rm = TRUE)
+    ix_preds[[label]] <- list(dlnm_var = dlnm_var, pred_ref = pred_ref, pred_active = pred_active,
+                               at_std = at_std, at_orig = at_orig, lag_seq = lag_seq)
+  }
 
-    if (z_global_ix[1] < 1 && z_global_ix[2] > 1) {
-      n_below <- max(1, round(50 * (1 - z_global_ix[1]) / diff(z_global_ix)))
-      n_above <- max(1, 50 - n_below)
-      pal <- c(colorRampPalette(pal_below)(n_below),
-               colorRampPalette(pal_above)(n_above))
-      z_breaks_ix <- c(seq(z_global_ix[1], 1, length.out = n_below + 1),
-                        seq(1, z_global_ix[2], length.out = n_above + 1)[-1])
-    } else if (z_global_ix[2] <= 1) {
-      pal <- colorRampPalette(pal_below)(50)
-      z_breaks_ix <- seq(z_global_ix[1], z_global_ix[2], length.out = 51)
-    } else {
-      pal <- colorRampPalette(pal_above)(50)
-      z_breaks_ix <- seq(z_global_ix[1], z_global_ix[2], length.out = 51)
-    }
+  if (length(ix_preds) == 0) return(invisible(NULL))
 
-    for (grp in list(list(pred = pred_ref, name = "ref"), list(pred = pred_active, name = "active"))) {
-      z_mat   <- grp$pred$matfit
-      z_mid   <- (z_mat[-1, -1] + z_mat[-1, -ncol(z_mat)] +
-                  z_mat[-nrow(z_mat), -1] + z_mat[-nrow(z_mat), -ncol(z_mat)]) / 4
-      fcol    <- pal[cut(z_mid, breaks = z_breaks_ix, include.lowest = TRUE)]
+  # ── Global z-range across every interaction's ref+active surfaces, unioned
+  # with the non-interaction surfaces' range if provided (external_z_range/
+  # external_log_z_range, returned by save_dlnm_response_plots()) -- so every
+  # 3-D surface in the model, interaction or not, shares one axis/colour
+  # scale. Same blue-low/red-high convention, anchor-at-1 (linear) /
+  # anchor-at-0 (log) splitting as save_dlnm_response_plots(). ─────────────
+  pal_below <- dlnm_diverging_pal[1:3]  # blue -> light blue -> white
+  pal_above <- dlnm_diverging_pal[3:5]  # white -> light red -> red
+
+  all_z_ix <- unlist(lapply(ix_preds, function(p) c(p$pred_ref$matfit, p$pred_active$matfit)))
+  z_global <- range(c(all_z_ix, external_z_range), na.rm = TRUE)
+
+  if (z_global[1] < 1 && z_global[2] > 1) {
+    n_below <- max(1, round(50 * (1 - z_global[1]) / diff(z_global)))
+    n_above <- max(1, 50 - n_below)
+    pal <- c(colorRampPalette(pal_below)(n_below),
+             colorRampPalette(pal_above)(n_above))
+    z_breaks_global <- c(seq(z_global[1], 1, length.out = n_below + 1),
+                          seq(1, z_global[2], length.out = n_above + 1)[-1])
+  } else if (z_global[2] <= 1) {
+    pal <- colorRampPalette(pal_below)(50)
+    z_breaks_global <- seq(z_global[1], z_global[2], length.out = 51)
+  } else {
+    pal <- colorRampPalette(pal_above)(50)
+    z_breaks_global <- seq(z_global[1], z_global[2], length.out = 51)
+  }
+
+  log_all_z_ix <- log(all_z_ix[all_z_ix > 0])
+  log_z_global <- range(c(log_all_z_ix, external_log_z_range), na.rm = TRUE)
+
+  if (log_z_global[1] < 0 && log_z_global[2] > 0) {
+    n_below_log <- max(1, round(50 * (0 - log_z_global[1]) / diff(log_z_global)))
+    n_above_log <- max(1, 50 - n_below_log)
+    pal_log <- c(colorRampPalette(pal_below)(n_below_log),
+                 colorRampPalette(pal_above)(n_above_log))
+    log_z_breaks_global <- c(seq(log_z_global[1], 0, length.out = n_below_log + 1),
+                              seq(0, log_z_global[2], length.out = n_above_log + 1)[-1])
+  } else if (log_z_global[2] <= 0) {
+    pal_log <- colorRampPalette(pal_below)(50)
+    log_z_breaks_global <- seq(log_z_global[1], log_z_global[2], length.out = 51)
+  } else {
+    pal_log <- colorRampPalette(pal_above)(50)
+    log_z_breaks_global <- seq(log_z_global[1], log_z_global[2], length.out = 51)
+  }
+
+  # ── Pass 2: plot every interaction's ref/active 3-D surfaces, linear + log ─
+  for (label in names(ix_preds)) {
+    p <- ix_preds[[label]]
+    for (grp in list(list(pred = p$pred_ref, name = "ref"), list(pred = p$pred_active, name = "active"))) {
+      z_mat <- grp$pred$matfit
+      z_mid <- (z_mat[-1, -1] + z_mat[-1, -ncol(z_mat)] +
+                z_mat[-nrow(z_mat), -1] + z_mat[-nrow(z_mat), -ncol(z_mat)]) / 4
+      fcol  <- pal[cut(z_mid, breaks = z_breaks_global, include.lowest = TRUE)]
+
       png(file.path(dir_overall, paste0("dlnm_ix_3d_", label, "_", grp$name, "_", run_suffix, ".png")),
           width = 800, height = 700)
-      persp(x = at_orig, y = lag_seq, z = z_mat,
-            zlim     = z_global_ix,
-            xlab     = dlnm_var, ylab = "Lag (months)", zlab = "Odds ratio of p_bt",
+      persp(x = p$at_orig, y = p$lag_seq, z = z_mat,
+            zlim     = z_global,
+            xlab     = p$dlnm_var, ylab = "Lag (months)", zlab = "Odds ratio of p_bt",
             main     = paste0("DLNM surface — ", label, " (", grp$name, ")"),
             theta    = 40, phi = 25, ltheta = 45,
             col      = fcol, border = NA, ticktype = "detailed")
+      dev.off()
+
+      # Log-scale companion -- didn't exist before this unification; added so
+      # the log-scale interaction surfaces can share log_z_global the same
+      # way the non-interaction ones share it in save_dlnm_response_plots().
+      z_mat_log <- log(z_mat)
+      z_mid_log <- (z_mat_log[-1, -1] + z_mat_log[-1, -ncol(z_mat_log)] +
+                    z_mat_log[-nrow(z_mat_log), -1] + z_mat_log[-nrow(z_mat_log), -ncol(z_mat_log)]) / 4
+      fcol_log  <- pal_log[cut(z_mid_log, breaks = log_z_breaks_global, include.lowest = TRUE)]
+
+      png(file.path(dir_overall, paste0("dlnm_ix_3d_", label, "_", grp$name, "_logscale_", run_suffix, ".png")),
+          width = 800, height = 700)
+      persp(x = p$at_orig, y = p$lag_seq, z = z_mat_log,
+            zlim     = log_z_global,
+            xlab     = p$dlnm_var, ylab = "Lag (months)", zlab = "log(Odds ratio) of p_bt",
+            main     = paste0("DLNM surface (log scale) — ", label, " (", grp$name, ")"),
+            theta    = 40, phi = 25, ltheta = 45,
+            col      = fcol_log, border = NA, ticktype = "detailed")
       dev.off()
     }
 

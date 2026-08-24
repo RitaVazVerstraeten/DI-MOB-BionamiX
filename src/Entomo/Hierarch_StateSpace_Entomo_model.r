@@ -154,17 +154,17 @@ cfg <- list(
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
 
   dlnm_ix_vars = list(
-    list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
+    # list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
     # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
     # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
-    # list(binary_var = "is_rainy_season", active_level = 1, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_season")
+    list(binary_var = "is_rainy_season", active_level = 1, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_season")
   ),
   # dlnm_ix_vars = NULL,
 
   # MCMC
   chains = 4,
   iter_warmup = 1000,
-  iter_sampling = 1000,
+  iter_sampling = 1500,
   adapt_delta = 0.95, # target average acceptance probability for the NUTS sampler in stan
   max_treedepth = 12, # caps how many steps the NUTS sampler can take in a single iteration.
   parallel_chains = if (is_compute_node) 4 else 1,
@@ -1003,12 +1003,14 @@ save_unlagged_effects_plot(fit, prep, plots_output_dir, model_spec)
 
 if (isTRUE(cfg$use_dlnm)) {
   cat("Generating DLNM exposure-response and lag-response plots...\n")
-  save_dlnm_response_plots(fit, prep, plots_output_dir, model_spec)
+  dlnm_z_ranges <- save_dlnm_response_plots(fit, prep, plots_output_dir, model_spec)
   cat("Generating DLNM lag-response plots at fixed exposure percentiles...\n")
   save_dlnm_lagresponse_plots(fit, prep, plots_output_dir, model_spec)
   if (length(prep$dlnm_ix_vars) > 0) {
     cat("Generating DLNM interaction surface plots...\n")
-    save_dlnm_interaction_response_plots(fit, prep, plots_output_dir, model_spec)
+    save_dlnm_interaction_response_plots(fit, prep, plots_output_dir, model_spec,
+                                          external_z_range     = dlnm_z_ranges$z_global,
+                                          external_log_z_range = dlnm_z_ranges$log_z_global)
     cat("Generating DLNM continuous-modifier interaction plots...\n")
     save_dlnm_continuous_interaction_plots(fit, prep, plots_output_dir, model_spec, percentiles = c(0.10, 0.90))
   }
