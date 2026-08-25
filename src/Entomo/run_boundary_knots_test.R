@@ -80,7 +80,7 @@ numeric_vars_fixed <- c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp",
 dlnm_argvar_unconstrained <- list(
   total_precip                = list(fun = "ns", df = 3),
   avg_temp                    = list(fun = "ns", df = 3),
-  precip_max_day_resid_on_tp  = list(fun = "ns", df = 3)
+  precip_max_day_resid_on_tp  = list(fun = "ns", df = 2)
 )
 
 resid_boundary_z <- c(-0.872, 1.592)   # see header comment for derivation
