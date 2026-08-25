@@ -289,6 +289,468 @@ if ("is_rainy_season" %in% colnames(env_all)) {
 }
 ```
 
+`precip_max_day_resid_on_tp` (used throughout the DLNM modelling) is the residual from a single fit of `precip_max_day ~ total_precip` **pooled across both seasons**. If the true max-day/total relationship actually differs by season, that pooled baseline means the same residual value doesn't mean the same thing in each season -- worth checking directly before trusting a season interaction built on it.
+
+```{r max_day_vs_total_precip_by_season, fig.cap="Max daily precipitation vs. total precipitation, by season, with separate fitted lines vs. the pooled fit the residual is actually computed from"}
+if ("is_rainy_season" %in% colnames(env_all)) {
+  precip_scatter_data <- env_all %>%
+    select(all_of(c("is_rainy_season", "total_precip", "precip_max_day"))) %>%
+    drop_na() %>%
+    mutate(Season = factor(is_rainy_season, levels = c(0, 1), labels = c("Dry season", "Rainy season")))
+
+  # The actual pooled fit precip_max_day_resid_on_tp is computed against
+  # (see "Correct correlation between precip and precip_max_day" below) --
+  # recomputed locally here since that section runs later in the document.
+  pooled_fit <- lm(precip_max_day ~ total_precip, data = precip_scatter_data)
+
+  p_precip_scatter <- ggplot(precip_scatter_data, aes(x = total_precip, y = precip_max_day, color = Season)) +
+    geom_point(alpha = 0.35, size = 1.2) +
+    geom_smooth(method = "lm", se = TRUE, linewidth = 1) +
+    geom_abline(intercept = coef(pooled_fit)[1], slope = coef(pooled_fit)[2],
+                linetype = "dashed", color = "grey30", linewidth = 0.8) +
+    scale_color_manual(values = season_pal) +
+    theme_minimal() +
+    theme(legend.position = "top") +
+    labs(title = "Max Daily Precipitation vs. Total Precipitation, by Season",
+         subtitle = "Solid lines: per-season fits. Dashed grey: pooled fit (what the residual variable is actually computed from).",
+         x = "Total precipitation (mm)",
+         y = "Max daily precipitation (mm)")
+
+  print(p_precip_scatter)
+  ggsave(file.path(output_dir, "all_env_precip_max_day_vs_total_precip_by_season.png"), p_precip_scatter, width = 10, height = 7, dpi = 300)
+} else {
+  cat("Note: is_rainy_season variable not found in dataset")
+}
+```
+
+**Observation density on the residual x lag grid, by season.** The DLNM interaction surface is fit over this exact (residual value, lag) grid -- sparse cells are where that surface's wiggles are least trustworthy, regardless of what the fitted line/colour shows there. Counted in distinct months, not manzana-month rows -- total_precip/precip_max_day/the residual are municipality-wide, so a plain row count would inflate every cell's N by however many manzanas reported that month (~149x).
+
+```{r resid_lag_density_by_season, fig.cap="Observation density (in distinct months) across the residual x lag grid, by season -- same axes the DLNM interaction surface is estimated over"}
+if ("is_rainy_season" %in% colnames(env_all) &&
+    all(c("manzana", "year_month", "total_precip", "precip_max_day") %in% colnames(env_all))) {
+
+  # precip_max_day_resid_on_tp isn't built yet at this point in the document
+  # (that happens later, in "Correct correlation between precip and
+  # precip_max_day") -- recomputed locally here, same pooled fit.
+  resid_fit_density <- lm(precip_max_day ~ total_precip, data = env_all, na.action = na.exclude)
+
+  resid_lag_data <- env_all %>%
+    mutate(precip_max_day_resid_on_tp = resid(resid_fit_density)) %>%
+    select(manzana, year_month, is_rainy_season, precip_max_day_resid_on_tp) %>%
+    group_by(manzana) %>%
+    arrange(year_month, .by_group = TRUE) %>%
+    mutate(
+      lag0 = precip_max_day_resid_on_tp,
+      lag1 = dplyr::lag(precip_max_day_resid_on_tp, 1),
+      lag2 = dplyr::lag(precip_max_day_resid_on_tp, 2),
+      lag3 = dplyr::lag(precip_max_day_resid_on_tp, 3),
+      lag4 = dplyr::lag(precip_max_day_resid_on_tp, 4),
+      lag5 = dplyr::lag(precip_max_day_resid_on_tp, 5)   # max_lag = 5, matching the season-interaction sweep
+    ) %>%
+    ungroup() %>%
+    # year_month kept (not dropped) so density can be counted in distinct
+    # months below -- total_precip/precip_max_day/the residual are
+    # municipality-wide, so every manzana repeats the same lagged residual
+    # value for a given month, and a plain row count would inflate N by
+    # ~149x (the same duplication issue as the leave-one-month-out CV and
+    # the residual-bin crosstabs above).
+    select(year_month, is_rainy_season, lag0:lag5) %>%
+    pivot_longer(lag0:lag5, names_to = "lag", names_prefix = "lag", values_to = "residual") %>%
+    mutate(
+      lag    = as.integer(lag),
+      Season = factor(is_rainy_season, levels = c(0, 1), labels = c("Dry season", "Rainy season"))
+    ) %>%
+    drop_na(residual)
+
+  # geom_bin2d()'s automatic binning would apply to y = factor(lag) too --
+  # a discrete axis with 6 levels gets mapped to integer positions 1-6 for
+  # plotting, but the default discrete-scale expansion pads that range
+  # before stat_bin2d's bins get computed, so 6 equal-width bins don't land
+  # on the 6 integers: one bin ends up empty (no real lag centred in it)
+  # while an adjacent one merges two lag values together. Bin the
+  # (continuous) residual axis explicitly instead and leave lag alone, so
+  # every one of the 6 rows is an exact lag value, never a binned one.
+  n_bins       <- 30
+  resid_range  <- range(resid_lag_data$residual, na.rm = TRUE)
+  bin_breaks   <- seq(resid_range[1], resid_range[2], length.out = n_bins + 1)
+  bin_width    <- diff(bin_breaks)[1]
+
+  resid_lag_data <- resid_lag_data %>%
+    mutate(
+      residual_bin_idx = pmin(findInterval(residual, bin_breaks, all.inside = TRUE), n_bins),
+      residual_mid     = bin_breaks[residual_bin_idx] + bin_width / 2
+    )
+
+  # "Both seasons" pooled alongside the per-season panels -- this is also the
+  # density that actually backs the model's shared w_cb baseline surface
+  # (the "(ref)" DLNM plot): w_cb is estimated from every row regardless of
+  # season, with w_ix only adding the active-season *shift* on top, so a
+  # per-season-only density plot understates how much data actually supports
+  # a "ref" surface's cell (e.g. the earlier lag-5 spike had 1 dry-season
+  # month behind it, but up to 6 months total across both seasons once the
+  # pooled view -- the one w_cb actually sees -- is counted).
+  resid_lag_by_season <- resid_lag_data %>%
+    group_by(Season, lag, residual_mid) %>%
+    summarise(N_months = n_distinct(year_month), .groups = "drop")
+
+  resid_lag_pooled <- resid_lag_data %>%
+    group_by(lag, residual_mid) %>%
+    summarise(N_months = n_distinct(year_month), .groups = "drop") %>%
+    mutate(Season = "Both seasons")
+
+  season_levels   <- c("Dry season", "Rainy season", "Both seasons")
+  resid_lag_binned <- bind_rows(resid_lag_by_season, resid_lag_pooled) %>%
+    mutate(Season = factor(Season, levels = season_levels))
+
+  # Completing the grid surfaces the (Season, lag, residual bin) combos with
+  # *zero* months, not just the sparse-but-nonzero ones -- group_by+summarise
+  # above only ever produces a row where at least one month landed, so a
+  # truly empty cell would otherwise just be blank plot background,
+  # indistinguishable from "outside the panel." N_months stays NA there and
+  # renders as grey via na.value below, so "no data at all" is visually
+  # distinct from "1 month" (darkest viridis) rather than invisible.
+  all_residual_mids <- bin_breaks[-length(bin_breaks)] + bin_width / 2
+  resid_lag_binned <- tidyr::complete(resid_lag_binned, Season = factor(season_levels, levels = season_levels),
+                                       lag = 0:5, residual_mid = all_residual_mids)
+
+  # Legend as whole months, not whatever break positions a continuous scale
+  # would pick by default -- the range here is small (single digits to low
+  # teens) so every integer is legible and "3.5 months" would be meaningless.
+  n_months_breaks <- seq(min(resid_lag_binned$N_months, na.rm = TRUE), max(resid_lag_binned$N_months, na.rm = TRUE))
+
+  p_density <- ggplot(resid_lag_binned, aes(x = residual_mid, y = factor(lag), fill = N_months)) +
+    geom_tile() +
+    scale_fill_viridis_c(name = "N months", na.value = "grey80",
+                          breaks = n_months_breaks, labels = n_months_breaks) +
+    facet_wrap(~Season, ncol = 1) +
+    theme_minimal() +
+    labs(title = "Observation Density: Residual x Lag, by Season",
+         subtitle = "N = distinct months (not manzana-month rows); grey = zero months in that cell. \"Both seasons\" is the pooled density that actually backs the model's shared w_cb baseline surface.",
+         x = "precip_max_day_resid_on_tp", y = "Lag (months)")
+
+  print(p_density)
+  ggsave(file.path(output_dir, "all_env_residual_lag_density_by_season.png"), p_density, width = 10, height = 11, dpi = 300)
+} else {
+  cat("Note: required variables not found in dataset")
+}
+```
+
+**Same, for total_precip.** `total_precip` is lagged into the DLNM the same way (same `max_lag`), so it's worth checking whether its own exposure x lag grid is as data-thin at the extremes as the residual's.
+
+```{r total_precip_lag_density_by_season, fig.cap="Observation density (in distinct months) across the total_precip x lag grid, by season -- same axes the DLNM surface for total_precip is estimated over"}
+if ("is_rainy_season" %in% colnames(env_all) &&
+    all(c("manzana", "year_month", "total_precip") %in% colnames(env_all))) {
+
+  tp_lag_data <- env_all %>%
+    select(manzana, year_month, is_rainy_season, total_precip) %>%
+    group_by(manzana) %>%
+    arrange(year_month, .by_group = TRUE) %>%
+    mutate(
+      lag0 = total_precip,
+      lag1 = dplyr::lag(total_precip, 1),
+      lag2 = dplyr::lag(total_precip, 2),
+      lag3 = dplyr::lag(total_precip, 3),
+      lag4 = dplyr::lag(total_precip, 4),
+      lag5 = dplyr::lag(total_precip, 5)   # max_lag = 5, matching the season-interaction sweep
+    ) %>%
+    ungroup() %>%
+    # year_month kept (not dropped) so density can be counted in distinct
+    # months below -- total_precip is municipality-wide, so every manzana
+    # repeats the same lagged value for a given month, and a plain row count
+    # would inflate N by ~149x (same duplication issue as the residual plot
+    # above).
+    select(year_month, is_rainy_season, lag0:lag5) %>%
+    pivot_longer(lag0:lag5, names_to = "lag", names_prefix = "lag", values_to = "tp") %>%
+    mutate(
+      lag    = as.integer(lag),
+      Season = factor(is_rainy_season, levels = c(0, 1), labels = c("Dry season", "Rainy season"))
+    ) %>%
+    drop_na(tp)
+
+  n_bins     <- 30
+  tp_range   <- range(tp_lag_data$tp, na.rm = TRUE)
+  bin_breaks <- seq(tp_range[1], tp_range[2], length.out = n_bins + 1)
+  bin_width  <- diff(bin_breaks)[1]
+
+  tp_lag_data <- tp_lag_data %>%
+    mutate(
+      tp_bin_idx = pmin(findInterval(tp, bin_breaks, all.inside = TRUE), n_bins),
+      tp_mid     = bin_breaks[tp_bin_idx] + bin_width / 2
+    )
+
+  tp_lag_by_season <- tp_lag_data %>%
+    group_by(Season, lag, tp_mid) %>%
+    summarise(N_months = n_distinct(year_month), .groups = "drop")
+
+  tp_lag_pooled <- tp_lag_data %>%
+    group_by(lag, tp_mid) %>%
+    summarise(N_months = n_distinct(year_month), .groups = "drop") %>%
+    mutate(Season = "Both seasons")
+
+  season_levels <- c("Dry season", "Rainy season", "Both seasons")
+  tp_lag_binned <- bind_rows(tp_lag_by_season, tp_lag_pooled) %>%
+    mutate(Season = factor(Season, levels = season_levels))
+
+  all_tp_mids <- bin_breaks[-length(bin_breaks)] + bin_width / 2
+  tp_lag_binned <- tidyr::complete(tp_lag_binned, Season = factor(season_levels, levels = season_levels),
+                                    lag = 0:5, tp_mid = all_tp_mids)
+
+  n_months_breaks_tp <- seq(min(tp_lag_binned$N_months, na.rm = TRUE), max(tp_lag_binned$N_months, na.rm = TRUE))
+
+  p_density_tp <- ggplot(tp_lag_binned, aes(x = tp_mid, y = factor(lag), fill = N_months)) +
+    geom_tile() +
+    scale_fill_viridis_c(name = "N months", na.value = "grey80",
+                          breaks = n_months_breaks_tp, labels = n_months_breaks_tp) +
+    facet_wrap(~Season, ncol = 1) +
+    theme_minimal() +
+    labs(title = "Observation Density: total_precip x Lag, by Season",
+         subtitle = "N = distinct months (not manzana-month rows); grey = zero months in that cell. \"Both seasons\" is the pooled density that actually backs the model's shared w_cb baseline surface.",
+         x = "total_precip", y = "Lag (months)")
+
+  print(p_density_tp)
+  ggsave(file.path(output_dir, "all_env_total_precip_lag_density_by_season.png"), p_density_tp, width = 10, height = 11, dpi = 300)
+} else {
+  cat("Note: required variables not found in dataset")
+}
+```
+
+
+
+**Descriptive crosstab: season x residual sign.** Grounds the abstract DLNM coefficients in observed positivity rates before looking at any model output.
+
+```{r resid_season_crosstab}
+if ("is_rainy_season" %in% colnames(env_all)) {
+  resid_fit_crosstab <- lm(precip_max_day ~ total_precip, data = env_all, na.action = na.exclude)
+  env_all_resid <- env_all %>%
+    mutate(precip_max_day_resid_on_tp = resid(resid_fit_crosstab))
+
+  # Entomological outcome loaded locally here -- its own full load happens
+  # much later in this document, in "Part 1: Mosquito Survey Data".
+  ento_path <- "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_manzana_2016_01_to_2019_12.csv"
+  if (file.exists(ento_path)) {
+    ento_local <- read_csv(ento_path, show_col_types = FALSE) %>%
+      select(manzana, year_month, Houses_pos_IS, Inspected_houses) %>%
+      mutate(year_month = as.factor(year_month))
+
+    crosstab_data <- env_all_resid %>%
+      select(manzana, year_month, is_rainy_season, total_precip, precip_max_day_resid_on_tp) %>%
+      inner_join(ento_local, by = c("manzana", "year_month")) %>%
+      mutate(
+        Season        = factor(is_rainy_season, levels = c(0, 1), labels = c("Dry season", "Rainy season")),
+        Residual_sign = factor(precip_max_day_resid_on_tp >= 0, levels = c(FALSE, TRUE),
+                                labels = c("Negative (steady rain)", "Positive (bursty rain)"))
+      ) %>%
+      drop_na(Season, Residual_sign)
+
+    resid_season_crosstab <- crosstab_data %>%
+      group_by(Season, Residual_sign) %>%
+      summarise(
+        N                    = n(),
+        Mean_total_precip    = mean(total_precip, na.rm = TRUE),
+        Total_Pos            = sum(Houses_pos_IS, na.rm = TRUE),
+        Total_Inspected      = sum(Inspected_houses, na.rm = TRUE),
+        Positivity_Rate_Pct  = Total_Pos / Total_Inspected * 100,
+        .groups = "drop"
+      ) %>%
+      select(-Total_Pos, -Total_Inspected)
+
+    knitr::kable(resid_season_crosstab, digits = 2,
+                 caption = "Season x Residual-Sign Crosstab: N, Mean Total Precipitation, and Observed Mosquito Positivity Rate")
+  } else {
+    cat("Note: entomological data file not found at expected path; skipping crosstab.")
+  }
+} else {
+  cat("Note: is_rainy_season variable not found in dataset")
+}
+```
+
+**What does a high vs. low residual actually correspond to, in mm?** The sign-only crosstab above answers "positive or negative" -- this breaks the pooled residual into five bins (pulling the extreme 10% off each tail, rather than averaging it away inside a plain Low/Mid/High tercile) and shows what total precipitation and max-day precipitation actually look like in each bin. If a "high residual" bin has a similar total_precip to the "low" bin but a much higher precip_max_day, that confirms the residual is capturing rain concentrated into one day (bursty) vs. spread across the month (steady), independent of how much rain fell overall.
+
+`N` here is manzana-month rows, but total_precip/precip_max_day/the residual itself are municipality-wide -- every manzana shares the exact same value within a given year_month (the same duplication issue that motivates the leave-one-month-out CV elsewhere in this project). So `N` overstates how much independent weather information actually backs each bin; `N_months` (distinct year_month count) is the real denominator, and it's what to check before reading anything into a thin bin.
+
+```{r resid_season_bin_crosstab}
+if ("is_rainy_season" %in% colnames(env_all)) {
+  resid_fit_bin <- lm(precip_max_day ~ total_precip, data = env_all, na.action = na.exclude)
+  env_all_resid_bin <- env_all %>%
+    mutate(precip_max_day_resid_on_tp = resid(resid_fit_bin))
+
+  if (file.exists(ento_path)) {
+    # Cutpoints from the pooled residual distribution -- same five bins
+    # applied to both seasons, so any imbalance in how many dry- vs.
+    # rainy-season months fall into each bin is itself informative (the
+    # residual is fit pooled, not per-season -- see note above the
+    # by-season scatter plot). 10th/90th pulled out separately from the
+    # tercile cuts so the extreme tails get their own row instead of being
+    # averaged into "High"/"Low".
+    bin_cuts   <- quantile(env_all_resid_bin$precip_max_day_resid_on_tp, probs = c(0, 0.10, 1/3, 2/3, 0.90, 1), na.rm = TRUE)
+    bin_labels <- c("Very low (extreme steady)", "Low (steady)", "Mid", "High (bursty)", "Very high (extreme bursty)")
+    bin_ranges <- tibble(
+      Resid_bin       = factor(bin_labels, levels = bin_labels),
+      Resid_bin_range = sprintf("%.1f to %.1f", head(bin_cuts, -1), tail(bin_cuts, -1))
+    )
+
+    bin_data <- env_all_resid_bin %>%
+      select(manzana, year_month, is_rainy_season, total_precip, precip_max_day, total_rainy_days, precip_max_day_resid_on_tp) %>%
+      inner_join(ento_local, by = c("manzana", "year_month")) %>%
+      mutate(
+        Season    = factor(is_rainy_season, levels = c(0, 1), labels = c("Dry season", "Rainy season")),
+        Resid_bin = cut(precip_max_day_resid_on_tp, breaks = bin_cuts, include.lowest = TRUE, labels = bin_labels)
+      ) %>%
+      drop_na(Season, Resid_bin)
+
+    # Mean of each month's own (precip_max_day / total_precip) ratio, not
+    # mean(precip_max_day) / mean(total_precip) -- the two aren't the same
+    # once averaging is involved, and per-month is the one that actually
+    # answers "how much of a typical month's rain fell on its single
+    # wettest day." Collapsed to distinct months first (rather than
+    # averaging over bin_data's manzana-month rows directly) so a month
+    # with more manzanas reporting entomological data that month doesn't
+    # get implicitly weighted more heavily than one with fewer.
+    month_pct <- bin_data %>%
+      distinct(Season, Resid_bin, year_month, total_precip, precip_max_day) %>%
+      mutate(Pct_max_day_of_total_precip = precip_max_day / total_precip * 100) %>%
+      group_by(Season, Resid_bin) %>%
+      summarise(Pct_max_day_of_total_precip = mean(Pct_max_day_of_total_precip, na.rm = TRUE), .groups = "drop")
+
+    resid_season_bin_crosstab <- bin_data %>%
+      group_by(Season, Resid_bin) %>%
+      summarise(
+        N                       = n(),
+        N_months                = n_distinct(year_month),
+        Mean_total_precip       = mean(total_precip, na.rm = TRUE),
+        Min_total_precip        = min(total_precip, na.rm = TRUE),
+        Max_total_precip        = max(total_precip, na.rm = TRUE),
+        Mean_precip_max_day     = mean(precip_max_day, na.rm = TRUE),
+        Min_precip_max_day      = min(precip_max_day, na.rm = TRUE),
+        Max_precip_max_day      = max(precip_max_day, na.rm = TRUE),
+        Median_total_rainy_days = median(total_rainy_days, na.rm = TRUE),
+        Min_total_rainy_days    = min(total_rainy_days, na.rm = TRUE),
+        Max_total_rainy_days    = max(total_rainy_days, na.rm = TRUE),
+        Total_Pos               = sum(Houses_pos_IS, na.rm = TRUE),
+        Total_Inspected         = sum(Inspected_houses, na.rm = TRUE),
+        Positivity_Rate_Pct     = Total_Pos / Total_Inspected * 100,
+        .groups = "drop"
+      ) %>%
+      left_join(month_pct, by = c("Season", "Resid_bin")) %>%
+      # Range folded into the same cell as the mean/median (rather than
+      # separate Min/Max columns) so a thin bin's spread is visible right
+      # next to the statistic it's qualifying.
+      mutate(
+        Mean_total_precip       = sprintf("%.1f (%.1f-%.1f)", Mean_total_precip, Min_total_precip, Max_total_precip),
+        Mean_precip_max_day     = sprintf("%.1f (%.1f-%.1f)", Mean_precip_max_day, Min_precip_max_day, Max_precip_max_day),
+        Median_total_rainy_days = sprintf("%.0f (%.0f-%.0f)", Median_total_rainy_days, Min_total_rainy_days, Max_total_rainy_days)
+      ) %>%
+      select(-Total_Pos, -Total_Inspected, -starts_with("Min_"), -starts_with("Max_")) %>%
+      complete(Season, Resid_bin = factor(bin_labels, levels = bin_labels)) %>%
+      left_join(bin_ranges, by = "Resid_bin") %>%
+      relocate(Resid_bin_range, .after = Resid_bin) %>%
+      relocate(Pct_max_day_of_total_precip, .after = Mean_precip_max_day)
+
+    knitr::kable(resid_season_bin_crosstab, digits = 2,
+                 caption = "Season x Residual-Bin Crosstab: bin range (mm) alongside N (manzana-months) vs. N_months (distinct months -- the real sample size), Mean Total/Max-Day Precipitation and Median Number of Rainy Days (each shown as statistic (min-max) across that bin's months), Mean of each Month's Own Max-Day-as-%-of-Total-Precip Ratio, and Observed Mosquito Positivity Rate. Blank rows mean zero months of that season fell in that bin.")
+  } else {
+    cat("Note: entomological data file not found at expected path; skipping crosstab.")
+  }
+} else {
+  cat("Note: is_rainy_season variable not found in dataset")
+}
+```
+
+**Do other environmental covariates also shift across residual bins?** Same bins as the table above (reusing `bin_cuts`/`bin_labels`/`bin_ranges` computed there), repeating total/max-day precipitation for reference alongside mean temperature, VPD, NDVI, and wind speed. If the non-precipitation columns stay roughly flat across bins within a season, the residual is capturing something specific to rainfall concentration rather than standing in for a broader wet/dry or hot/cool shift; if they move together with the residual, that's a confound to keep in mind when interpreting the DLNM's residual effect.
+
+```{r resid_season_bin_env_crosstab}
+if (exists("bin_cuts") && exists("env_all_resid_bin") &&
+    all(c("avg_temp", "avg_VPD", "mean_ndvi", "WS2M") %in% colnames(env_all))) {
+
+  env_bin_data <- env_all_resid_bin %>%
+    select(manzana, year_month, is_rainy_season, precip_max_day_resid_on_tp,
+           total_precip, precip_max_day, avg_temp, avg_VPD, mean_ndvi, WS2M) %>%
+    inner_join(ento_local, by = c("manzana", "year_month")) %>%
+    mutate(
+      Season    = factor(is_rainy_season, levels = c(0, 1), labels = c("Dry season", "Rainy season")),
+      Resid_bin = cut(precip_max_day_resid_on_tp, breaks = bin_cuts, include.lowest = TRUE, labels = bin_labels)
+    ) %>%
+    drop_na(Season, Resid_bin)
+
+  resid_season_bin_env_crosstab <- env_bin_data %>%
+    group_by(Season, Resid_bin) %>%
+    summarise(
+      N                    = n(),
+      N_months             = n_distinct(year_month),
+      Mean_total_precip    = mean(total_precip, na.rm = TRUE),
+      Mean_precip_max_day  = mean(precip_max_day, na.rm = TRUE),
+      Mean_avg_temp        = mean(avg_temp, na.rm = TRUE),
+      Mean_avg_VPD         = mean(avg_VPD, na.rm = TRUE),
+      Mean_ndvi            = mean(mean_ndvi, na.rm = TRUE),
+      Mean_WS2M            = mean(WS2M, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    complete(Season, Resid_bin = factor(bin_labels, levels = bin_labels)) %>%
+    left_join(bin_ranges, by = "Resid_bin") %>%
+    relocate(Resid_bin_range, .after = Resid_bin)
+
+  knitr::kable(resid_season_bin_env_crosstab, digits = 2,
+               caption = "Season x Residual-Bin Crosstab: N/N_months alongside Mean Total/Max-Day Precipitation, Temperature, VPD, NDVI, and Wind Speed (WS2M) across the same residual bins as the table above.")
+} else {
+  cat("Note: required columns not found, or the previous residual-bin chunk hasn't been run yet.")
+}
+```
+
+**Original vs. long-window-calibrated residual, by season, side by side.** `precip_max_day_resid_on_tp` above is calibrated only on the 2015-2019 study period. `Create_entomo_epi_env_database.rmd` now also builds `precip_max_day_resid_on_tp_1024`, calibrated on the full 2010-2024 record (same principle as SPI's calibration window) and predicted onto the study-period rows. If recalibrating on the longer record visibly changes the season-related shape below, that's a sign the original residual's season interaction was partly an artifact of its own short calibration window rather than a real precipitation-pattern effect.
+
+```{r resid_1024_vs_original_by_season, fig.cap="Original (2015-2019-calibrated) vs. long-window (2010-2024-calibrated) residual, by season"}
+if ("is_rainy_season" %in% colnames(env_all) &&
+    all(c("total_precip", "precip_max_day") %in% colnames(env_all))) {
+
+  # Original: pooled fit on the study period only (same construction used
+  # elsewhere in this document).
+  resid_fit_orig <- lm(precip_max_day ~ total_precip, data = env_all, na.action = na.exclude)
+
+  # Long-window: same construction as resid_fit_tp_1024 in
+  # Create_entomo_epi_env_database.rmd -- fit on the full 2010-2024 daily
+  # record, predicted onto this document's study-period rows.
+  meteo_daily_1024_path <- "/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx"
+  if (file.exists(meteo_daily_1024_path)) {
+    meteo_monthly_1024 <- readxl::read_xlsx(meteo_daily_1024_path) %>%
+      mutate(year_month = paste0(Ano, "_", sprintf("%02d", Mes))) %>%
+      group_by(year_month) %>%
+      summarise(
+        total_precip   = sum(precip_ponderada, na.rm = TRUE),
+        precip_max_day = max(precip_ponderada, na.rm = TRUE),
+        .groups = "drop"
+      )
+    resid_fit_1024 <- lm(precip_max_day ~ total_precip, data = meteo_monthly_1024)
+
+    resid_compare_data <- env_all %>%
+      mutate(
+        `Original (2015-2019 baseline)`    = resid(resid_fit_orig),
+        `Long-window (2010-2024 baseline)` = precip_max_day - predict(resid_fit_1024, newdata = .),
+        Season = factor(is_rainy_season, levels = c(0, 1), labels = c("Dry season", "Rainy season"))
+      ) %>%
+      select(Season, `Original (2015-2019 baseline)`, `Long-window (2010-2024 baseline)`) %>%
+      pivot_longer(-Season, names_to = "Baseline", values_to = "residual") %>%
+      drop_na(residual)
+
+    p_resid_compare <- ggplot(resid_compare_data, aes(x = residual, fill = Season)) +
+      geom_histogram(bins = 30, alpha = 0.55, color = "black", position = "identity") +
+      scale_fill_manual(values = season_pal) +
+      facet_wrap(~Baseline, ncol = 2, scales = "free_x") +
+      theme_minimal() +
+      theme(legend.position = "top", strip.text = element_text(face = "bold")) +
+      labs(title = "precip_max_day_resid_on_tp: Original vs. Long-Window Baseline, by Season",
+           x = "Residual", y = "Frequency")
+
+    print(p_resid_compare)
+    ggsave(file.path(output_dir, "all_env_residual_original_vs_1024_by_season.png"), p_resid_compare, width = 12, height = 6, dpi = 300)
+  } else {
+    cat("Note: full 2010-2024 meteorological file not found; skipping comparison.")
+  }
+} else {
+  cat("Note: is_rainy_season variable not found in dataset")
+}
+```
+
+
 ### Temporal Variation Over Time
 
 ```{r temporal_by_month, fig.cap="Temporal variables by month - showing seasonal patterns", fig.width=14, fig.height=10}
