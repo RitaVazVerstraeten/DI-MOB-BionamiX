@@ -64,7 +64,7 @@ test_output_dir <- if (hostname == "frietjes") {
 } else if (hostname == "stoofvlees") {
   "~/data/entomo/results/fitting/stan/boundary_knots_test"
 } else {
-  "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan/boundary_knots_test"
+  "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan/boundary_knots_test_resid_2df"
 }
 test_output_dir <- path.expand(test_output_dir)
 dir.create(test_output_dir, recursive = TRUE, showWarnings = FALSE)
@@ -79,13 +79,13 @@ numeric_vars_fixed <- c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp",
 
 dlnm_argvar_unconstrained <- list(
   total_precip                = list(fun = "ns", df = 3),
-  avg_temp                    = list(fun = "ns", df = 3),
+  avg_VPD                     = list(fun = "ns", df = 3),
   precip_max_day_resid_on_tp  = list(fun = "ns", df = 2)
 )
 
 resid_boundary_z <- c(-0.872, 1.592)   # see header comment for derivation
 dlnm_argvar_boundary_knots <- modifyList(dlnm_argvar_unconstrained, list(
-  precip_max_day_resid_on_tp = list(fun = "ns", df = 3, Boundary.knots = resid_boundary_z)
+  precip_max_day_resid_on_tp = list(fun = "ns", df = 2, Boundary.knots = resid_boundary_z)
 ))
 
 unlagged_with_season <- c("HFP_urbanization", "mean_ndvi", "is_WUI", "water_shortage", "water_containers", "is_rainy_season")
