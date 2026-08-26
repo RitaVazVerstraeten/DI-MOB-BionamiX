@@ -19,6 +19,7 @@
 #   e: tp=3, VPD=2, resid=3           | arglag=3 | interaction=no
 #   f: tp=2, VPD=2, resid=2           | arglag=3 | interaction=yes
 #   g: tp=2, VPD=lin, resid=2         | arglag=3 | interaction=yes
+#   h: tp=2, VPD=lin, resid=2         | arglag=3 | interaction=no
 #
 # Interaction=no follows the same convention as run_season_interaction_sweep.R's
 # "none" arm: is_rainy_season is dropped entirely (no main effect, no
@@ -98,7 +99,8 @@ scenario_defs <- list(
   d = list(argvar = list(total_precip = 3, avg_VPD = 3,   precip_max_day_resid_on_tp = 3), interaction = FALSE),
   e = list(argvar = list(total_precip = 3, avg_VPD = 2,   precip_max_day_resid_on_tp = 3), interaction = FALSE),
   f = list(argvar = list(total_precip = 2, avg_VPD = 2,   precip_max_day_resid_on_tp = 2), interaction = TRUE),
-  g = list(argvar = list(total_precip = 2, avg_VPD = "lin", precip_max_day_resid_on_tp = 2), interaction = TRUE)
+  g = list(argvar = list(total_precip = 2, avg_VPD = "lin", precip_max_day_resid_on_tp = 2), interaction = TRUE), 
+  h = list(argvar = list(total_precip = 2, avg_VPD = "lin", precip_max_day_resid_on_tp = 2), interaction = FALSE)
 )
 
 build_dlnm_argvar <- function(spec) {
