@@ -221,6 +221,50 @@ The differential surface coefficients $\mathbf{w}_{ix}$ use a Normal prior with 
 \end{equation}
 A Normal (rather than Student-$t$) prior here provides more conservative, symmetric shrinkage of the differential surface --- appropriate when the existence of an interaction is uncertain and the null of no effect modification should be the default. The tighter scale ($\sigma = 0.5$ vs.\ $1.0$ for $\mathbf{w}_{cb}$) reflects the prior expectation that interaction effects are typically smaller than main effects.
 
+\subsection{Data Support Across the Exposure--Lag Grid}
+\label{sec:data-support}
+
+The cross-basis $\mathbf{Q}_k$ is fit over a two-dimensional (exposure value, lag) grid, and the shrinkage prior of Section~\ref{sec:shrinkage} regularises coefficient \emph{magnitude} uniformly --- it does not vary in strength across that grid. A cell with almost no data behind it is just as free to swing the fitted surface as a well-supported one; a raw row count over the full dataset can therefore be a misleading guide to how much the surface should be trusted at any particular (exposure, lag) location.
+
+This matters specifically for the meteorological predictors used here (\texttt{total\_precip}, \texttt{precip\_max\_day\_resid\_on\_tp}) because they are \emph{municipality-wide}: every CMF shares the exact same value in a given month. The dataset has $N \approx 9{,}000$ CMF-month rows, but only $\sim\!48$ distinct months of actual weather variation --- a $\sim\!149\times$ duplication that inflates any row-count-based sense of how much the exposure--lag surface is supported. Splitting further by lag (0 through $L$) and by an interaction group (e.g.\ dry vs.\ rainy season) shrinks the real sample size behind an individual grid cell further still.
+
+Figures~\ref{fig:resid-lag-density} and~\ref{fig:tp-lag-density} make this concrete: distinct-month counts across the (exposure, lag) grid, faceted by season, with grey cells marking zero months. Both show a dense, well-supported core but sparse edges --- the residual's extremes and the boundary lag ($\ell = 5$) in particular, and \texttt{total\_precip}'s upper tail (a single month past 500\,mm, isolated from the rest of the mass). One cell illustrates the risk directly: at (\texttt{precip\_max\_day\_resid\_on\_tp} $\approx 35$, $\ell = 5$) in the dry season, exactly \emph{one} month (2017-01) supplies the lagged residual value driving that region of the fitted surface. A natural spline's flexibility at a grid corner backed by one data point is essentially free to extrapolate --- and a sharp, visually dramatic feature at that corner of a fitted surface reflects that single month, not a repeated pattern.
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=0.7\textwidth]{out.nosync/all_env_residual_lag_density_by_season.png}
+  \caption{Observation density (distinct months, not CMF-months) across the \texttt{precip\_max\_day\_resid\_on\_tp} $\times$ lag grid, by season and pooled. Grey = zero months in that cell.}
+  \label{fig:resid-lag-density}
+\end{figure}
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=0.7\textwidth]{out.nosync/all_env_total_precip_lag_density_by_season.png}
+  \caption{Same, for \texttt{total\_precip}. The upper tail is even more extreme than the residual's: a single month past 500\,mm, and mostly single-month support from $\sim\!200$\,mm upward.}
+  \label{fig:tp-lag-density}
+\end{figure}
+
+\paragraph{Mitigation: constraining the boundary knots.} Section~\ref{sec:dlnm} already notes that a natural spline (\texttt{fun="ns"}) is constrained to be linear beyond its boundary knots. By default \texttt{dlnm::crossbasis()} places those knots at the literal minimum and maximum of the exposure variable, so the full non-linear flexibility of the spline is fit all the way out to whichever single month happens to be most extreme. Passing an explicit \texttt{Boundary.knots} argument (e.g.\ pinned at the 10th/90th percentile rather than the 0th/100th) keeps that single-month value in the model --- nothing is dropped --- but forces the fitted response beyond the boundary to be a single linear extrapolation rather than a freely-curving segment, removing the degrees of freedom that let one month bend the surface independently.
+
+Figures~\ref{fig:ix-3d-unconstrained} and~\ref{fig:ix-3d-boundary-knots} show the resulting dry-season (\texttt{ref}) surface, fit apples-to-apples with \texttt{run\_boundary\_knots\_test.R} (branch \texttt{test/resid-boundary-knots}) --- same script, same variable set, same data, differing only in whether \texttt{Boundary.knots} is set.
+
+\begin{figure}[ht]
+  \centering
+  \begin{subfigure}[t]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{out.nosync/dlnm_ix_3d_precip_resid_x_season_ref_unconstrained.png}
+    \caption{Unconstrained (boundary knots at data min/max).}
+    \label{fig:ix-3d-unconstrained}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[t]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{out.nosync/dlnm_ix_3d_precip_resid_x_season_ref_boundary_knots.png}
+    \caption{\texttt{Boundary.knots} at the 10th/90th percentile.}
+    \label{fig:ix-3d-boundary-knots}
+  \end{subfigure}
+  \caption{\texttt{precip\_resid\_x\_season} dry-season (\texttt{ref}) surface, log-scale odds ratio, unconstrained vs.\ boundary-knot-constrained. Each panel's own colour/height scale is pooled across that run's surfaces (Section~\ref{sec:dlnm}), so the two are not on an identical $z$-axis --- compare shape, not absolute colour.}
+  \label{fig:ix-3d-comparison}
+\end{figure}
+
 \subsection{Per-CMF AR(1) Temporal Effect}
 \label{sec:ar}
 
@@ -516,5 +560,33 @@ The current sweep uses $K=3$ lagged predictors with mixed exposure bases (\textt
   P_{cb} = 1\times3 + 1\times3 + 3\times3 = 15 \text{ cross-basis parameters.}
 \end{equation}
 The equivalent no-DLNM model would have $3 \times 3 = 9$ free lag weights. The spline term on precipitation thus adds $9 - 3 = 6$ parameters relative to a fully linear formulation, allowing the precipitation effect to be non-linear in exposure while keeping both rainfall and VPD effects parsimonious.
+
+\subsection*{The argvar Sweep (\texttt{run\_argvar\_sweep.R})}
+
+Section~\ref{sec:data-support} established that the DLNM cross-basis parameters for \texttt{total\_precip}, \texttt{avg\_VPD}, and \texttt{precip\_max\_day\_resid\_on\_tp} all draw on the \emph{same} shared pool of $\approx 48$ independent months of weather variation -- adding a fourth cross-basis block (an interaction) does not get its own fresh 48-month allowance, it competes with the other three for the same one. \texttt{run\_argvar\_sweep.R} tests 9 combinations of per-variable \texttt{argvar\_df} and interaction choice against that shared budget, arglag fixed at \texttt{ns(df=3)} ($d_\ell = 3$, shared across all three variables) throughout. Each of the 9 is additionally run both unconstrained and with \texttt{Boundary.knots} pinned (Section~\ref{sec:data-support}) -- the boundary-knots variant does \emph{not} change any of the parameter counts below, only how much of that count's flexibility is spent inside vs.\ beyond the boundary.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{lccclr}
+\toprule
+\textbf{Scenario} & \texttt{total\_precip} & \texttt{avg\_VPD} & \texttt{resid} & \textbf{Interaction} & \textbf{Total $P_{cb}$} \\
+\midrule
+a & 3 & 3   & 3 & resid & 36 \\
+b & 3 & 3   & 2 & resid & 30 \\
+c & 3 & 2   & 2 & resid & 27 \\
+d & 3 & 3   & 3 & none  & 27 \\
+e & 3 & 2   & 3 & none  & 24 \\
+f & 2 & 2   & 2 & resid & 24 \\
+g & 2 & lin & 2 & resid & 21 \\
+h & 2 & lin & 2 & none  & 15 \\
+i & 3 & 3   & 3 & both  & 45 \\
+\bottomrule
+\end{tabular}
+\caption{Argvar-sweep scenarios: \texttt{argvar\_df} per variable (\texttt{lin} = 1 column, no df), which interaction is active (\texttt{resid} = \texttt{precip\_resid\_x\_season}; \texttt{both} = \texttt{precip\_resid\_x\_season} \emph{and} \texttt{tp\_x\_season} together), and the total cross-basis parameter count $P_{cb}$ -- every \texttt{ns} variable's own $w_{cb}$ block (\texttt{argvar\_df} $\times\, d_\ell{=}3$) summed with an equal-sized $w_{ix}$ block for each active interaction (an interaction mirrors its target variable's own cross-basis dimensions). \texttt{resid} = \texttt{precip\_max\_day\_resid\_on\_tp}.}
+\label{tab:argvar-sweep-scenarios}
+\end{table}
+
+Scenario i (45 parameters, the largest in the grid) adds a second interaction, \texttt{tp\_x\_season}, on top of scenario a's already-largest single-interaction configuration -- deliberately the most demanding scenario in the sweep, included precisely to see whether that much shared-pool competition still pays for itself once evaluated genuinely out-of-sample (Section~\ref{sec:data-support}'s LOMO machinery, not PSIS-LOO). Scenario h (15 parameters) is the opposite end: no interaction, both weaker variables reduced to \texttt{lin}/\texttt{df=2}, closest to the strict tier of the budget heuristic discussed alongside Table~\ref{tab:argvar-sweep-scenarios}'s derivation.
 
 \end{document}
