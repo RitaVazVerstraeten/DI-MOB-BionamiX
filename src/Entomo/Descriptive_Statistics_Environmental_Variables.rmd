@@ -514,6 +514,65 @@ if ("is_rainy_season" %in% colnames(env_all) &&
 }
 ```
 
+**Same, for avg_VPD -- pooled, not split by season.** VPD doesn't have an obvious season-driven asymmetry the way precipitation does, so this is checked once across all months rather than faceted.
+
+```{r avg_vpd_lag_density, fig.cap="Observation density (in distinct months) across the avg_VPD x lag grid -- same axes the DLNM surface for avg_VPD is estimated over"}
+if (all(c("manzana", "year_month", "avg_VPD") %in% colnames(env_all))) {
+
+  vpd_lag_data <- env_all %>%
+    select(manzana, year_month, avg_VPD) %>%
+    group_by(manzana) %>%
+    arrange(year_month, .by_group = TRUE) %>%
+    mutate(
+      lag0 = avg_VPD,
+      lag1 = dplyr::lag(avg_VPD, 1),
+      lag2 = dplyr::lag(avg_VPD, 2),
+      lag3 = dplyr::lag(avg_VPD, 3),
+      lag4 = dplyr::lag(avg_VPD, 4),
+      lag5 = dplyr::lag(avg_VPD, 5)   # max_lag = 5, matching the season-interaction sweep
+    ) %>%
+    ungroup() %>%
+    select(year_month, lag0:lag5) %>%
+    pivot_longer(lag0:lag5, names_to = "lag", names_prefix = "lag", values_to = "vpd") %>%
+    mutate(lag = as.integer(lag)) %>%
+    drop_na(vpd)
+
+  n_bins     <- 30
+  vpd_range  <- range(vpd_lag_data$vpd, na.rm = TRUE)
+  bin_breaks <- seq(vpd_range[1], vpd_range[2], length.out = n_bins + 1)
+  bin_width  <- diff(bin_breaks)[1]
+
+  vpd_lag_data <- vpd_lag_data %>%
+    mutate(
+      vpd_bin_idx = pmin(findInterval(vpd, bin_breaks, all.inside = TRUE), n_bins),
+      vpd_mid     = bin_breaks[vpd_bin_idx] + bin_width / 2
+    )
+
+  vpd_lag_binned <- vpd_lag_data %>%
+    group_by(lag, vpd_mid) %>%
+    summarise(N_months = n_distinct(year_month), .groups = "drop")
+
+  all_vpd_mids <- bin_breaks[-length(bin_breaks)] + bin_width / 2
+  vpd_lag_binned <- tidyr::complete(vpd_lag_binned, lag = 0:5, vpd_mid = all_vpd_mids)
+
+  n_months_breaks_vpd <- seq(min(vpd_lag_binned$N_months, na.rm = TRUE), max(vpd_lag_binned$N_months, na.rm = TRUE))
+
+  p_density_vpd <- ggplot(vpd_lag_binned, aes(x = vpd_mid, y = factor(lag), fill = N_months)) +
+    geom_tile() +
+    scale_fill_viridis_c(name = "N months", na.value = "grey80",
+                          breaks = n_months_breaks_vpd, labels = n_months_breaks_vpd) +
+    theme_minimal() +
+    labs(title = "Observation Density: avg_VPD x Lag (pooled, all months)",
+         subtitle = "N = distinct months (not manzana-month rows); grey = zero months in that cell",
+         x = "avg_VPD", y = "Lag (months)")
+
+  print(p_density_vpd)
+  ggsave(file.path(output_dir, "all_env_avg_vpd_lag_density.png"), p_density_vpd, width = 10, height = 3, dpi = 300)
+} else {
+  cat("Note: required variables not found in dataset")
+}
+```
+
 
 
 **Descriptive crosstab: season x residual sign.** Grounds the abstract DLNM coefficients in observed positivity rates before looking at any model output.

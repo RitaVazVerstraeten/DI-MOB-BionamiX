@@ -894,7 +894,7 @@ pop_density_mz <- mz_pop_raw %>%
 env_data_path <- "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality"
 
 ndvi <- read_csv(file.path(env_data_path, "NDVI", "NDVI_per_manzana_nobuf_2015_2025_all_months.csv"), show_col_types = FALSE)
-ndwi <- read_csv(file.path(env_data_path, "NDWI", "NDWI_per_manzana_nobuf_2015_2025_all_months.csv"), show_col_types = FALSE)
+ndwi <- read_csv(file.path(env_data_path, "NDWI", "NDWI","NDWI_per_manzana_nobuf_2015_2025_all_months.csv"), show_col_types = FALSE)
 ndmi <- read_csv(file.path(env_data_path, "NDMI", "NDMI_per_manzana_nobuf_2015_2025_all_months.csv"), show_col_types = FALSE)
 windspeed <- read_csv(file.path(env_data_path, "WindSpeed", "wind_speed_2015_2019_monthly.csv"), show_col_types = FALSE)
 hurricane <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/Hurricanes/hurricane_monthly_within_120km.csv", show_col_types = FALSE)
@@ -990,7 +990,7 @@ landcover <- landcover %>%
 env_data_path <- "/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality"
 
 ndvi_cmf <- read_csv(file.path(env_data_path, "NDVI", "NDVI_per_CMF_2015_2025_all_months.csv"), show_col_types = FALSE)
-ndwi_cmf <- read_csv(file.path(env_data_path, "NDWI", "NDWI_per_CMF_2015_2025_all_months.csv"), show_col_types = FALSE)
+ndwi_cmf <- read_csv(file.path(env_data_path, "NDWI", "NDWI", "NDWI_per_CMF_2015_2025_all_months.csv"), show_col_types = FALSE)
 ndmi_cmf <- read_csv(file.path(env_data_path, "NDMI", "NDMI_per_CMF_2015_2025_all_months.csv"), show_col_types = FALSE)
 windspeed_cmf <- read_csv(file.path(env_data_path, "WindSpeed", "wind_speed_2015_2019_monthly.csv"), show_col_types = FALSE)
 landcover_cmf <- read_csv(file.path(env_data_path, "LandCover", "LandCover_per_CMF_2021.csv"), show_col_types = FALSE)
@@ -3109,6 +3109,72 @@ cat("NDVI NAs remaining after climatology backfill (expected 0 - every CMF-month
     sum(is.na(final_dataset_cmf_2015$mean_ndvi)), "\n")
 ```
 
+```{r fit precip_max_day on total_precip using the full 2010-2024 record}
+# precip_max_day_resid_on_tp (below, and in every other dataset variant built
+# further down this document) is fit only on the study period at hand
+# (~48-90 monthly points depending on the variant) -- meteo_daily gets
+# restricted to a short window right at load time (see the "calculate VPD"
+# chunk above), before any regression on it ever runs. SPI avoids this same
+# "gamma-fit spin-up"/small-sample problem by calibrating on the full
+# 2010-2024 record instead; this fits the precip_max_day ~ total_precip
+# baseline the same way -- on the full record -- then predicts it onto each
+# dataset variant's own rows below, without changing which observations feed
+# any model. Computed once here (before the first place that needs it) and
+# reused for every later variant. Stored as a separate _1024-suffixed column
+# so each existing precip_max_day_resid_on_tp is untouched; compare the two
+# fitted equations printed at each usage site before deciding whether to
+# switch over.
+meteo_daily_1024 <- read_xlsx("/media/rita/New Volume/Documenten/DI-MOB/Data Sharing/WP2_Meteorological_Data/Meteorologia_Mcp_Cfgos_2010-2024_pordia_v07022025.xlsx") %>%
+  mutate(year_month = paste0(Ano, "_", sprintf("%02d", Mes)))
+
+meteo_monthly_1024 <- meteo_daily_1024 %>%
+  group_by(year_month) %>%
+  summarise(
+    total_precip   = sum(precip_ponderada, na.rm = TRUE),
+    precip_max_day = max(precip_ponderada, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+resid_fit_tp_1024 <- lm(precip_max_day ~ total_precip, data = meteo_monthly_1024)
+
+cat(sprintf("2010-2024 (N = %d months): precip_max_day = %.3f + %.3f * total_precip\n",
+            nrow(meteo_monthly_1024), coef(resid_fit_tp_1024)[1], coef(resid_fit_tp_1024)[2]))
+```
+
+Same figure as `max_day_vs_total_precip_by_season` in `Descriptive_Statistics_Environmental_Variables.rmd`, but over the full 2010-2024 record instead of just the 2015-2019 study period -- checks whether the per-season slopes found there (dry steeper than rainy) hold up over the longer record or were themselves short-window noise.
+
+```{r max_day_1024_vs_total_precip_by_season, fig.width=10, fig.height=7}
+# Same fixed calendar-month rule as "create is_rainy_season binary variable"
+# above (May-Oct wet, Nov-Apr dry) -- meteo_monthly_1024 has no is_rainy_season
+# yet since it was built directly from the unrestricted daily file, not from
+# meteo_monthly.
+season_pal <- c("Dry season" = "#2a78d6", "Rainy season" = "#eb6834")
+
+meteo_monthly_1024_season <- meteo_monthly_1024 %>%
+  mutate(
+    month_num = as.integer(substr(year_month, 6, 7)),
+    Season    = factor(as.integer(month_num %in% 5:10), levels = c(0, 1),
+                        labels = c("Dry season", "Rainy season"))
+  )
+
+p_max_day_1024_scatter <- ggplot(meteo_monthly_1024_season, aes(x = total_precip, y = precip_max_day, color = Season)) +
+  geom_point(alpha = 0.5, size = 1.5) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 1) +
+  geom_abline(intercept = coef(resid_fit_tp_1024)[1], slope = coef(resid_fit_tp_1024)[2],
+              linetype = "dashed", color = "grey30", linewidth = 0.8) +
+  scale_color_manual(values = season_pal) +
+  theme_minimal() +
+  theme(legend.position = "top") +
+  labs(title = "Max Daily Precipitation vs. Total Precipitation, by Season (2010-2024)",
+       subtitle = "Solid lines: per-season fits on the full 2010-2024 record. Dashed grey: pooled fit (resid_fit_tp_1024).",
+       x = "Total precipitation (mm)",
+       y = "Max daily precipitation (mm)")
+
+print(p_max_day_1024_scatter)
+ggsave(file.path(save_images_to, "max_day_1024_vs_total_precip_by_season.png"),
+       p_max_day_1024_scatter, width = 10, height = 7, dpi = 300)
+```
+
 ```{r collinearity correction for extended-lag dataset}
 # Fit on ALL rows (2015–2019) so 2015 residuals are on the same scale as 2016+.
 resid_fit_2015 <- lm(precip_max_day ~ total_rainy_days,
@@ -3133,7 +3199,10 @@ final_dataset_cmf_2015 <- final_dataset_cmf_2015 %>%
   mutate(
     precip_max_day_resid_on_trd = resid(resid_fit_2015),
     precip_max_day_resid_on_tp  = resid(resid_fit_2015_tp),
-    temp_resid_on_tp            = resid(resid_fit_2015_temp)
+    temp_resid_on_tp            = resid(resid_fit_2015_temp),
+    # Same residual, but against the full-2010-2024-calibrated baseline
+    # (resid_fit_tp_1024, fit above) instead of this 2015-2019-only fit.
+    precip_max_day_resid_on_tp_1024 = precip_max_day - predict(resid_fit_tp_1024, newdata = .)
   )
 ```
 
@@ -3269,7 +3338,10 @@ final_dataset_mz_2015 <- final_dataset_mz_2015 %>%
   mutate(
     precip_max_day_resid_on_trd = resid(resid_fit_mz_2015),
     precip_max_day_resid_on_tp  = resid(resid_fit_mz_2015_tp),
-    temp_resid_on_tp            = resid(resid_fit_mz_2015_temp)
+    temp_resid_on_tp            = resid(resid_fit_mz_2015_temp),
+    # Same residual, but against the full-2010-2024-calibrated baseline
+    # (resid_fit_tp_1024, fit above) instead of this 2015-2019-only fit.
+    precip_max_day_resid_on_tp_1024 = precip_max_day - predict(resid_fit_tp_1024, newdata = .)
   )
 ```
 
@@ -3326,7 +3398,7 @@ print(knitr::kable(backfill_summary_table, row.names = FALSE))
 
 # Correcting for colinnearity (check Descriptive Statistics for measures of colinnearity)
 
-I added a linear reduction of `precip_max_day` onto `total_precip` as well as a linear reduction of `avg_temp` onto `total_precip`. 
+I added a linear reduction of `precip_max_day` onto `total_precip` as well as a linear reduction of `avg_temp` onto `total_precip`.
 
 ```{r create residuals for precip_max_day in linear relation to total_precip}
 env_epi_ento <- read_csv("/mnt/UGent/shares/bionamix/SOFI/Env_data_cuba/CF_Municipality/env_epi_entomo_data_per_manzana_2016_01_to_2019_12.csv")
@@ -3346,9 +3418,15 @@ env_epi_ento <- env_epi_ento %>%
 
 resid_fit <- lm(precip_max_day ~ total_precip, data = env_epi_ento)
 
+cat(sprintf("2015-2019 study period only (N = %d rows): precip_max_day = %.3f + %.3f * total_precip\n",
+            nobs(resid_fit), coef(resid_fit)[1], coef(resid_fit)[2]))
+
 env_epi_ento <- env_epi_ento %>%
   mutate(
-    precip_max_day_resid_on_tp = resid(resid_fit)
+    precip_max_day_resid_on_tp = resid(resid_fit),
+    # Same residual, but against the full-2010-2024-calibrated baseline
+    # (resid_fit_tp_1024, fit above) instead of this study-period-only fit.
+    precip_max_day_resid_on_tp_1024 = precip_max_day - predict(resid_fit_tp_1024, newdata = .)
   )
 
 # for temperature
@@ -3375,9 +3453,15 @@ env_epi_ento_cmf <- env_epi_ento_cmf %>%
 
 resid_fit <- lm(precip_max_day ~ total_precip, data = env_epi_ento_cmf)
 
+cat(sprintf("2015-2019 study period only, CMF (N = %d rows): precip_max_day = %.3f + %.3f * total_precip\n",
+            nobs(resid_fit), coef(resid_fit)[1], coef(resid_fit)[2]))
+
 env_epi_ento_cmf <- env_epi_ento_cmf %>%
   mutate(
-    precip_max_day_resid_on_tp = resid(resid_fit)
+    precip_max_day_resid_on_tp = resid(resid_fit),
+    # Same residual, but against the full-2010-2024-calibrated baseline
+    # (resid_fit_tp_1024, fit above) instead of this study-period-only fit.
+    precip_max_day_resid_on_tp_1024 = precip_max_day - predict(resid_fit_tp_1024, newdata = .)
   )
 
 resid_fit_temp_cmf <- lm(avg_temp ~ total_precip, data = env_epi_ento_cmf)
