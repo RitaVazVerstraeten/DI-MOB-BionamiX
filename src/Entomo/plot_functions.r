@@ -2134,6 +2134,24 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     L_val   <- as.integer(attr(cb_mats[[dlnm_var]], "lag")[2])
     lag_seq <- 0:L_val
 
+    # Second crosspred per group at a finer lag resolution, used only by the
+    # heatmap in Pass 2 -- same technique as save_dlnm_response_plots()'s
+    # main-effect heatmap (see that function for the full rationale): the
+    # ns() lag basis is continuous, so predicting at fractional lags gives
+    # smooth Lowe-et-al.-style transitions along the lag axis instead of the
+    # blocky L_val+1-point resolution the 3-D surface/slices use.
+    bylag_fine <- max(L_val / 30, 0.05)
+    pred_ref_fine <- tryCatch(
+      exp_crosspred(dlnm::crosspred(cb_mats[[dlnm_var]], coef = coef_ref, vcov = vcov_ref,
+                      at = at_std, cen = 0, cumul = TRUE, bylag = bylag_fine)),
+      error = function(e) { cat(sprintf("  fine-lag crosspred (ref) failed for %s: %s\n", label, conditionMessage(e))); NULL }
+    )
+    pred_active_fine <- tryCatch(
+      exp_crosspred(dlnm::crosspred(cb_mats[[dlnm_var]], coef = coef_active, vcov = vcov_active,
+                      at = at_std, cen = 0, cumul = TRUE, bylag = bylag_fine)),
+      error = function(e) { cat(sprintf("  fine-lag crosspred (active) failed for %s: %s\n", label, conditionMessage(e))); NULL }
+    )
+
     # ── Cumulative effect comparison ──────────────────────────────────────────
     y_lim <- range(pred_ref$alllow, pred_ref$allhigh,
                    pred_active$alllow, pred_active$allhigh, na.rm = TRUE)
@@ -2186,6 +2204,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     }
 
     ix_preds[[label]] <- list(dlnm_var = dlnm_var, pred_ref = pred_ref, pred_active = pred_active,
+                               pred_ref_fine = pred_ref_fine, pred_active_fine = pred_active_fine,
                                at_std = at_std, at_orig = at_orig, lag_seq = lag_seq)
   }
 
@@ -2236,10 +2255,15 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     log_z_breaks_global <- seq(log_z_global[1], log_z_global[2], length.out = 51)
   }
 
-  # ── Pass 2: plot every interaction's ref/active 3-D surfaces, linear + log ─
+  # ── Pass 2: plot every interaction's ref/active 3-D surfaces + heatmaps,
+  # linear + log ──────────────────────────────────────────────────────────
   for (label in names(ix_preds)) {
     p <- ix_preds[[label]]
-    for (grp in list(list(pred = p$pred_ref, name = "ref"), list(pred = p$pred_active, name = "active"))) {
+    groups <- list(
+      list(pred = p$pred_ref,    pred_fine = p$pred_ref_fine,    name = "ref"),
+      list(pred = p$pred_active, pred_fine = p$pred_active_fine, name = "active")
+    )
+    for (grp in groups) {
       z_mat <- grp$pred$matfit
       z_mid <- (z_mat[-1, -1] + z_mat[-1, -ncol(z_mat)] +
                 z_mat[-nrow(z_mat), -1] + z_mat[-nrow(z_mat), -ncol(z_mat)]) / 4
@@ -2254,6 +2278,43 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
             theta    = 40, phi = 25, ltheta = 45,
             col      = fcol, border = NA, ticktype = "detailed")
       dev.off()
+
+      # ── 2-D heatmap (Lowe et al. 2018-style smooth filled contour) ────────
+      # Same technique as save_dlnm_response_plots()'s main-effect heatmap:
+      # finer-lag crosspred for smooth transitions along the lag axis, same
+      # shared colour scale as the 3-D surface above (so ref/active/every
+      # other DLNM plot in the run stays visually comparable), clipped into
+      # range so fractional lags the coarse grid never sampled don't leave
+      # unpainted gaps in filled.contour().
+      if (!is.null(grp$pred_fine)) {
+        z_mat_fine   <- grp$pred_fine$matfit
+        fine_lag_seq <- seq(grp$pred_fine$lag[1], grp$pred_fine$lag[2], by = grp$pred_fine$bylag)
+        z_mat_fine_clip <- pmin(pmax(z_mat_fine, z_breaks_global[1]),
+                                 z_breaks_global[length(z_breaks_global)])
+
+        png(file.path(dir_overall, paste0("dlnm_ix_heatmap_", label, "_", grp$name, "_", run_suffix, ".png")),
+            width = 800, height = 600)
+        filled.contour(
+          x      = p$at_orig,
+          y      = fine_lag_seq,
+          z      = z_mat_fine_clip,
+          levels = z_breaks_global,
+          col    = pal,
+          xlab   = p$dlnm_var,
+          ylab   = "Lag (months)",
+          main   = paste0("DLNM heatmap — ", label, " (", grp$name, ")"),
+          key.title = title(main = "OR", cex.main = 0.9),
+          plot.axes = {
+            axis(1)
+            axis(2)
+            contour(p$at_orig, fine_lag_seq, z_mat_fine, levels = 1,
+                    add = TRUE, col = "black", lty = 2, lwd = 1, drawlabels = FALSE)
+          }
+        )
+        dev.off()
+      } else {
+        cat(sprintf("  Skipping heatmap for %s (%s): fine-lag crosspred unavailable\n", label, grp$name))
+      }
 
       # Log-scale companion -- didn't exist before this unification; added so
       # the log-scale interaction surfaces can share log_z_global the same
@@ -2272,6 +2333,33 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
             theta    = 40, phi = 25, ltheta = 45,
             col      = fcol_log, border = NA, ticktype = "detailed")
       dev.off()
+
+      if (!is.null(grp$pred_fine)) {
+        z_mat_fine_log <- log(z_mat_fine)
+        z_mat_fine_log_clip <- pmin(pmax(z_mat_fine_log, log_z_breaks_global[1]),
+                                     log_z_breaks_global[length(log_z_breaks_global)])
+
+        png(file.path(dir_overall, paste0("dlnm_ix_heatmap_", label, "_", grp$name, "_logscale_", run_suffix, ".png")),
+            width = 800, height = 600)
+        filled.contour(
+          x      = p$at_orig,
+          y      = fine_lag_seq,
+          z      = z_mat_fine_log_clip,
+          levels = log_z_breaks_global,
+          col    = pal_log,
+          xlab   = p$dlnm_var,
+          ylab   = "Lag (months)",
+          main   = paste0("DLNM heatmap (log scale) — ", label, " (", grp$name, ")"),
+          key.title = title(main = "log(OR)", cex.main = 0.9),
+          plot.axes = {
+            axis(1)
+            axis(2)
+            contour(p$at_orig, fine_lag_seq, z_mat_fine_log, levels = 0,
+                    add = TRUE, col = "black", lty = 2, lwd = 1, drawlabels = FALSE)
+          }
+        )
+        dev.off()
+      }
     }
 
     cat(sprintf("  DLNM interaction plots saved: %s\n", label))
