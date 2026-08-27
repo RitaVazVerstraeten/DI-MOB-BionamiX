@@ -11,26 +11,49 @@
 # doc/DLNM_Residual_Data_Support.tex and Bayesian_AR1_ICAR_model_explained.tex
 # Section 2.6 for the full derivation.
 #
-# 7 named scenarios (argvar df per variable -- arglag df -- interaction?):
-#   a: tp=3, VPD=3, resid=3           | arglag=3 | interaction=yes  (current default)
-#   b: tp=3, VPD=3, resid=2           | arglag=3 | interaction=yes
-#   c: tp=3, VPD=2, resid=2           | arglag=3 | interaction=yes
-#   d: tp=3, VPD=3, resid=3           | arglag=3 | interaction=no   (base DLNM, no season)
-#   e: tp=3, VPD=2, resid=3           | arglag=3 | interaction=no
-#   f: tp=2, VPD=2, resid=2           | arglag=3 | interaction=yes
-#   g: tp=2, VPD=lin, resid=2         | arglag=3 | interaction=yes
-#   h: tp=2, VPD=lin, resid=2         | arglag=3 | interaction=no
+# 9 named base scenarios (argvar df per variable -- arglag df -- interaction?):
+#   a: tp=3, VPD=3, resid=3           | arglag=3 | interaction=resid  (current default)
+#   b: tp=3, VPD=3, resid=2           | arglag=3 | interaction=resid
+#   c: tp=3, VPD=2, resid=2           | arglag=3 | interaction=resid
+#   d: tp=3, VPD=3, resid=3           | arglag=3 | interaction=none   (base DLNM, no season)
+#   e: tp=3, VPD=2, resid=3           | arglag=3 | interaction=none
+#   f: tp=2, VPD=2, resid=2           | arglag=3 | interaction=resid
+#   g: tp=2, VPD=lin, resid=2         | arglag=3 | interaction=resid
+#   h: tp=2, VPD=lin, resid=2         | arglag=3 | interaction=none
+#   i: tp=3, VPD=3, resid=3           | arglag=3 | interaction=both   (a's argvar + tp_x_season on top)
 #
-# Interaction=no follows the same convention as run_season_interaction_sweep.R's
-# "none" arm: is_rainy_season is dropped entirely (no main effect, no
-# interaction), not just the DLNM interaction switched off.
+# Each of the 9 is run TWICE: once as above (unconstrained -- boundary knots
+# at the literal data min/max, dlnm::crossbasis()'s default), and once with
+# Boundary.knots pinned per variable (every "ns" variable in that scenario;
+# "lin" has no boundary-knots concept, so scenarios g/h's avg_VPD is
+# unaffected by the boundary variant) -- 18 configs total. Values below are
+# in the model's standardized (z-score) units, computed from this exact
+# CMF-level data_file's mean/sd (see run_boundary_knots_test.R's header for
+# the original derivation):
+#   total_precip:                one-sided -- lower left at the true data min (-1.1024, unconstrained there; that tail is
+#                                 well-supported), upper pulled from the true
+#                                 max (4.40) to the 90th percentile (0.9946).
+#   avg_VPD:                     two-sided p10/p90 (-1.3004 / 1.4406) -- no
+#                                 single-month-driven tail the way precip
+#                                 does, but treated the same way for
+#                                 consistency; see the avg_VPD density plot in
+#                                 Descriptive_Statistics_Environmental_Variables.rmd.
+#   precip_max_day_resid_on_tp:  two-sided p10/p90 (-0.8720 / 1.5924) -- both
+#                                 tails are sparse (see density heatmaps).
 #
-# COST WARNING: 7 full model fits, ~1-1.5h each based on prior runs on this
-# branch -- roughly 7-10.5h sequential. Results save incrementally after each
-# scenario (loo_list_partial.rds / waic_list_partial.rds), so this can be
-# safely interrupted and resumed the same way as the other sweep scripts
-# (existing chain CSVs in a run's output_dir are reloaded rather than
-# re-sampled -- see Hierarch_StateSpace_Entomo_model.r's existing_csv check).
+# Interaction=no follows the same convention as run_season_interaction_sweep.R's "none" arm: is_rainy_season is dropped entirely (no main effect, no interaction), not just the DLNM interaction switched off.
+#
+# `boundary_only` below (default TRUE) restricts this run to just the 9
+# "_boundary" variants -- set FALSE for the full 18-config run (unconstrained
+# + boundary-knots), e.g. the weekend run.
+#
+# COST WARNING: ~1-1.5h per fit based on prior runs on this branch --
+# boundary_only=TRUE is ~9-14h (9 fits), boundary_only=FALSE is ~18-27h
+# (18 fits), both sequential. Results save incrementally after each scenario
+# (loo_list_partial.rds / waic_list_partial.rds), so this can be safely
+# interrupted and resumed the same way as the other sweep scripts (existing
+# chain CSVs in a run's output_dir are reloaded rather than re-sampled --
+# see Hierarch_StateSpace_Entomo_model.r's existing_csv check).
 #
 # Results land in:
 #   <output root>/argvar_sweep/<predictor_spec>/<model_spec>/<run_suffix>/
@@ -85,46 +108,82 @@ unlagged_no_season   <- c("HFP_urbanization", "mean_ndvi", "is_WUI", "water_shor
 unlagged_with_season <- c(unlagged_no_season, "is_rainy_season")
 
 ix_resid <- list(binary_var = "is_rainy_season", active_level = 1, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_season")
+ix_total <- list(binary_var = "is_rainy_season", active_level = 1, dlnm_var = "total_precip",               label = "tp_x_season")
 
 arglag_df_fixed <- 3
 max_lag_fixed   <- 5
 
 # argvar_df per variable, per scenario -- "lin" instead of a number switches
-# that variable to fun="lin" (no df). Order/letters match the table this
-# script was requested from.
+# that variable to fun="lin" (no df). interaction is one of "resid" (just
+# precip_resid_x_season), "none" (no interaction, is_rainy_season dropped
+# entirely), or "both" (precip_resid_x_season AND tp_x_season together).
+# Order/letters match the table this script was requested from.
 scenario_defs <- list(
-  a = list(argvar = list(total_precip = 3, avg_VPD = 3,   precip_max_day_resid_on_tp = 3), interaction = TRUE),
-  b = list(argvar = list(total_precip = 3, avg_VPD = 3,   precip_max_day_resid_on_tp = 2), interaction = TRUE),
-  c = list(argvar = list(total_precip = 3, avg_VPD = 2,   precip_max_day_resid_on_tp = 2), interaction = TRUE),
-  d = list(argvar = list(total_precip = 3, avg_VPD = 3,   precip_max_day_resid_on_tp = 3), interaction = FALSE),
-  e = list(argvar = list(total_precip = 3, avg_VPD = 2,   precip_max_day_resid_on_tp = 3), interaction = FALSE),
-  f = list(argvar = list(total_precip = 2, avg_VPD = 2,   precip_max_day_resid_on_tp = 2), interaction = TRUE),
-  g = list(argvar = list(total_precip = 2, avg_VPD = "lin", precip_max_day_resid_on_tp = 2), interaction = TRUE), 
-  h = list(argvar = list(total_precip = 2, avg_VPD = "lin", precip_max_day_resid_on_tp = 2), interaction = FALSE)
+  a = list(argvar = list(total_precip = 3, avg_VPD = 3,   precip_max_day_resid_on_tp = 3), interaction = "resid"),
+  b = list(argvar = list(total_precip = 3, avg_VPD = 3,   precip_max_day_resid_on_tp = 2), interaction = "resid"),
+  c = list(argvar = list(total_precip = 3, avg_VPD = 2,   precip_max_day_resid_on_tp = 2), interaction = "resid"),
+  d = list(argvar = list(total_precip = 3, avg_VPD = 3,   precip_max_day_resid_on_tp = 3), interaction = "none"),
+  e = list(argvar = list(total_precip = 3, avg_VPD = 2,   precip_max_day_resid_on_tp = 3), interaction = "none"),
+  f = list(argvar = list(total_precip = 2, avg_VPD = 2,   precip_max_day_resid_on_tp = 2), interaction = "resid"),
+  g = list(argvar = list(total_precip = 2, avg_VPD = "lin", precip_max_day_resid_on_tp = 2), interaction = "resid"),
+  h = list(argvar = list(total_precip = 2, avg_VPD = "lin", precip_max_day_resid_on_tp = 2), interaction = "none"),
+  # Same argvar as scenario a, plus a second interaction (tp_x_season)
+  # alongside precip_resid_x_season -- matches the original sweep's "both" arm.
+  i = list(argvar = list(total_precip = 3, avg_VPD = 3,   precip_max_day_resid_on_tp = 3), interaction = "both")
 )
 
-build_dlnm_argvar <- function(spec) {
-  lapply(spec, function(v) if (identical(v, "lin")) list(fun = "lin") else list(fun = "ns", df = v))
+# Boundary.knots per variable, in standardized (z-score) units -- see header
+# comment for derivation. "lin" variables have no boundary-knots concept, so
+# they're simply never looked up here.
+boundary_knots_by_var <- list(
+  total_precip                = c(-1.1024, 0.9946),
+  avg_VPD                     = c(-1.3004, 1.4406),
+  precip_max_day_resid_on_tp  = c(-0.8720, 1.5924)
+)
+
+build_dlnm_argvar <- function(spec, use_boundary = FALSE) {
+  out <- lapply(names(spec), function(var_name) {
+    v <- spec[[var_name]]
+    if (identical(v, "lin")) return(list(fun = "lin"))
+    argspec <- list(fun = "ns", df = v)
+    if (use_boundary) argspec$Boundary.knots <- boundary_knots_by_var[[var_name]]
+    argspec
+  })
+  setNames(out, names(spec))
 }
 
 # Short per-variable df tag for the run_suffix, e.g. "tp3vpd3resid2" -- "lin"
 # stays as the literal word rather than a number so it's unambiguous in the
 # folder name.
 argvar_tag <- function(spec) {
-  paste0("tp", spec$total_precip, "vpd", spec$avg_VPD, "resid", spec$precip_max_day_resid_on_tp)
+  paste0("tp_", spec$total_precip, "vpd_", spec$avg_VPD, "resid_", spec$precip_max_day_resid_on_tp)
 }
 
+# Set to TRUE to run only the 8 "_boundary" variants (this week's pass);
+# FALSE runs all 16 (unconstrained + boundary-knots), the full weekend run.
+boundary_only <- TRUE
+variant_flags <- if (boundary_only) TRUE else c(FALSE, TRUE)
+
+# Each base scenario x {unconstrained, boundary-knots} -- 8 x 2 = 16 configs
+# when boundary_only = FALSE, or just the 8 "_boundary" ones when TRUE.
 configs <- list()
 for (nm in names(scenario_defs)) {
   sc <- scenario_defs[[nm]]
-  configs[[nm]] <- list(
-    label         = nm,
-    dlnm_argvar   = build_dlnm_argvar(sc$argvar),
-    dlnm_ix_vars  = if (sc$interaction) list(ix_resid) else NULL,
-    unlagged_vars = if (sc$interaction) unlagged_with_season else unlagged_no_season,
-    run_suffix    = paste0(date_suffix, "_scenario", nm, "_", argvar_tag(sc$argvar),
-                            "_arglag", arglag_df_fixed, "_ix", if (sc$interaction) "resid" else "none")
-  )
+  for (use_boundary in variant_flags) {
+    cfg_label <- if (use_boundary) paste0(nm, "_boundary") else nm
+    configs[[cfg_label]] <- list(
+      label         = cfg_label,
+      dlnm_argvar   = build_dlnm_argvar(sc$argvar, use_boundary = use_boundary),
+      dlnm_ix_vars  = switch(sc$interaction,
+                             resid = list(ix_resid),
+                             both  = list(ix_resid, ix_total),
+                             none  = NULL),
+      unlagged_vars = if (sc$interaction == "none") unlagged_no_season else unlagged_with_season,
+      run_suffix    = paste0(date_suffix, "_scenario", cfg_label, "_", argvar_tag(sc$argvar),
+                              "_arglag_", arglag_df_fixed, "_ix_", sc$interaction,
+                              if (use_boundary) "_bknots" else "")
+    )
+  }
 }
 cat(sprintf("%d argvar-sweep scenarios to run.\n", length(configs)))
 
