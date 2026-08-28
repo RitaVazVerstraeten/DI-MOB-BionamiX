@@ -1524,8 +1524,7 @@ save_unlagged_effects_plot <- function(fit, prep, output_dir, run_suffix,
 # the ltc-color-palettes explorer (https://loukesio.github.io/ltc-color-palettes/
 # palette-explorer.html), a ColorBrewer RdBu-5 palette. Low->high = blue->white->red;
 # individual call sites reverse it where their existing convention runs the other way.
-dlnm_diverging_pal <- c("#2c7bb6", "#abd9e9", "#ffffbf", "#fdae61", "#d7191c")
-
+dlnm_diverging_pal <- c("#2c7bb6", "#abd9e9", "#ffffff", "#fdae61", "#d7191c")
 #' @param fit     CmdStanR fit object
 #' @param prep    Return value of build_dlnm_stan_data() (contains cb_mats, dlnm_vars, df)
 #' @param output_dir  Directory to write PNGs into
@@ -1737,7 +1736,8 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
           theta    = 40, phi = 25, ltheta = 45,
           col      = facet_col,
           border   = NA,
-          ticktype = "detailed")
+          ticktype = "detailed",
+          cex.axis = 1.5, cex.lab = 1.5, cex.main = 1.5)
     dev.off()
 
     # ── 2-D heatmap (Lowe et al. 2018-style smooth filled contour) ───────────
@@ -1771,10 +1771,11 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
         xlab   = var,
         ylab   = "Lag (months)",
         main   = paste("DLNM heatmap —", var),
-        key.title = title(main = "OR", cex.main = 0.9),
+        cex.lab = 1.5, cex.main = 1.5,
+        key.title = title(main = "OR", cex.main = 1.35),
         plot.axes = {
-          axis(1)
-          axis(2)
+          axis(1, cex.axis = 1.5)
+          axis(2, cex.axis = 1.5)
           contour(at_orig, fine_lag_seq, z_mat_fine, levels = 1,
                   add = TRUE, col = "black", lty = 2, lwd = 1, drawlabels = FALSE)
         }
@@ -1807,7 +1808,8 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
           theta    = 40, phi = 25, ltheta = 45,
           col      = facet_col_log,
           border   = NA,
-          ticktype = "detailed")
+          ticktype = "detailed",
+          cex.axis = 1.5, cex.lab = 1.5, cex.main = 1.5)
     dev.off()
 
     if (!is.null(pred_fine_i)) {
@@ -1828,10 +1830,11 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
         xlab   = var,
         ylab   = "Lag (months)",
         main   = paste("DLNM heatmap (log scale) —", var),
-        key.title = title(main = "log(OR)", cex.main = 0.9),
+        cex.lab = 1.5, cex.main = 1.5,
+        key.title = title(main = "log(OR)", cex.main = 1.35),
         plot.axes = {
-          axis(1)
-          axis(2)
+          axis(1, cex.axis = 1.5)
+          axis(2, cex.axis = 1.5)
           contour(at_orig, fine_lag_seq, z_mat_fine_log, levels = 0,
                   add = TRUE, col = "black", lty = 2, lwd = 1, drawlabels = FALSE)
         }
@@ -2274,9 +2277,10 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
       persp(x = p$at_orig, y = p$lag_seq, z = z_mat,
             zlim     = z_global,
             xlab     = p$dlnm_var, ylab = "Lag (months)", zlab = "Odds ratio of p_bt",
-            main     = paste0("DLNM surface — ", label, " (", grp$name, ")"),
+            main     = paste0("DLNM surface — ", label, " (", grp$name, ", pooled)"),
             theta    = 40, phi = 25, ltheta = 45,
-            col      = fcol, border = NA, ticktype = "detailed")
+            col      = fcol, border = NA, ticktype = "detailed",
+            cex.axis = 1.5, cex.lab = 1.5, cex.main = 1.5)
       dev.off()
 
       # ── 2-D heatmap (Lowe et al. 2018-style smooth filled contour) ────────
@@ -2302,11 +2306,12 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
           col    = pal,
           xlab   = p$dlnm_var,
           ylab   = "Lag (months)",
-          main   = paste0("DLNM heatmap — ", label, " (", grp$name, ")"),
-          key.title = title(main = "OR", cex.main = 0.9),
+          main   = paste0("DLNM heatmap — ", label, " (", grp$name, ", pooled)"),
+          cex.lab = 1.5, cex.main = 1.5,
+          key.title = title(main = "OR", cex.main = 1.35),
           plot.axes = {
-            axis(1)
-            axis(2)
+            axis(1, cex.axis = 1.5)
+            axis(2, cex.axis = 1.5)
             contour(p$at_orig, fine_lag_seq, z_mat_fine, levels = 1,
                     add = TRUE, col = "black", lty = 2, lwd = 1, drawlabels = FALSE)
           }
@@ -2329,9 +2334,10 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
       persp(x = p$at_orig, y = p$lag_seq, z = z_mat_log,
             zlim     = log_z_global,
             xlab     = p$dlnm_var, ylab = "Lag (months)", zlab = "log(Odds ratio) of p_bt",
-            main     = paste0("DLNM surface (log scale) — ", label, " (", grp$name, ")"),
+            main     = paste0("DLNM surface (log scale) — ", label, " (", grp$name, ", pooled)"),
             theta    = 40, phi = 25, ltheta = 45,
-            col      = fcol_log, border = NA, ticktype = "detailed")
+            col      = fcol_log, border = NA, ticktype = "detailed",
+            cex.axis = 1.5, cex.lab = 1.5, cex.main = 1.5)
       dev.off()
 
       if (!is.null(grp$pred_fine)) {
@@ -2349,11 +2355,12 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
           col    = pal_log,
           xlab   = p$dlnm_var,
           ylab   = "Lag (months)",
-          main   = paste0("DLNM heatmap (log scale) — ", label, " (", grp$name, ")"),
-          key.title = title(main = "log(OR)", cex.main = 0.9),
+          main   = paste0("DLNM heatmap (log scale) — ", label, " (", grp$name, ", pooled)"),
+          cex.lab = 1.5, cex.main = 1.5,
+          key.title = title(main = "log(OR)", cex.main = 1.35),
           plot.axes = {
-            axis(1)
-            axis(2)
+            axis(1, cex.axis = 1.5)
+            axis(2, cex.axis = 1.5)
             contour(p$at_orig, fine_lag_seq, z_mat_fine_log, levels = 0,
                     add = TRUE, col = "black", lty = 2, lwd = 1, drawlabels = FALSE)
           }

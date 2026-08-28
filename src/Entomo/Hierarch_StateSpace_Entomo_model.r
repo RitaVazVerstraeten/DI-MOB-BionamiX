@@ -128,10 +128,10 @@ cfg <- list(
     # Boundary.knots below are in the model's standardized (z-score) units, computed from this exact CMF-level data_file's mean/sd (matches what build_dlnm_stan_data() standardizes against) -- see  run_boundary_knots_test.R header comment for the derivation.
     # total_precip: one-sided -- lower bound left at the true data min
     # (-1.1024, i.e. unconstrained there, since the low tail is well-supported per the density plots), only the upper tail (p90) is pulled in from the true max (4.40) to 0.9946.
-    total_precip                = list(fun = "ns", df = 2, Boundary.knots = c(-1.1024, 0.9946)),
-    avg_VPD                     = list(fun = "lin"),
+    total_precip                = list(fun = "ns", df = 3, Boundary.knots = c(-1.1024, 0.9946)),
+    avg_VPD                     = list(fun = "ns", df = 2, Boundary.knots = c(-1.3004, 1.4406)),
     # precip_max_day_resid_on_tp: two-sided p10/p90 (both tails are sparse).
-    precip_max_day_resid_on_tp  = list(fun = "ns", df = 2, Boundary.knots = c(-0.8720, 1.5924))
+    precip_max_day_resid_on_tp  = list(fun = "ns", df = 3, Boundary.knots = c(-0.8720, 1.5924))
     # max_VPD_resid_on_avg  = list(fun = "ns", df = 3)
     # SPI6                        = list(fun = "ns", df = 3),
     # precip_max_day_resid_on_spi6 = list(fun = "ns", df = 3),
