@@ -128,10 +128,10 @@ cfg <- list(
     # Boundary.knots below are in the model's standardized (z-score) units, computed from this exact CMF-level data_file's mean/sd (matches what build_dlnm_stan_data() standardizes against) -- see  run_boundary_knots_test.R header comment for the derivation.
     # total_precip: one-sided -- lower bound left at the true data min
     # (-1.1024, i.e. unconstrained there, since the low tail is well-supported per the density plots), only the upper tail (p90) is pulled in from the true max (4.40) to 0.9946.
-    total_precip                = list(fun = "ns", df = 3, Boundary.knots = c(-1.1024, 0.9946)),
+    total_precip                = list(fun = "ns", df = 2, Boundary.knots = c(-1.1024, 0.9946)),
     avg_VPD                     = list(fun = "lin"),
     # precip_max_day_resid_on_tp: two-sided p10/p90 (both tails are sparse).
-    precip_max_day_resid_on_tp  = list(fun = "ns", df = 3, Boundary.knots = c(-0.8720, 1.5924))
+    precip_max_day_resid_on_tp  = list(fun = "ns", df = 2, Boundary.knots = c(-0.8720, 1.5924))
     # max_VPD_resid_on_avg  = list(fun = "ns", df = 3)
     # SPI6                        = list(fun = "ns", df = 3),
     # precip_max_day_resid_on_spi6 = list(fun = "ns", df = 3),
@@ -140,7 +140,7 @@ cfg <- list(
   # Log-spaced lag knots (nk=1 -> 3-column ns() basis, same dimensionality as the old df=3 equal-spaced default -- dlnm::crossbasis() builds the lag basis with intercept=TRUE internally, unlike a bare splines::ns() call, so ncol = nk + 1 + intercept = nk + 2, meaning nk=1 not nk=2 matches the old 3-column dimensionality here): front-loads spline flexibility toward short lags, where real curvature is expected, and leaves long lags as a single knot-free stretch so the model can't fit a non-decaying wiggle there.
   # dlnm_arglag = list(fun = "ns", knots = dlnm::logknots(max_lag, nk = 1)),
 
-  dlnm_arglag = list(fun = "ns", df = 2),
+  dlnm_arglag = list(fun = "ns", df = 3),
 
 
   # Interaction cross-bases: each entry is either
@@ -157,14 +157,14 @@ cfg <- list(
   #     through a straight line. Defaults to 2 if omitted.
   # Set dlnm_ix_vars = NULL to run the base DLNM model without interactions.
 
-  dlnm_ix_vars = list(
-    # list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
-    # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
-    # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
-    # list(binary_var = "is_rainy_season", active_level = 1, dlnm_var = "total_precip", label = "tp_x_season"),
-    list(binary_var = "is_rainy_season", active_level = 1, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_season")
-  ),
-  # dlnm_ix_vars = NULL,
+  # dlnm_ix_vars = list(
+  #   # list(continuous_var = "HFP_urbanization", dlnm_var = "total_precip", label = "tp_x_HFP", continuous_df = 2)
+  #   # list(binary_var = "water_shortage", active_level = 1, dlnm_var = "total_precip", label = "tp_x_shortage"),
+  #   # list(continuous_var = "water_containers", dlnm_var = "SPI6", label = "spi6_x_wc", continuous_df = 2)
+  #   # list(binary_var = "is_rainy_season", active_level = 1, dlnm_var = "total_precip", label = "tp_x_season"),
+  #   list(binary_var = "is_rainy_season", active_level = 1, dlnm_var = "precip_max_day_resid_on_tp", label = "precip_resid_x_season")
+  # ),
+  dlnm_ix_vars = NULL,
 
   # MCMC
   chains = 4,
