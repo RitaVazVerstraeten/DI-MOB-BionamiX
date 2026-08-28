@@ -1524,7 +1524,7 @@ save_unlagged_effects_plot <- function(fit, prep, output_dir, run_suffix,
 # the ltc-color-palettes explorer (https://loukesio.github.io/ltc-color-palettes/
 # palette-explorer.html), a ColorBrewer RdBu-5 palette. Low->high = blue->white->red;
 # individual call sites reverse it where their existing convention runs the other way.
-dlnm_diverging_pal <- c("#2c7bb6", "#abd9e9", "#ffffff", "#fdae61", "#d7191c")
+dlnm_diverging_pal <- c("#2c7bb6", "#abd9e9", "#ffffbf", "#fdae61", "#d7191c")
 #' @param fit     CmdStanR fit object
 #' @param prep    Return value of build_dlnm_stan_data() (contains cb_mats, dlnm_vars, df)
 #' @param output_dir  Directory to write PNGs into
