@@ -1274,10 +1274,18 @@ bootstrap_elpd_comparison <- function(result_list, cluster_ids = NULL,
     boot_totals[b, ] <- colSums(diff_mat[idx, , drop = FALSE])
   }
 
-  alpha <- c((1 - ci_prob) / 2, 1 - (1 - ci_prob) / 2)
+  alpha     <- c((1 - ci_prob) / 2, 1 - (1 - ci_prob) / 2)
+  elpd_diff <- colSums(diff_mat)
+  # sd of the (clustered) bootstrap distribution -- correctly reflects the
+  # month-level clustering, unlike sqrt(N_obs * var(pointwise diff)) (the
+  # iid loo::loo_compare-style SE), which treats every CMF-row within a
+  # held-out month as independent and badly understates uncertainty here.
+  elpd_se   <- apply(boot_totals, 2, sd)
   out <- data.frame(
     model       = colnames(diff_mat),
-    elpd_diff   = colSums(diff_mat),
+    elpd_diff   = elpd_diff,
+    elpd_se     = elpd_se,
+    z           = elpd_diff / elpd_se,
     ci_low      = apply(boot_totals, 2, quantile, probs = alpha[1]),
     ci_high     = apply(boot_totals, 2, quantile, probs = alpha[2]),
     prob_better = colMeans(boot_totals > 0),

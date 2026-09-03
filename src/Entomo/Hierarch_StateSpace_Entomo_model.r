@@ -114,7 +114,7 @@ cfg <- list(
   # covariates) to test whether the RF-flagged interactions resurrect once
   # HFP_urbanization/mean_ndvi/is_WUI/is_WI are removed.
   # unlagged_vars = c("HFP_urbanization", "is_WUI","water_containers", "mean_ndvi"),
-  unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI","water_shortage", "water_containers", "is_rainy_season"),
+  unlagged_vars = c("HFP_urbanization", "mean_ndvi", "is_WUI","water_shortage", "water_containers"),
   # unlagged_vars = c("HFP_urbanization",  "water_containers"),
 
   numeric_vars = c("total_precip",  "avg_VPD", "precip_max_day_resid_on_tp","water_containers", "HFP_urbanization", "mean_ndvi"),
@@ -128,10 +128,15 @@ cfg <- list(
     # Boundary.knots below are in the model's standardized (z-score) units, computed from this exact CMF-level data_file's mean/sd (matches what build_dlnm_stan_data() standardizes against) -- see  run_boundary_knots_test.R header comment for the derivation.
     # total_precip: one-sided -- lower bound left at the true data min
     # (-1.1024, i.e. unconstrained there, since the low tail is well-supported per the density plots), only the upper tail (p90) is pulled in from the true max (4.40) to 0.9946.
-    total_precip                = list(fun = "ns", df = 3, Boundary.knots = c(-1.1024, 0.9946)),
-    avg_VPD                     = list(fun = "ns", df = 2, Boundary.knots = c(-1.3004, 1.4406)),
-    # precip_max_day_resid_on_tp: two-sided p10/p90 (both tails are sparse).
-    precip_max_day_resid_on_tp  = list(fun = "ns", df = 3, Boundary.knots = c(-0.8720, 1.5924))
+    # total_precip                = list(fun = "ns", df = 3, Boundary.knots = c(-1.1024, 0.9946)),
+    # avg_VPD                     = list(fun = "ns", df = 2, Boundary.knots = c(-1.3004, 1.4406)),
+    # # precip_max_day_resid_on_tp: two-sided p10/p90 (both tails are sparse).
+    # precip_max_day_resid_on_tp  = list(fun = "ns", df = 3, Boundary.knots = c(-0.8720, 1.5924))
+
+    total_precip                = list(fun = "ns", df = 3),
+    avg_VPD                     = list(fun = "ns", df = 2),
+    precip_max_day_resid_on_tp  = list(fun = "ns", df = 3)
+
     # max_VPD_resid_on_avg  = list(fun = "ns", df = 3)
     # SPI6                        = list(fun = "ns", df = 3),
     # precip_max_day_resid_on_spi6 = list(fun = "ns", df = 3),
@@ -268,7 +273,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "_VPD_lin_RESID_3df_TP_3df_lag_2df_boundaryKnots")
+run_suffix <- paste0(date_suffix, "_VPD_3df_RESID_2df_TP_3df_lag_3df_noBoundaryKnots")
 if (exists(".hierarch_run_suffix")) run_suffix <- .hierarch_run_suffix
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
