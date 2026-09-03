@@ -1683,11 +1683,11 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     lag_seq <- 0:L_val
 
     # ── Overall cumulative effect (original x-axis) ───────────────────────────
-    png(file.path(dir_overall, paste0("dlnm_overall_", var, "_", run_suffix, ".png")),
+    png(file.path(dir_overall, paste0("dlnm_overall_", var, ".png")),
         width = 800, height = 500)
     plot(pred_i, "overall",
          xaxt   = "n",
-         main   = paste("Cumulative effect —", var),
+         main   = "",
          sub    = "Shaded band: 95% CI",
          xlab   = var,
          ylab   = "Odds ratio of p_bt",
@@ -1702,12 +1702,12 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     # equidistant from 1 on a log scale but wildly asymmetric on the linear OR
     # scale above -- this makes the two tails directly, visually comparable
     # instead of the high side dwarfing the low side just from the scale.
-    png(file.path(dir_overall, paste0("dlnm_overall_", var, "_logscale_", run_suffix, ".png")),
+    png(file.path(dir_overall, paste0("dlnm_overall_", var, "_logscale.png")),
         width = 800, height = 500)
     or_range <- range(c(pred_i$alllow, pred_i$allhigh), na.rm = TRUE)
     plot(at_std, pred_i$allfit, type = "n", log = "y",
          xaxt = "n", ylim = or_range,
-         main = paste("Cumulative effect (log scale) —", var),
+         main = "",
          sub  = "Shaded band: 95% CI",
          xlab = var, ylab = "Odds ratio of p_bt (log scale)")
     polygon(c(at_std, rev(at_std)), c(pred_i$alllow, rev(pred_i$allhigh)),
@@ -1723,16 +1723,24 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
                z_mat[-nrow(z_mat), -1] + z_mat[-nrow(z_mat), -ncol(z_mat)]) / 4
     facet_col <- pal[cut(z_mid, breaks = z_breaks_global, include.lowest = TRUE)]
 
-    png(file.path(dir_overall, paste0("dlnm_3d_", var, "_", run_suffix, ".png")),
+    png(file.path(dir_overall, paste0("dlnm_3d_", var, ".png")),
         width = 800, height = 700)
     persp(x        = at_orig,
           y        = lag_seq,
           z        = z_mat,
           zlim     = z_global,
-          xlab     = var,
-          ylab     = "Lag (months)",
+          # Leading "\n" pushes the persp()-drawn xlab/ylab further from the
+          # tick labels along their (tilted) axis -- persp() has no dedicated
+          # label-offset argument, so this is the standard workaround. zlab is
+          # left as a plain string: it's centred along the same line as the z
+          # tick numbers, so the same padding trick barely shifts it, and the
+          # mtext()-in-margin alternative added too much space and read
+          # bottom-to-top instead of top-to-bottom -- not worth the added
+          # fragility for this axis.
+          xlab     = paste0("\n", var),
+          ylab     = "\nLag (months)",
           zlab     = "Odds ratio of p_bt",
-          main     = paste("DLNM surface —", var),
+          main     = "",
           theta    = 40, phi = 25, ltheta = 45,
           col      = facet_col,
           border   = NA,
@@ -1760,7 +1768,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
       z_mat_fine_clip <- pmin(pmax(z_mat_fine, z_breaks_global[1]),
                                z_breaks_global[length(z_breaks_global)])
 
-      png(file.path(dir_overall, paste0("dlnm_heatmap_", var, "_", run_suffix, ".png")),
+      png(file.path(dir_overall, paste0("dlnm_heatmap_", var, ".png")),
           width = 800, height = 600)
       filled.contour(
         x      = at_orig,
@@ -1770,7 +1778,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
         col    = pal,
         xlab   = var,
         ylab   = "Lag (months)",
-        main   = paste("DLNM heatmap —", var),
+        main   = "",
         cex.lab = 1.5, cex.main = 1.5,
         key.title = title(main = "OR", cex.main = 1.35),
         plot.axes = {
@@ -1795,16 +1803,16 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
                   z_mat_log[-nrow(z_mat_log), -1] + z_mat_log[-nrow(z_mat_log), -ncol(z_mat_log)]) / 4
     facet_col_log <- pal_log[cut(z_mid_log, breaks = log_z_breaks_global, include.lowest = TRUE)]
 
-    png(file.path(dir_overall, paste0("dlnm_3d_", var, "_logscale_", run_suffix, ".png")),
+    png(file.path(dir_overall, paste0("dlnm_3d_", var, "_logscale.png")),
         width = 800, height = 700)
     persp(x        = at_orig,
           y        = lag_seq,
           z        = z_mat_log,
           zlim     = log_z_global,
-          xlab     = var,
-          ylab     = "Lag (months)",
+          xlab     = paste0("\n", var),
+          ylab     = "\nLag (months)",
           zlab     = "log(Odds ratio) of p_bt",
-          main     = paste("DLNM surface (log scale) —", var),
+          main     = "",
           theta    = 40, phi = 25, ltheta = 45,
           col      = facet_col_log,
           border   = NA,
@@ -1819,7 +1827,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
       z_mat_fine_log_clip <- pmin(pmax(z_mat_fine_log, log_z_breaks_global[1]),
                                    log_z_breaks_global[length(log_z_breaks_global)])
 
-      png(file.path(dir_overall, paste0("dlnm_heatmap_", var, "_logscale_", run_suffix, ".png")),
+      png(file.path(dir_overall, paste0("dlnm_heatmap_", var, "_logscale.png")),
           width = 800, height = 600)
       filled.contour(
         x      = at_orig,
@@ -1829,7 +1837,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
         col    = pal_log,
         xlab   = var,
         ylab   = "Lag (months)",
-        main   = paste("DLNM heatmap (log scale) —", var),
+        main   = "",
         cex.lab = 1.5, cex.main = 1.5,
         key.title = title(main = "log(OR)", cex.main = 1.35),
         plot.axes = {
@@ -1845,12 +1853,12 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
     # ── Per-lag slice plots (one per lag, same style as cumulative) ──────────
     for (l in lag_seq) {
       png(file.path(dir_perlag,
-                    paste0("dlnm_lag", l, "_", var, "_", run_suffix, ".png")),
+                    paste0("dlnm_lag", l, "_", var, ".png")),
           width = 800, height = 500)
       plot(pred_i, "slices",
            lag    = l,
            xaxt   = "n",
-           main   = paste0("Effect at lag ", l, " — ", var),
+           main   = "",
            sub    = "Shaded band: 95% CI",
            xlab   = var,
            ylab   = "Odds ratio of p_bt",
@@ -1986,17 +1994,22 @@ save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
       )
 
       png(file.path(dir_lagresp,
-            sprintf("dlnm_lagresponse_p%02d_%s_%s.png", round(p_val * 100), var, run_suffix)),
+            sprintf("dlnm_lagresponse_p%02d_%s.png", round(p_val * 100), var)),
           width = 800, height = 500)
       plot(red_i,
-           main = sprintf("Lag-response - %s at %dth pct (%s = %.2f)",
-                          var, round(p_val * 100), var, orig_val),
+           main = "",
            sub  = "Shaded band: 95% CI",
            xlab = "Lag (months)",
            ylab = "Odds ratio of p_bt",
            col    = "steelblue",
            ci.arg = list(col = adjustcolor("steelblue", 0.25), border = NA))
       abline(h = 1, lty = 2, col = "grey50")
+      legend("topright",
+             legend = c(sprintf("%dth percentile", round(p_val * 100)),
+                        sprintf("%s = %.2f", var, orig_val)),
+             bty = "o", bg = "grey95", box.col = "grey75", box.lwd = 1,
+             cex = 1.1, x.intersp = 0.4, y.intersp = 0.9, seg.len = 0,
+             inset = 0.03)
       dev.off()
 
       cat(sprintf("  [%s] p%d (%s=%.2f): significant lags = %s\n",
