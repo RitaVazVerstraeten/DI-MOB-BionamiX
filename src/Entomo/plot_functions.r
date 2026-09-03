@@ -100,7 +100,7 @@ save_glmm_prob_timeseries_plot <- function(df_summary, df_observed, output_dir, 
           plot.caption = element_text(size = 10, hjust = 0))
 
   print(p_probs)
-  plot_file <- file.path(output_dir, paste0("probabilities_timeseries_", run_suffix, ".png"))
+  plot_file <- file.path(output_dir, paste0("probabilities_timeseries.png"))
   ggsave(plot_file, p_probs, width = 12, height = 6, dpi = 150)
   cat("  Probability plot PNG: ", plot_file, "\n", sep = "")
 }
@@ -127,8 +127,8 @@ save_glmm_moransI_plot <- function(monthly_moran, output_dir, run_suffix) {
       caption = "Red dots: significant spatial autocorrelation (p < 0.05).\nSpatial autocorrelation is bounded to 400m (only neighbors within 400m are considered)."
     ) +
     theme_minimal()
-  ggsave(file.path(output_dir, paste0("glmm_moransI_monthly_timeseries_", run_suffix, ".png")), p_month, width = 11, height = 5, dpi = 150)
-  cat("  Moran's I plot PNG: ", file.path(output_dir, paste0("glmm_moransI_monthly_timeseries_", run_suffix, ".png")), "\n", sep = "")
+  ggsave(file.path(output_dir, paste0("glmm_moransI_monthly_timeseries.png")), p_month, width = 11, height = 5, dpi = 150)
+  cat("  Moran's I plot PNG: ", file.path(output_dir, paste0("glmm_moransI_monthly_timeseries.png")), "\n", sep = "")
 }
 
 
@@ -226,7 +226,7 @@ save_glmm_prob_timeseries_plot_random_blocks <- function(
   print(p_probs)
 
   # Save plot
-  plot_file <- file.path(output_dir, paste0("probabilities_timeseries_random_blocks_", run_suffix, ".png"))
+  plot_file <- file.path(output_dir, paste0("probabilities_timeseries_random_blocks.png"))
   ggsave(plot_file, p_probs, width = 14, height = 10, dpi = 150)
   cat("  Probability plot (random blocks) PNG: ", plot_file, "\n", sep = "")
 }
@@ -345,7 +345,7 @@ save_glmm_prob_timeseries_plot_weighted <- function(df_summary_weighted, output_
     )
 
   print(p_probs)
-  plot_file <- file.path(output_dir, paste0("probabilities_timeseries_weighted_", run_suffix, ".png"))
+  plot_file <- file.path(output_dir, paste0("probabilities_timeseries_weighted.png"))
   ggsave(plot_file, p_probs, width = 12, height = 6, dpi = 150)
   cat("  Probability plot (weighted) PNG: ", plot_file, "\n", sep = "")
 }
@@ -456,7 +456,7 @@ save_glmm_prob_timeseries_plot_random_blocks <- function(
   print(p_probs)
 
   # Save plot
-  plot_file <- file.path(output_dir, paste0("probabilities_timeseries_random_blocks_", run_suffix, ".png"))
+  plot_file <- file.path(output_dir, paste0("probabilities_timeseries_random_blocks.png"))
   ggsave(plot_file, p_probs, width = 14, height = 10, dpi = 150)
   cat("  Probability plot (random blocks) PNG: ", plot_file, "\n", sep = "")
 }
@@ -487,7 +487,7 @@ save_glmm_calibplot_observed_vs_expected <- function(df_summary, df_observed, ou
     ) +
     theme_minimal()
   print(p_calib)
-  calibplot_file <- file.path(output_dir, paste0("glmm_calibplot_observed_vs_expected_", run_suffix, ".png"))
+  calibplot_file <- file.path(output_dir, paste0("glmm_calibplot_observed_vs_expected.png"))
   ggsave(calibplot_file, p_calib, width = 7, height = 7, dpi = 150)
   cat("  Calibration plot PNG: ", calibplot_file, "\n", sep = "")
 }
@@ -517,7 +517,7 @@ save_glmm_calibplot_weighted_avg <- function(df, output_dir, run_suffix) {
     ) +
     theme_minimal()
   print(p_calib)
-  calibplot_file <- file.path(output_dir, paste0("glmm_calibplot_weighted_avg_", run_suffix, ".png"))
+  calibplot_file <- file.path(output_dir, paste0("glmm_calibplot_weighted_avg.png"))
   ggsave(calibplot_file, p_calib, width = 7, height = 7, dpi = 150)
   cat("  Calibration plot (weighted avg) PNG: ", calibplot_file, "\n", sep = "")
 }
@@ -531,7 +531,7 @@ save_glmm_calibplot_weighted_avg <- function(df, output_dir, run_suffix) {
 #' @param run_suffix Suffix for filename
 #' @return NULL (saves plot)
 save_glmm_residuals_plot <- function(model, output_dir, run_suffix) {
-  resid_plot_file <- file.path(output_dir, paste0("glmm_residuals_plot_", run_suffix, ".png"))
+  resid_plot_file <- file.path(output_dir, paste0("glmm_residuals_plot.png"))
   residuals_model <- residuals(model, type = "pearson")
   df_resid <- data.frame(
     fitted = fitted(model),
@@ -558,7 +558,7 @@ save_glmm_residuals_plot <- function(model, output_dir, run_suffix) {
 #' @param run_suffix Suffix for filename
 #' @return NULL (saves plot)
 save_glmm_random_effects_plot <- function(model, output_dir, run_suffix) {
-  re_plot_file <- file.path(output_dir, paste0("glmm_random_effects_plot_", run_suffix, ".png"))
+  re_plot_file <- file.path(output_dir, paste0("glmm_random_effects_plot.png"))
   re <- suppressWarnings(ranef(model)$cond)
   # ranef extracts the BLUPs (best linear unbiased prediction) from the model
   if (length(re) > 0) {
@@ -608,7 +608,7 @@ NULL
 #' @param run_suffix Character string suffix for filename
 #' @return NULL (saves plot to PNG file)
 save_random_effects <- function(u_post, v_post, output_dir, run_suffix) {
-  png(file.path(output_dir, paste0("random_effects_", run_suffix, ".png")), width = 1000, height = 800)
+  png(file.path(output_dir, paste0("random_effects.png")), width = 1000, height = 800)
   on.exit(dev.off(), add = TRUE)
   par(mfrow = c(2, 2))
 
@@ -725,7 +725,7 @@ save_ppc <- function(df, fit, output_dir, run_suffix, n_draws_overlay = 50) {
   p_combined <- p1 + p2 + p3 + patchwork::plot_layout(ncol = 3)
 
   ggsave(
-    file.path(output_dir, paste0("posterior_predictive_check_", run_suffix, ".png")),
+    file.path(output_dir, paste0("posterior_predictive_check.png")),
     p_combined, width = 15, height = 5, dpi = 150
   )
 }
@@ -758,14 +758,14 @@ save_trace_plots <- function(fit, output_dir, run_suffix, use_temporal_re) {
   if (use_temporal_re) params_main <- c(params_main, "sigma_v", "rho")
 
   ggsave(
-    file.path(trace_dir, paste0("traceplot_params_", run_suffix, ".png")),
+    file.path(trace_dir, paste0("traceplot_params.png")),
     mcmc_trace(draws_array, pars = params_main), width = 10, height = 8
   )
 
   w_params <- grep("^w\\[", dimnames(draws_array)[[3]], value = TRUE)
   if (length(w_params) > 0) {
     ggsave(
-      file.path(trace_dir, paste0("traceplot_weights_w_", run_suffix, ".png")),
+      file.path(trace_dir, paste0("traceplot_weights_w.png")),
       mcmc_trace(draws_array, pars = w_params), width = 12, height = 10
     )
   }
@@ -773,7 +773,7 @@ save_trace_plots <- function(fit, output_dir, run_suffix, use_temporal_re) {
   wu_params <- grep("^w_unlagged\\[", dimnames(draws_array)[[3]], value = TRUE)
   if (length(wu_params) > 0) {
     ggsave(
-      file.path(trace_dir, paste0("traceplot_weights_unlagged_", run_suffix, ".png")),
+      file.path(trace_dir, paste0("traceplot_weights_unlagged.png")),
       mcmc_trace(draws_array, pars = wu_params), width = 12, height = 8
     )
   }
@@ -847,13 +847,13 @@ save_v_bt_plot <- function(fit, df, stan_data, output_dir, run_suffix) {
 
     p_combined <- p_top / p_bot
     ggsave(
-      file.path(output_dir, paste0("v_bt_per_block_", run_suffix, ".png")),
+      file.path(output_dir, paste0("v_bt_per_block.png")),
       p_combined, width = 12, height = 9, dpi = 150
     )
   } else {
     p_top <- p_top + theme(axis.text.x = element_text(angle = 45, hjust = 1))
     ggsave(
-      file.path(output_dir, paste0("v_bt_per_block_", run_suffix, ".png")),
+      file.path(output_dir, paste0("v_bt_per_block.png")),
       p_top, width = 12, height = 6, dpi = 150
     )
   }
@@ -897,7 +897,7 @@ save_u_block_plot <- function(fit, output_dir, run_suffix) {
     theme_minimal()
 
   ggsave(
-    file.path(output_dir, paste0("u_block_", run_suffix, ".png")),
+    file.path(output_dir, paste0("u_block.png")),
     p_u, width = 10, height = 5, dpi = 150
   )
   cat("u_block plot saved.\n")
@@ -1015,7 +1015,7 @@ save_spatial_re_ar_correlation_checks <- function(fit, coords_sf, stan_data, out
           theme_minimal()
 
         ggsave(
-          file.path(corr_dir, paste0("moransI_u_block_correlogram_", run_suffix, ".png")),
+          file.path(corr_dir, paste0("moransI_u_block_correlogram.png")),
           p_moran_u, width = 9, height = 5, dpi = 150
         )
         write.csv(
@@ -1076,7 +1076,7 @@ save_spatial_re_ar_correlation_checks <- function(fit, coords_sf, stan_data, out
             theme_minimal()
 
           ggsave(
-            file.path(corr_dir, paste0("moransI_u_block_global_", run_suffix, ".png")),
+            file.path(corr_dir, paste0("moransI_u_block_global.png")),
             p_moran_global, width = 7, height = 6, dpi = 150
           )
 
@@ -1140,7 +1140,7 @@ save_spatial_re_ar_correlation_checks <- function(fit, coords_sf, stan_data, out
     theme(plot.title = element_text(size = 11))
 
   ggsave(
-    file.path(corr_dir, paste0("u_block_vs_v_bar_correlation_", run_suffix, ".png")),
+    file.path(corr_dir, paste0("u_block_vs_v_bar_correlation.png")),
     p_uv, width = 8, height = 6, dpi = 150
   )
   write.csv(
@@ -1297,7 +1297,7 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
       theme_minimal() +
       theme(legend.position = "bottom")
   }
-  ggsave(file.path(timeseries_dir, paste0("timeseries_aggregate_", run_suffix, ".png")),
+  ggsave(file.path(timeseries_dir, paste0("timeseries_aggregate.png")),
          p1, width = 12, height = 6, dpi = 150)
   
   # Plot 2: Block-specific time series (first n_blocks_facet blocks)
@@ -1333,7 +1333,7 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
     theme_minimal() +
     theme(legend.position = "bottom", axis.text.x = element_text(angle = 45, hjust = 1, size = 7))
   
-  ggsave(file.path(timeseries_dir, paste0("timeseries_by_block_", run_suffix, ".png")), 
+  ggsave(file.path(timeseries_dir, paste0("timeseries_by_block.png")), 
          p2, width = 14, height = 10, dpi = 150)
   
   # Plot 3: Residuals over time
@@ -1355,7 +1355,7 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
          title = "Residuals Over Time (Mean ± SD Across Blocks)") +
     theme_minimal()
   
-  ggsave(file.path(timeseries_dir, paste0("residuals_over_time_", run_suffix, ".png")), 
+  ggsave(file.path(timeseries_dir, paste0("residuals_over_time.png")), 
          p3, width = 12, height = 6, dpi = 150)
   
   # Plot 4: Correlation distribution
@@ -1373,7 +1373,7 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
          subtitle = paste0("Median correlation: ", round(median(df_corr$correlation), 3))) +
     theme_minimal()
   
-  ggsave(file.path(timeseries_dir, paste0("correlation_distribution_", run_suffix, ".png")),
+  ggsave(file.path(timeseries_dir, paste0("correlation_distribution.png")),
          p4, width = 10, height = 6, dpi = 150)
   
   # Print summary statistics
@@ -1502,7 +1502,7 @@ save_unlagged_effects_plot <- function(fit, prep, output_dir, run_suffix,
     ggplot2::theme_minimal(base_size = 11) +
     ggplot2::theme(plot.title = ggplot2::element_text(face = "bold", size = 12))
 
-  out_file <- file.path(output_dir, paste0("unlagged_effects_", file_tag, "_", run_suffix, ".png"))
+  out_file <- file.path(output_dir, paste0("unlagged_effects_", file_tag, ".png"))
   ggplot2::ggsave(out_file, p, width = 8,
                   height = max(3, 0.4 * nrow(df_plot) + 1.5), dpi = 150)
   cat("Unlagged effects plot (", scale, ") saved to:", out_file, "\n")
@@ -2171,7 +2171,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     # ── Cumulative effect comparison ──────────────────────────────────────────
     y_lim <- range(pred_ref$alllow, pred_ref$allhigh,
                    pred_active$alllow, pred_active$allhigh, na.rm = TRUE)
-    png(file.path(dir_overall, paste0("dlnm_ix_cumul_", label, "_", run_suffix, ".png")),
+    png(file.path(dir_overall, paste0("dlnm_ix_cumul_", label, ".png")),
         width = 900, height = 500)
     plot(pred_ref, "overall", xaxt = "n", ylim = y_lim,
          main   = paste("Cumulative effect of", dlnm_var, "—", label),
@@ -2203,7 +2203,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
     for (l in lag_seq) {
       y_lim_lag <- range(pred_ref$matlow[, l + 1], pred_ref$mathigh[, l + 1],
                          pred_active$matlow[, l + 1], pred_active$mathigh[, l + 1], na.rm = TRUE)
-      png(file.path(dir_perlag, paste0("dlnm_ix_lag", l, "_", label, "_", run_suffix, ".png")),
+      png(file.path(dir_perlag, paste0("dlnm_ix_lag", l, "_", label, ".png")),
           width = 900, height = 500)
       plot(pred_ref, "slices", lag = l, xaxt = "n", ylim = y_lim_lag,
            main   = paste0("Effect at lag ", l, " — ", label),
@@ -2285,7 +2285,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
                 z_mat[-nrow(z_mat), -1] + z_mat[-nrow(z_mat), -ncol(z_mat)]) / 4
       fcol  <- pal[cut(z_mid, breaks = z_breaks_global, include.lowest = TRUE)]
 
-      png(file.path(dir_overall, paste0("dlnm_ix_3d_", label, "_", grp$name, "_", run_suffix, ".png")),
+      png(file.path(dir_overall, paste0("dlnm_ix_3d_", label, "_", grp$name, ".png")),
           width = 800, height = 700)
       persp(x = p$at_orig, y = p$lag_seq, z = z_mat,
             zlim     = z_global,
@@ -2309,7 +2309,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
         z_mat_fine_clip <- pmin(pmax(z_mat_fine, z_breaks_global[1]),
                                  z_breaks_global[length(z_breaks_global)])
 
-        png(file.path(dir_overall, paste0("dlnm_ix_heatmap_", label, "_", grp$name, "_", run_suffix, ".png")),
+        png(file.path(dir_overall, paste0("dlnm_ix_heatmap_", label, "_", grp$name, ".png")),
             width = 800, height = 600)
         filled.contour(
           x      = p$at_orig,
@@ -2342,7 +2342,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
                     z_mat_log[-nrow(z_mat_log), -1] + z_mat_log[-nrow(z_mat_log), -ncol(z_mat_log)]) / 4
       fcol_log  <- pal_log[cut(z_mid_log, breaks = log_z_breaks_global, include.lowest = TRUE)]
 
-      png(file.path(dir_overall, paste0("dlnm_ix_3d_", label, "_", grp$name, "_logscale_", run_suffix, ".png")),
+      png(file.path(dir_overall, paste0("dlnm_ix_3d_", label, "_", grp$name, "_logscale.png")),
           width = 800, height = 700)
       persp(x = p$at_orig, y = p$lag_seq, z = z_mat_log,
             zlim     = log_z_global,
@@ -2358,7 +2358,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
         z_mat_fine_log_clip <- pmin(pmax(z_mat_fine_log, log_z_breaks_global[1]),
                                      log_z_breaks_global[length(log_z_breaks_global)])
 
-        png(file.path(dir_overall, paste0("dlnm_ix_heatmap_", label, "_", grp$name, "_logscale_", run_suffix, ".png")),
+        png(file.path(dir_overall, paste0("dlnm_ix_heatmap_", label, "_", grp$name, "_logscale.png")),
             width = 800, height = 600)
         filled.contour(
           x      = p$at_orig,
@@ -2584,7 +2584,7 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
         ) +
         theme_minimal()
 
-      ggsave(file.path(dir_overall, paste0("dlnm_ix_continuous_lines_", label, "_", run_suffix, ".png")),
+      ggsave(file.path(dir_overall, paste0("dlnm_ix_continuous_lines_", label, ".png")),
              p_lines, width = 9, height = 6, dpi = 150)
       write.csv(curve_df,
                 file.path(dir_overall, paste0("dlnm_ix_continuous_lines_", label, "_", run_suffix, ".csv")),
@@ -2636,7 +2636,7 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
         ) +
         theme_minimal()
 
-      ggsave(file.path(dir_perlag, paste0("dlnm_ix_continuous_lag", l, "_", label, "_", run_suffix, ".png")),
+      ggsave(file.path(dir_perlag, paste0("dlnm_ix_continuous_lag", l, "_", label, ".png")),
              p_lag, width = 9, height = 6, dpi = 150)
       write.csv(lag_curve_df,
                 file.path(dir_perlag, paste0("dlnm_ix_continuous_lag", l, "_", label, "_", run_suffix, ".csv")),
@@ -2732,13 +2732,13 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
       plot_diff_curve(
         diff_df[diff_df$lag == "cumulative", ],
         sprintf("Effect modification of %s by %s: cumulative", dlnm_var, continuous_var),
-        file.path(dir_overall, paste0("dlnm_ix_continuous_diff_cumulative_", label, "_", run_suffix, ".png"))
+        file.path(dir_overall, paste0("dlnm_ix_continuous_diff_cumulative_", label, ".png"))
       )
       for (l in 0:L_val) {
         plot_diff_curve(
           diff_df[diff_df$lag == as.character(l), ],
           sprintf("Effect modification of %s by %s: lag %d", dlnm_var, continuous_var, l),
-          file.path(dir_perlag, paste0("dlnm_ix_continuous_diff_lag", l, "_", label, "_", run_suffix, ".png"))
+          file.path(dir_perlag, paste0("dlnm_ix_continuous_diff_lag", l, "_", label, ".png"))
         )
       }
     }
@@ -2776,7 +2776,7 @@ save_dlnm_continuous_interaction_plots <- function(fit, prep, output_dir, run_su
         theme_minimal() +
         theme(panel.grid = element_blank())
 
-      ggsave(file.path(dir_overall, paste0("dlnm_ix_continuous_heatmap_", label, "_", run_suffix, ".png")),
+      ggsave(file.path(dir_overall, paste0("dlnm_ix_continuous_heatmap_", label, ".png")),
              p_heat, width = 8, height = 6, dpi = 150)
       write.csv(heat_df,
                 file.path(dir_overall, paste0("dlnm_ix_continuous_heatmap_", label, "_", run_suffix, ".csv")),
@@ -2861,7 +2861,7 @@ save_af_timeseries_plot <- function(af_ts, df, var, output_dir, run_suffix) {
     ) +
     theme_minimal()
 
-  ggsave(file.path(output_dir, paste0("af_timeseries_", var, "_", run_suffix, ".png")),
+  ggsave(file.path(output_dir, paste0("af_timeseries_", var, ".png")),
          p, width = 12, height = 6, dpi = 150)
   cat(sprintf("  AF time series plot saved: %s\n", var))
 }
@@ -3033,7 +3033,7 @@ save_glmm_coef_forest_plot <- function(coef_table, cfg = NULL, output_dir, run_s
   fig_h   <- max(5, 0.3 * n_terms + 2.5)
 
   out_file <- file.path(output_dir,
-                        paste0("glmm_coef_forest_", file_tag, "_", run_suffix, ".png"))
+                        paste0("glmm_coef_forest_", file_tag, ".png"))
   ggplot2::ggsave(out_file, p, width = 9, height = fig_h, dpi = 150)
   cat("Forest plot saved to:", out_file, "\n")
   invisible(p)
@@ -3160,7 +3160,7 @@ save_glmm_dlnm_plots <- function(var, cb_obj, cb_term_name, model,
       ) +
       ggplot2::theme_minimal()
   }
-  ggplot2::ggsave(file.path(output_dir, paste0("dlnm_cumul_", var, "_", run_suffix, ".png")),
+  ggplot2::ggsave(file.path(output_dir, paste0("dlnm_cumul_", var, ".png")),
                   p_cumul, width = 7, height = 5, dpi = 150)
 
   # --- 2. Lag-response profiles across exposure quantiles ---
@@ -3222,7 +3222,7 @@ save_glmm_dlnm_plots <- function(var, cb_obj, cb_term_name, model,
       ) +
       ggplot2::theme_minimal()
   }
-  ggplot2::ggsave(file.path(output_dir, paste0("dlnm_lagresponse_", var, "_", run_suffix, ".png")),
+  ggplot2::ggsave(file.path(output_dir, paste0("dlnm_lagresponse_", var, ".png")),
                   p_lag, width = 7, height = 5, dpi = 150)
 
   # --- 3. Exposure-lag-response heatmap ---
@@ -3243,7 +3243,7 @@ save_glmm_dlnm_plots <- function(var, cb_obj, cb_term_name, model,
     ) +
     ggplot2::theme_minimal() +
     ggplot2::theme(panel.grid = ggplot2::element_blank())
-  ggplot2::ggsave(file.path(output_dir, paste0("dlnm_heatmap_", var, "_", run_suffix, ".png")),
+  ggplot2::ggsave(file.path(output_dir, paste0("dlnm_heatmap_", var, ".png")),
                   p_heat, width = 7, height = 5, dpi = 150)
 
   cat(sprintf("DLNM plots saved for %s\n", var))
