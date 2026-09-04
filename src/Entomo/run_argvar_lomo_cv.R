@@ -110,12 +110,12 @@ scenario_defs <- list(
   i = list(argvar = list(total_precip = 3, avg_VPD = 3,   precip_max_day_resid_on_tp = 3), interaction = "both")
 )
 
-# Boundary.knots per variable, in standardized (z-score) units -- identical
-# to run_argvar_sweep.R; see that script's header for derivation.
+# Boundary.knots per variable p05 p95, in standardized (z-score) units -- identical
+# to run_argvar_sweep.R; see Descriptive stats for derivation
 boundary_knots_by_var <- list(
-  total_precip                = c(-1.1024, 0.9946),
-  avg_VPD                     = c(-1.3004, 1.4406),
-  precip_max_day_resid_on_tp  = c(-0.8720, 1.5924)
+  total_precip                = c(-1.011372, 1.548682), 
+  avg_VPD                     = c( -1.783512, 1.628553),
+  precip_max_day_resid_on_tp  = c(-1.201732, 1.98497)
 )
 
 build_dlnm_argvar <- function(spec, use_boundary = FALSE) {
