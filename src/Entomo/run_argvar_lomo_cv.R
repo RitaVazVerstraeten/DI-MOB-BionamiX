@@ -67,29 +67,20 @@ is_compute_node <- hostname %in% c("frietjes", "stoofvlees")
 # =============================================================================
 data_dir <- if (hostname == "frietjes") "~/data/Entomo" else if (hostname == "stoofvlees") "~/entomo_data" else "/media/rita/New Volume/Documenten/DI-MOB/Other Data/Env_data_cuba/data"
 output_root <- if (hostname == "frietjes") {
-  "/home/rita/data/Entomo/fitting/stan/argvar_lomo_cv"
+  "/home/rita/data/Entomo/fitting/stan/argvar_lomo_cv_12_new_months"
 } else if (hostname == "stoofvlees") {
-  "~/data/entomo/results/fitting/stan/argvar_lomo_cv"
+  "~/data/entomo/results/fitting/stan/argvar_lomo_cv_12_new_months"
 } else {
-  "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan/argvar_lomo_cv"
+  "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan/argvar_lomo_cv_12_new_months"
 }
 output_root <- path.expand(output_root)
 dir.create(output_root, recursive = TRUE, showWarnings = FALSE)
 
-# Final comparison saved alongside run_argvar_sweep.R's own LOO/WAIC
-# comparisons (loo_comparison_<date>/, waic_comparison_<date>/) -- same
-# sweep_output_dir, same naming convention, so all three criteria for this
-# 18-config grid sit side by side (matches run_leave_one_month_out_cv.R's
-# convention for the original sweep).
+# Final comparison saved under output_root, alongside the per-fold fit
+# outputs this script itself produced -- everything this LOMO run generates
+# lives in one place (argvar_lomo_cv/), rather than splitting the summary
+# off into run_argvar_sweep.R's own output directory.
 date_suffix <- format(Sys.Date(), "%Y%m%d")
-sweep_output_dir <- if (hostname == "frietjes") {
-  "/home/rita/data/Entomo/fitting/stan/argvar_sweep"
-} else if (hostname == "stoofvlees") {
-  "~/data/entomo/results/fitting/stan/argvar_sweep"
-} else {
-  "/home/rita/PyProjects/DI-MOB-BionamiX/results/Entomo/fitting/stan/argvar_sweep"
-}
-sweep_output_dir <- path.expand(sweep_output_dir)
 
 lag_vars_fixed     <- c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp")
 dlnm_vars_fixed    <- c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp")
@@ -392,8 +383,20 @@ for (i in seq_along(configs)) {
   # every config has the same 48 response months, so this is config-invariant.
   if (is.null(held_out_months)) {
     all_months <- sort(unique(df$year_month))
-    held_out_months <- all_months[round(seq(1, length(all_months), length.out = n_held_out_months))]
-    cat(sprintf("Held-out months (shared across all %d configs): %s\n",
+
+    # Excluding the 2026-08-28 LOMO run's 12 held-out months from the pool
+    # before spacing -- this run's 12 are then a genuinely different,
+    # non-overlapping set (not just the same even-spacing formula
+    # reproducing the identical picks), a check on whether that run's
+    # none-vs-interaction ranking holds up under a different held-out
+    # partition. Same deterministic, no-RNG even-spacing logic as before,
+    # just applied to the remaining 36 months.
+    previously_held_out <- c("2016_01", "2016_05", "2016_10", "2017_02", "2017_06", "2017_10","2018_03", "2018_07", "2018_11", "2019_03", "2019_08", "2019_12")
+    remaining_months <- setdiff(all_months, previously_held_out)
+    stopifnot(length(remaining_months) == length(all_months) - length(previously_held_out))
+
+    held_out_months <- remaining_months[round(seq(1, length(remaining_months), length.out = n_held_out_months))]
+    cat(sprintf("Held-out months (shared across all %d configs, disjoint from the 2026-08-28 run): %s\n",
                 length(configs), paste(held_out_months, collapse = ", ")))
   }
 
@@ -455,7 +458,7 @@ if (length(complete_configs) < 2) {
   cat("\nBootstrap comparison (clustered by held-out month):\n")
   print(boot_cmp, digits = 3, row.names = FALSE)
 
-  comp_dir <- file.path(sweep_output_dir, paste0("lomo_comparison_", date_suffix))
+  comp_dir <- file.path(output_root, paste0("lomo_comparison_", date_suffix))
   dir.create(comp_dir, recursive = TRUE, showWarnings = FALSE)
 
   comp_file <- file.path(comp_dir, paste0("lomo_comparison_", date_suffix, ".txt"))
