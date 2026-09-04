@@ -1748,7 +1748,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
           cex.axis = 1.5, cex.lab = 1.5, cex.main = 1.5)
     dev.off()
 
-    # ── 2-D heatmap (Lowe et al. 2018-style smooth filled contour) ───────────
+    # ── 2-D contour (Lowe et al. 2018-style smooth filled contour) ───────────
     # Same exposure x lag x OR surface as the 3-D plot above, same shared
     # colour scheme (pal/z_breaks_global, white anchored at OR = 1), but
     # rendered as a smooth filled contour (exposure on x, lag on y) rather
@@ -1768,7 +1768,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
       z_mat_fine_clip <- pmin(pmax(z_mat_fine, z_breaks_global[1]),
                                z_breaks_global[length(z_breaks_global)])
 
-      png(file.path(dir_overall, paste0("dlnm_heatmap_", var, ".png")),
+      png(file.path(dir_overall, paste0("dlnm_contour_", var, ".png")),
           width = 800, height = 600)
       filled.contour(
         x      = at_orig,
@@ -1790,7 +1790,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
       )
       dev.off()
     } else {
-      cat(sprintf("  Skipping heatmap for %s: fine-lag crosspred unavailable\n", var))
+      cat(sprintf("  Skipping contour for %s: fine-lag crosspred unavailable\n", var))
     }
 
     # ── 3-D surface and heatmap, log-y-axis versions ──────────────────────────
@@ -1827,7 +1827,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
       z_mat_fine_log_clip <- pmin(pmax(z_mat_fine_log, log_z_breaks_global[1]),
                                    log_z_breaks_global[length(log_z_breaks_global)])
 
-      png(file.path(dir_overall, paste0("dlnm_heatmap_", var, "_logscale.png")),
+      png(file.path(dir_overall, paste0("dlnm_contour_", var, "_logscale.png")),
           width = 800, height = 600)
       filled.contour(
         x      = at_orig,
@@ -2296,8 +2296,8 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
             cex.axis = 1.5, cex.lab = 1.5, cex.main = 1.5)
       dev.off()
 
-      # ── 2-D heatmap (Lowe et al. 2018-style smooth filled contour) ────────
-      # Same technique as save_dlnm_response_plots()'s main-effect heatmap:
+      # ── 2-D contour (Lowe et al. 2018-style smooth filled contour) ────────
+      # Same technique as save_dlnm_response_plots()'s main-effect contour:
       # finer-lag crosspred for smooth transitions along the lag axis, same
       # shared colour scale as the 3-D surface above (so ref/active/every
       # other DLNM plot in the run stays visually comparable), clipped into
@@ -2309,7 +2309,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
         z_mat_fine_clip <- pmin(pmax(z_mat_fine, z_breaks_global[1]),
                                  z_breaks_global[length(z_breaks_global)])
 
-        png(file.path(dir_overall, paste0("dlnm_ix_heatmap_", label, "_", grp$name, ".png")),
+        png(file.path(dir_overall, paste0("dlnm_ix_contour_", label, "_", grp$name, ".png")),
             width = 800, height = 600)
         filled.contour(
           x      = p$at_orig,
@@ -2319,7 +2319,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
           col    = pal,
           xlab   = p$dlnm_var,
           ylab   = "Lag (months)",
-          main   = paste0("DLNM heatmap — ", label, " (", grp$name, ", pooled)"),
+          main   = paste0("DLNM contour — ", label, " (", grp$name, ", pooled)"),
           cex.lab = 1.5, cex.main = 1.5,
           key.title = title(main = "OR", cex.main = 1.35),
           plot.axes = {
@@ -2331,7 +2331,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
         )
         dev.off()
       } else {
-        cat(sprintf("  Skipping heatmap for %s (%s): fine-lag crosspred unavailable\n", label, grp$name))
+        cat(sprintf("  Skipping contour for %s (%s): fine-lag crosspred unavailable\n", label, grp$name))
       }
 
       # Log-scale companion -- didn't exist before this unification; added so
@@ -2358,7 +2358,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
         z_mat_fine_log_clip <- pmin(pmax(z_mat_fine_log, log_z_breaks_global[1]),
                                      log_z_breaks_global[length(log_z_breaks_global)])
 
-        png(file.path(dir_overall, paste0("dlnm_ix_heatmap_", label, "_", grp$name, "_logscale.png")),
+        png(file.path(dir_overall, paste0("dlnm_ix_contour_", label, "_", grp$name, "_logscale.png")),
             width = 800, height = 600)
         filled.contour(
           x      = p$at_orig,
@@ -2368,7 +2368,7 @@ save_dlnm_interaction_response_plots <- function(fit, prep, output_dir, run_suff
           col    = pal_log,
           xlab   = p$dlnm_var,
           ylab   = "Lag (months)",
-          main   = paste0("DLNM heatmap (log scale) — ", label, " (", grp$name, ", pooled)"),
+          main   = paste0("DLNM contour (log scale) — ", label, " (", grp$name, ", pooled)"),
           cex.lab = 1.5, cex.main = 1.5,
           key.title = title(main = "log(OR)", cex.main = 1.35),
           plot.axes = {
