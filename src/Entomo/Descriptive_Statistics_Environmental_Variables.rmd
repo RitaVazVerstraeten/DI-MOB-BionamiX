@@ -418,18 +418,33 @@ if ("is_rainy_season" %in% colnames(env_all) &&
   # teens) so every integer is legible and "3.5 months" would be meaningless.
   n_months_breaks <- seq(min(resid_lag_binned$N_months, na.rm = TRUE), max(resid_lag_binned$N_months, na.rm = TRUE))
 
+  # precip_max_day_resid_on_tp is municipality-wide (same duplication issue
+  # flagged above for the density counts) -- dedupe to one row per
+  # year_month before computing percentiles, so each of the ~48 months
+  # contributes once instead of being weighted by however many manzanas
+  # happened to have data that month.
+  resid_months_lag0 <- resid_lag_data %>%
+    filter(lag == 0) %>%
+    distinct(year_month, .keep_all = TRUE)
+
+  resid_p10_p90 <- quantile(resid_months_lag0$residual,
+                             probs = c(0.10, 0.90), na.rm = TRUE)
+  resid_p05_p95 <- quantile(resid_months_lag0$residual, probs = c(0.05, 0.95), na.rm = TRUE)
+
   p_density <- ggplot(resid_lag_binned, aes(x = residual_mid, y = factor(lag), fill = N_months)) +
     geom_tile() +
+    geom_vline(xintercept = resid_p10_p90, color = "red", linetype = "dashed", linewidth = 1.4) +
+    geom_vline(xintercept = resid_p05_p95, color = "yellow", linetype = "dashed", linewidth = 1.4) +
     scale_fill_viridis_c(name = "N months", na.value = "grey80",
                           breaks = n_months_breaks, labels = n_months_breaks) +
     facet_wrap(~Season, ncol = 1) +
     theme_minimal() +
     labs(title = "Observation Density: Residual x Lag, by Season",
-         subtitle = "N = distinct months (not manzana-month rows); grey = zero months in that cell. \"Both seasons\" is the pooled density that actually backs the model's shared w_cb baseline surface.",
+         subtitle = "N = distinct months; grey = zero months in that cell. Red & yellow dashed lines: p10/p90 & p05/p95 of the residual.",
          x = "precip_max_day_resid_on_tp", y = "Lag (months)")
 
   print(p_density)
-  ggsave(file.path(output_dir, "all_env_residual_lag_density_by_season.png"), p_density, width = 10, height = 11, dpi = 300)
+  ggsave(file.path(output_dir, "all_env_residual_lag_density_by_season.png"), p_density, width = 12, height = 11, dpi = 300)
 } else {
   cat("Note: required variables not found in dataset")
 }
@@ -497,18 +512,32 @@ if ("is_rainy_season" %in% colnames(env_all) &&
 
   n_months_breaks_tp <- seq(min(tp_lag_binned$N_months, na.rm = TRUE), max(tp_lag_binned$N_months, na.rm = TRUE))
 
+  # total_precip is municipality-wide -- dedupe to one row per year_month
+  # before computing percentiles (same reasoning as precip_max_day_resid_on_tp
+  # above), so each of the ~48 months contributes once rather than being
+  # weighted by manzana count.
+  tp_months_lag0 <- tp_lag_data %>%
+    filter(lag == 0) %>%
+    distinct(year_month, .keep_all = TRUE)
+
+  tp_p10_p90 <- quantile(tp_months_lag0$tp, probs = c(0.10, 0.90), na.rm = TRUE)
+
+  tp_p05_p95 <- quantile(tp_months_lag0$tp, probs = c(0.05, 0.95), na.rm = TRUE)
+
   p_density_tp <- ggplot(tp_lag_binned, aes(x = tp_mid, y = factor(lag), fill = N_months)) +
     geom_tile() +
+    geom_vline(xintercept = tp_p10_p90, color = "red", linetype = "dashed", linewidth = 1.4) +
+    geom_vline(xintercept = tp_p05_p95, color = "yellow", linetype = "dashed", linewidth = 1.4) +
     scale_fill_viridis_c(name = "N months", na.value = "grey80",
                           breaks = n_months_breaks_tp, labels = n_months_breaks_tp) +
     facet_wrap(~Season, ncol = 1) +
     theme_minimal() +
     labs(title = "Observation Density: total_precip x Lag, by Season",
-         subtitle = "N = distinct months (not manzana-month rows); grey = zero months in that cell. \"Both seasons\" is the pooled density that actually backs the model's shared w_cb baseline surface.",
+         subtitle = "N = distinct months; grey = zero months in that cell. Red & yellow dashed lines: p10/p90 & p05/p95of total_precip.",
          x = "total_precip", y = "Lag (months)")
 
   print(p_density_tp)
-  ggsave(file.path(output_dir, "all_env_total_precip_lag_density_by_season.png"), p_density_tp, width = 10, height = 11, dpi = 300)
+  ggsave(file.path(output_dir, "all_env_total_precip_lag_density_by_season.png"), p_density_tp, width = 12, height = 11, dpi = 300)
 } else {
   cat("Note: required variables not found in dataset")
 }
@@ -557,13 +586,26 @@ if (all(c("manzana", "year_month", "avg_VPD") %in% colnames(env_all))) {
 
   n_months_breaks_vpd <- seq(min(vpd_lag_binned$N_months, na.rm = TRUE), max(vpd_lag_binned$N_months, na.rm = TRUE))
 
+  # avg_VPD is municipality-wide -- dedupe to one row per year_month before
+  # computing percentiles (same reasoning as the other two variables), so
+  # each of the ~48 months contributes once rather than being weighted by
+  # manzana count.
+  vpd_months_lag0 <- vpd_lag_data %>%
+    filter(lag == 0) %>%
+    distinct(year_month, .keep_all = TRUE)
+
+  vpd_p10_p90 <- quantile(vpd_months_lag0$vpd, probs = c(0.10, 0.90), na.rm = TRUE)
+  vpd_p05_p95 <- quantile(vpd_months_lag0$vpd, probs = c(0.05, 0.95), na.rm = TRUE)
+
   p_density_vpd <- ggplot(vpd_lag_binned, aes(x = vpd_mid, y = factor(lag), fill = N_months)) +
     geom_tile() +
+    geom_vline(xintercept = vpd_p10_p90, color = "red", linetype = "dashed", linewidth = 1.4) +
+    geom_vline(xintercept = vpd_p05_p95, color = "yellow", linetype = "dashed", linewidth = 1.4) +
     scale_fill_viridis_c(name = "N months", na.value = "grey80",
                           breaks = n_months_breaks_vpd, labels = n_months_breaks_vpd) +
     theme_minimal() +
     labs(title = "Observation Density: avg_VPD x Lag (pooled, all months)",
-         subtitle = "N = distinct months (not manzana-month rows); grey = zero months in that cell",
+         subtitle = "N = distinct months; grey = zero months in that cell. Red & yellow dashed lines: p10/p90 & p05/p95 of avg_VPD.",
          x = "avg_VPD", y = "Lag (months)")
 
   print(p_density_vpd)
@@ -573,7 +615,35 @@ if (all(c("manzana", "year_month", "avg_VPD") %in% colnames(env_all))) {
 }
 ```
 
+```{r extract p10 p05 and p90 p95 values for all three variables}
+# z-scored versions of the same cutoffs (quantile is equivariant under an
+# affine transform, so this is just (raw_cutoff - mean) / sd on each
+# variable's own lag==0 vector -- the same cutoffs the geom_vline()s above
+# draw on the raw-scale density plots, just re-expressed in standardized
+# units for comparison against the model's own standardized coefficients).
+# Reuse the deduped-to-unique-months vectors from the blocks above (each of
+# these three variables is municipality-wide, so mean/sd should also be
+# computed off the ~48 distinct months, not the manzana-repeated rows).
+vpd_vec   <- vpd_months_lag0$vpd
+tp_vec    <- tp_months_lag0$tp
+resid_vec <- resid_months_lag0$residual
 
+vpd_p10_p90_z   <- (vpd_p10_p90   - mean(vpd_vec,   na.rm = TRUE)) / sd(vpd_vec,   na.rm = TRUE)
+vpd_p05_p95_z   <- (vpd_p05_p95   - mean(vpd_vec,   na.rm = TRUE)) / sd(vpd_vec,   na.rm = TRUE)
+tp_p10_p90_z    <- (tp_p10_p90    - mean(tp_vec,    na.rm = TRUE)) / sd(tp_vec,    na.rm = TRUE)
+tp_p05_p95_z    <- (tp_p05_p95    - mean(tp_vec,    na.rm = TRUE)) / sd(tp_vec,    na.rm = TRUE)
+resid_p10_p90_z <- (resid_p10_p90 - mean(resid_vec, na.rm = TRUE)) / sd(resid_vec, na.rm = TRUE)
+resid_p05_p95_z <- (resid_p05_p95 - mean(resid_vec, na.rm = TRUE)) / sd(resid_vec, na.rm = TRUE)
+
+cat('VPD \n', 'p10 and p90: ', vpd_p10_p90, ' (z: ', vpd_p10_p90_z, ')\n',
+    'p05 and p95: ', vpd_p05_p95, ' (z: ', vpd_p05_p95_z, ')\n')
+
+cat('Total Precip \n', 'p10 and p90: ', tp_p10_p90, ' (z: ', tp_p10_p90_z, ')\n',
+    'p05 and p95: ', tp_p05_p95, ' (z: ', tp_p05_p95_z, ')\n')
+
+cat('Precip resid \n', 'p10 and p90: ', resid_p10_p90, ' (z: ', resid_p10_p90_z, ')\n',
+    'p05 and p95: ', resid_p05_p95, ' (z: ', resid_p05_p95_z, ')\n')
+```
 
 **Descriptive crosstab: season x residual sign.** Grounds the abstract DLNM coefficients in observed positivity rates before looking at any model output.
 
