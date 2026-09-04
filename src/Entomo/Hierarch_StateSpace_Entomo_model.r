@@ -128,16 +128,16 @@ cfg <- list(
     # Boundary.knots below are in the model's standardized (z-score) units, computed from this exact CMF-level data_file's mean/sd (matches what build_dlnm_stan_data() standardizes against) -- see  Descriptive statistics for the derivation.
     # total_precip: one-sided -- lower bound left at the true data min
     # (-1.1024, i.e. unconstrained there, since the low tail is well-supported per the density plots), only the upper tail (p90) is pulled in from the true max (4.40) to 0.9946.
-    # total_precip                = list(fun = "ns", df = 3, Boundary.knots = c(-0.8810764, 1.086433)), # old -1.1024, 0.9946
-    # avg_VPD                     = list(fun = "ns", df = 2, Boundary.knots = c(-1.318877, 1.234611)), # old: -1.3004, 1.4406
-    # # precip_max_day_resid_on_tp: two-sided p10/p90 (both tails are sparse).
-    # precip_max_day_resid_on_tp  = list(fun = "ns", df = 3, Boundary.knots = c(-0.8650633, 1.710198)) # old: -0.8720, 1.5924
-
-    # using p05 and p95
-    total_precip                = list(fun = "ns", df = 3, Boundary.knots = c(1.011372, 1.548682)), 
-    avg_VPD                     = list(fun = "ns", df = 2, Boundary.knots = c( -1.783512, 1.628553)), 
+    total_precip                = list(fun = "ns", df = 3, Boundary.knots = c(-0.8810764, 1.086433)), # old -1.1024, 0.9946
+    avg_VPD                     = list(fun = "ns", df = 2, Boundary.knots = c(-1.318877, 1.234611)), # old: -1.3004, 1.4406
     # precip_max_day_resid_on_tp: two-sided p10/p90 (both tails are sparse).
-    precip_max_day_resid_on_tp  = list(fun = "ns", df = 3, Boundary.knots = c(-1.201732, 1.98497 )) 
+    precip_max_day_resid_on_tp  = list(fun = "ns", df = 3, Boundary.knots = c(-0.8650633, 1.710198)) # old: -0.8720, 1.5924
+
+    # # using p05 and p95
+    # total_precip                = list(fun = "ns", df = 3, Boundary.knots = c(1.011372, 1.548682)), 
+    # avg_VPD                     = list(fun = "ns", df = 2, Boundary.knots = c( -1.783512, 1.628553)), 
+    # # precip_max_day_resid_on_tp: two-sided p10/p90 (both tails are sparse).
+    # precip_max_day_resid_on_tp  = list(fun = "ns", df = 3, Boundary.knots = c(-1.201732, 1.98497 )) 
     # total_precip                = list(fun = "ns", df = 3),
     # avg_VPD                     = list(fun = "ns", df = 2),
     # precip_max_day_resid_on_tp  = list(fun = "ns", df = 3)
@@ -278,7 +278,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "_VPD_3df_RESID_2df_TP_3df_lag_3df_p05_p95_BoundaryKnots")
+run_suffix <- paste0(date_suffix, "_VPD_3df_RESID_2df_TP_3df_lag_3df_p10_p90_BoundaryKnots")
 if (exists(".hierarch_run_suffix")) run_suffix <- .hierarch_run_suffix
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
