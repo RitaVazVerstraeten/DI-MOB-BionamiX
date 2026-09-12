@@ -190,7 +190,7 @@ cat(sprintf("ARGVAR_LOMO_VARIANT=%s -- fitting %d of the 18 configs on this host
 # so per-config results stay directly comparable. Resolved to actual month
 # labels below, right after the first config's prep is built.
 # =============================================================================
-n_held_out_months <- 12
+n_held_out_months <- all_months
 
 options(mc.cores = if (is_compute_node) 6 else 2)
 
