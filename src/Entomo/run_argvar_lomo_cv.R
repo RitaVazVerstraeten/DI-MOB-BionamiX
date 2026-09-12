@@ -186,11 +186,11 @@ configs <- if (run_variant %in% c("base", "boundary")) {
 cat(sprintf("ARGVAR_LOMO_VARIANT=%s -- fitting %d of the 18 configs on this host (aggregation below always checks all 18).\n", run_variant, length(configs)))
 
 # =============================================================================
-# Which months to hold out -- SAME 12-month subset applied to every config,
-# so per-config results stay directly comparable. Resolved to actual month
-# labels below, right after the first config's prep is built.
+# Which months to hold out -- EVERY available month (genuine full LOMO, no
+# subsampling), applied identically to every config so per-config results
+# stay directly comparable. Resolved to actual month labels below, right
+# after the first config's prep is built.
 # =============================================================================
-n_held_out_months <- all_months
 
 options(mc.cores = if (is_compute_node) 6 else 2)
 
@@ -380,24 +380,12 @@ for (i in seq_along(configs)) {
   stopifnot(nrow(df) == stan_data$N)
 
   # Resolve the shared held-out month set once, from the first config --
-  # every config has the same 48 response months, so this is config-invariant.
+  # every config has the same response months, so this is config-invariant.
+  # Full LOMO: every available month gets its own fold, no subsampling.
   if (is.null(held_out_months)) {
-    all_months <- sort(unique(df$year_month))
-
-    # Excluding the 2026-08-28 LOMO run's 12 held-out months from the pool
-    # before spacing -- this run's 12 are then a genuinely different,
-    # non-overlapping set (not just the same even-spacing formula
-    # reproducing the identical picks), a check on whether that run's
-    # none-vs-interaction ranking holds up under a different held-out
-    # partition. Same deterministic, no-RNG even-spacing logic as before,
-    # just applied to the remaining 36 months.
-    previously_held_out <- c("2016_01", "2016_05", "2016_10", "2017_02", "2017_06", "2017_10","2018_03", "2018_07", "2018_11", "2019_03", "2019_08", "2019_12")
-    remaining_months <- setdiff(all_months, previously_held_out)
-    stopifnot(length(remaining_months) == length(all_months) - length(previously_held_out))
-
-    held_out_months <- remaining_months[round(seq(1, length(remaining_months), length.out = n_held_out_months))]
-    cat(sprintf("Held-out months (shared across all %d configs, disjoint from the 2026-08-28 run): %s\n",
-                length(configs), paste(held_out_months, collapse = ", ")))
+    held_out_months <- sort(unique(df$year_month))
+    cat(sprintf("Held-out months (shared across all %d configs, %d months -- full LOMO, no subsampling): %s\n",
+                length(configs), length(held_out_months), paste(held_out_months, collapse = ", ")))
   }
 
   mod <- cmdstan_model(cfg$stan_file, force_recompile = FALSE)
