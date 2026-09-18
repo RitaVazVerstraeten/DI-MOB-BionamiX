@@ -903,6 +903,346 @@ save_u_block_plot <- function(fit, output_dir, run_suffix) {
   cat("u_block plot saved.\n")
 }
 
+#' Coord_sf Cropped to a Fixed Zoom Extent (Default) or the CMF Bounding Box
+#'
+#' Shared zoom helper for the risk maps below: crops the map extent tightly
+#' to a specific area of interest, so individual CMF shapes/tiers are
+#' legible. Defaults to the fixed extent picked for these maps
+#' (xmin/xmax/ymin/ymax in EPSG:3795, which happens to already match the CMF
+#' shapefile's own CRS). Pass bbox = NULL to fall back to auto-cropping to
+#' the full CMF bounding box (with padding) instead.
+#'
+#' @param sf_blocks sf object with CMF polygons
+#' @param pad_frac Fraction of the bounding box range to pad on each side
+#'   (only used when bbox = NULL)
+#' @param bbox Numeric vector c(xmin, xmax, ymin, ymax) giving the zoom
+#'   extent, in bbox_crs. Set to NULL to auto-crop to sf_blocks' extent instead.
+#' @param bbox_crs CRS of bbox (EPSG code or proj string); reprojected to
+#'   sf_blocks' CRS internally, so this can differ from sf_blocks' own CRS.
+#' @return A ggplot2 coord_sf() layer to add to an existing map
+zoomed_cmf_coord_sf <- function(sf_blocks, pad_frac = 0.08,
+                                 bbox = c(554410.3207, 561092.3533, 254279.8825, 260938.2200),
+                                 bbox_crs = 3795) {
+  if (!is.null(bbox)) {
+    zoom_poly <- sf::st_polygon(list(rbind(
+      c(bbox[1], bbox[3]), c(bbox[2], bbox[3]),
+      c(bbox[2], bbox[4]), c(bbox[1], bbox[4]),
+      c(bbox[1], bbox[3])
+    )))
+    zoom_sfc <- sf::st_sfc(zoom_poly, crs = bbox_crs)
+    zoom_sfc <- sf::st_transform(zoom_sfc, sf::st_crs(sf_blocks))
+    bb <- sf::st_bbox(zoom_sfc)
+  } else {
+    bb <- sf::st_bbox(sf_blocks)
+    pad_x <- pad_frac * (bb["xmax"] - bb["xmin"])
+    pad_y <- pad_frac * (bb["ymax"] - bb["ymin"])
+    bb["xmin"] <- bb["xmin"] - pad_x; bb["xmax"] <- bb["xmax"] + pad_x
+    bb["ymin"] <- bb["ymin"] - pad_y; bb["ymax"] <- bb["ymax"] + pad_y
+  }
+  coord_sf(xlim = c(bb["xmin"], bb["xmax"]), ylim = c(bb["ymin"], bb["ymax"]), expand = FALSE)
+}
+
+#' Save Headline Infestation Risk Choropleth
+#'
+#' Model-estimated infestation risk per CMF (posterior mean of fitted_p_bt),
+#' averaged across all years present in the data, discretized into risk
+#' tiers for at-a-glance reading. Answers "where is the risk highest,
+#' according to the model."
+#'
+#' @param df Data frame with columns fitted_p_bt and cfg$block_col
+#' @param sf_blocks sf object with CMF polygons (raw shapefile, any CRS)
+#' @param cfg Model configuration list (needs block_col, sf_block_col)
+#' @param output_dir Character string path to output directory
+#' @param run_suffix Character string suffix for filenames
+#' @param tier_breaks Numeric vector of tier cutoffs on the probability scale
+#'   (0-1), e.g. c(0, 0.05, 0.15, 0.30, 1) for <5%/5-15%/15-30%/>30%. Set to
+#'   NULL to use quintiles of the data instead, or leave as "auto" (default)
+#'   to auto-generate fixed-width brackets of size tier_step, stopping as
+#'   soon as they cover the data's max value -- the last bracket becomes an
+#'   open-ended "X%+" rather than continuing with empty higher brackets.
+#' @param tier_step Bracket width on the probability scale (0-1) used when
+#'   tier_breaks = "auto", e.g. 0.0025 for 0.25pp-wide brackets.
+#' @param palette One of "dlnm" (same diverging blue-to-red ramp used for the
+#'   DLNM exposure-response plots, read here low-to-high risk) or "viridis"
+#' @param municipality Optional sf object with the municipality boundary,
+#'   drawn as a black outline on top of the choropleth. NULL to omit.
+#' @return NULL (saves two PNGs: the full-extent map and a "_zoomed" version
+#'   cropped to the CMF bounding box)
+save_infestation_risk_map <- function(df, sf_blocks, cfg, output_dir, run_suffix,
+                                       tier_breaks = "auto",
+                                       tier_step = 0.0025,
+                                       palette = c("dlnm", "viridis"),
+                                       municipality = NULL) {
+  palette <- match.arg(palette)
+
+  risk_by_cmf <- df %>%
+    dplyr::group_by(.data[[cfg$block_col]]) %>%
+    dplyr::summarise(risk = mean(fitted_p_bt, na.rm = TRUE), .groups = "drop")
+  names(risk_by_cmf)[1] <- "block_chr"
+  risk_by_cmf$block_chr <- as.character(risk_by_cmf$block_chr)
+
+  cat("Per-CMF risk (mean fitted_p_bt across all years) summary:\n")
+  print(summary(risk_by_cmf$risk))
+
+  if (identical(tier_breaks, "auto")) {
+    max_val   <- max(risk_by_cmf$risk, na.rm = TRUE)
+    last_edge <- ceiling(max_val / tier_step) * tier_step
+    tier_breaks <- c(seq(0, last_edge, by = tier_step), 1)
+    cat("Auto tier breaks (last populated edge ", last_edge * 100, "%): ",
+        paste(round(tier_breaks * 100, 4), collapse = ", "), "\n", sep = "")
+  }
+
+  if (!is.null(tier_breaks)) {
+    tier_labels <- vapply(seq_len(length(tier_breaks) - 1), function(i) {
+      lo <- tier_breaks[i] * 100; hi <- tier_breaks[i + 1] * 100
+      if (i == length(tier_breaks) - 1) sprintf(">%g%%", lo) else sprintf("%g–%g%%", lo, hi)
+    }, character(1))
+    risk_by_cmf$tier <- cut(risk_by_cmf$risk, breaks = tier_breaks, labels = tier_labels, include.lowest = TRUE)
+  } else {
+    q <- quantile(risk_by_cmf$risk, probs = seq(0, 1, 0.2), na.rm = TRUE)
+    risk_by_cmf$tier <- cut(risk_by_cmf$risk, breaks = unique(q), include.lowest = TRUE)
+  }
+
+  map_df <- sf_blocks %>%
+    dplyr::mutate(block_chr = as.character(.data[[cfg$sf_block_col]])) %>%
+    dplyr::left_join(risk_by_cmf, by = "block_chr")
+
+  n_tiers <- nlevels(map_df$tier)
+
+  p <- ggplot(map_df) +
+    geom_sf(aes(fill = tier), colour = "grey40", linewidth = 0.1) +
+    labs(title = "Model-estimated larval infestation risk by CMF (all-years average)") +
+    theme_void() +
+    theme(legend.position = "right", plot.title = element_text(size = 12, face = "bold"))
+
+  p <- if (palette == "dlnm") {
+    tier_colors <- colorRampPalette(dlnm_diverging_pal)(n_tiers)
+    p + scale_fill_manual(values = tier_colors, name = NULL, na.value = "grey85", drop = FALSE)
+  } else {
+    p + scale_fill_viridis_d(na.value = "grey85", drop = FALSE)
+  }
+
+  if (!is.null(municipality)) {
+    p <- p + geom_sf(data = municipality, fill = NA, colour = "black", linewidth = 0.6)
+  }
+
+  ggsave(file.path(output_dir, paste0("infestation_risk_map_", run_suffix, ".png")), p, width = 8, height = 7, dpi = 200)
+
+  p_zoom <- p + zoomed_cmf_coord_sf(sf_blocks)
+  ggsave(file.path(output_dir, paste0("infestation_risk_map_", run_suffix, "_zoomed.png")), p_zoom, width = 8, height = 7, dpi = 200)
+
+  cat("Infestation risk map (full + zoomed) saved.\n")
+}
+
+#' Save Time-Varying Infestation Risk GIF
+#'
+#' Animates model-estimated infestation risk (fitted_p_bt) per CMF across
+#' every month present in the data, cropped to the same zoomed extent as
+#' save_infestation_risk_map(). Uses one shared color scale across every
+#' frame (computed once, over all months) rather than auto-rescaling per
+#' frame, so the animation stays visually comparable month-to-month.
+#'
+#' IMPORTANT if embedding in a LaTeX/Beamer deck: a .gif referenced via
+#' \\includegraphics in a standard pdflatex/lualatex-compiled PDF will NOT
+#' animate -- PDF is a static format, and most PDF viewers render only the
+#' GIF's first frame. This function produces a stand-alone .gif meant to be
+#' played separately (browser or image viewer) during a live talk, not
+#' embedded directly into the compiled PDF. If you need it to play inside
+#' the PDF itself, look at the LaTeX `animate` package's
+#' \\animategraphics (Acrobat-Reader-only in practice) or build the frames
+#' this function writes to <run_suffix>_gif_frames/ into a sequence of
+#' regular Beamer slides instead (works in any PDF viewer, but steps
+#' frame-by-frame rather than looping smoothly).
+#'
+#' @param df Data frame with columns fitted_p_bt, year_month (or
+#'   year_month_date), and cfg$block_col
+#' @param sf_blocks sf object with CMF polygons
+#' @param cfg Model configuration list (needs block_col, sf_block_col)
+#' @param output_dir Character string path to output directory
+#' @param run_suffix Character string suffix for filenames
+#' @param tier_step Bracket width on the probability scale (0-1); same
+#'   semantics as save_infestation_risk_map()'s tier_step, but computed once
+#'   across all months here rather than per-frame
+#' @param palette One of "dlnm" or "viridis"
+#' @param municipality Optional sf object with the municipality boundary
+#' @param zoom_bbox,zoom_bbox_crs Passed through to zoomed_cmf_coord_sf();
+#'   default to the same fixed extent used for the other risk maps
+#' @param fps Frames per second for the output GIF
+#' @param frame_width,frame_height,frame_dpi Passed to ggsave() for each frame
+#' @return NULL (saves a .gif to output_dir, and leaves the per-frame PNGs in
+#'   an "<run_suffix>_gif_frames" subfolder of output_dir for inspection/reuse)
+save_infestation_risk_gif <- function(df, sf_blocks, cfg, output_dir, run_suffix,
+                                       tier_step = 0.0025,
+                                       palette = c("dlnm", "viridis"),
+                                       municipality = NULL,
+                                       zoom_bbox = c(554410.3207, 561092.3533, 254279.8825, 260938.2200),
+                                       zoom_bbox_crs = 3795,
+                                       fps = 2,
+                                       frame_width = 8, frame_height = 7, frame_dpi = 150) {
+  if (!requireNamespace("gifski", quietly = TRUE)) {
+    cat("Package 'gifski' not installed; skipping infestation risk GIF.",
+        "Install with install.packages('gifski') -- unlike 'magick', this needs",
+        "no system ImageMagick library, so no sudo/root is required.\n")
+    return(invisible(NULL))
+  }
+  palette <- match.arg(palette)
+
+  if (!"year_month_date" %in% names(df)) {
+    df$year_month_date <- as.Date(paste0(gsub("_", "-", as.character(df$year_month)), "-01"))
+  }
+  months <- sort(unique(df$year_month_date))
+  cat("Building infestation risk GIF over", length(months), "months...\n")
+
+  # Shared tier breaks across ALL months (not just one month, not the
+  # all-years average) so every frame uses the identical color scale.
+  max_val     <- max(df$fitted_p_bt, na.rm = TRUE)
+  last_edge   <- ceiling(max_val / tier_step) * tier_step
+  tier_breaks <- c(seq(0, last_edge, by = tier_step), 1)
+  tier_labels <- vapply(seq_len(length(tier_breaks) - 1), function(i) {
+    lo <- tier_breaks[i] * 100; hi <- tier_breaks[i + 1] * 100
+    if (i == length(tier_breaks) - 1) sprintf(">%g%%", lo) else sprintf("%g–%g%%", lo, hi)
+  }, character(1))
+  n_tiers     <- length(tier_labels)
+  tier_colors <- if (palette == "dlnm") colorRampPalette(dlnm_diverging_pal)(n_tiers) else NULL
+
+  frame_dir <- file.path(output_dir, paste0(run_suffix, "_gif_frames"))
+  dir.create(frame_dir, recursive = TRUE, showWarnings = FALSE)
+
+  frame_files <- character(length(months))
+  for (i in seq_along(months)) {
+    df_m <- df[df$year_month_date == months[i], ]
+
+    risk_by_cmf <- df_m %>%
+      dplyr::group_by(.data[[cfg$block_col]]) %>%
+      dplyr::summarise(risk = mean(fitted_p_bt, na.rm = TRUE), .groups = "drop")
+    names(risk_by_cmf)[1] <- "block_chr"
+    risk_by_cmf$block_chr <- as.character(risk_by_cmf$block_chr)
+    risk_by_cmf$tier <- cut(risk_by_cmf$risk, breaks = tier_breaks, labels = tier_labels, include.lowest = TRUE)
+
+    map_df <- sf_blocks %>%
+      dplyr::mutate(block_chr = as.character(.data[[cfg$sf_block_col]])) %>%
+      dplyr::left_join(risk_by_cmf, by = "block_chr")
+
+    p <- ggplot(map_df) +
+      geom_sf(aes(fill = tier), colour = "grey40", linewidth = 0.1) +
+      labs(title = "Model-estimated larval infestation risk by CMF",
+           subtitle = format(months[i], "%Y-%m")) +  # %Y-%m, not %B, to avoid rendering the month name in the system's locale (e.g. "januari" instead of "January")
+      theme_void() +
+      theme(legend.position = "right", plot.title = element_text(size = 12, face = "bold"))
+
+    p <- if (palette == "dlnm") {
+      p + scale_fill_manual(values = tier_colors, name = "Estimated infestation\nprobability", na.value = "grey85", drop = FALSE)
+    } else {
+      p + scale_fill_viridis_d(name = "Estimated infestation\nprobability", na.value = "grey85", drop = FALSE)
+    }
+
+    if (!is.null(municipality)) {
+      p <- p + geom_sf(data = municipality, fill = NA, colour = "black", linewidth = 0.6)
+    }
+    p <- p + zoomed_cmf_coord_sf(sf_blocks, bbox = zoom_bbox, bbox_crs = zoom_bbox_crs)
+
+    frame_file <- file.path(frame_dir, sprintf("frame_%03d.png", i))
+    ggsave(frame_file, p, width = frame_width, height = frame_height, dpi = frame_dpi)
+    frame_files[i] <- frame_file
+  }
+
+  gif_path <- file.path(output_dir, paste0("infestation_risk_", run_suffix, ".gif"))
+  gifski::gifski(frame_files, gif_file = gif_path,
+                 width = frame_width * frame_dpi, height = frame_height * frame_dpi,
+                 delay = 1 / fps)
+
+  cat("Infestation risk GIF saved to ", gif_path, "\n", sep = "")
+  cat("NOTE: this .gif will NOT animate if embedded via \\includegraphics in a ",
+      "compiled LaTeX/Beamer PDF -- play it separately during the live talk, or see ",
+      "the function's docstring for PDF-embeddable alternatives.\n", sep = "")
+}
+
+#' Save Structural Risk Map
+#'
+#' Structural/baseline risk per CMF: plogis(alpha + u_block + unlagged
+#' covariate effects), the persistent, slow-moving part of the model
+#' (independent of any given month's weather or AR(1) state). Unlagged
+#' covariate effects (e.g. HFP_urbanization, mean_ndvi, is_WUI,
+#' water_containers) are included using each CMF's time-averaged value of
+#' the same standardized X_unlagged matrix Stan was actually fit on, so the
+#' scale matches w_unlagged exactly (no re-standardizing here). Answers
+#' "which CMFs are chronically bad and need standing/permanent
+#' larval-source management."
+#'
+#' @param fit CmdStan fit object (needs alpha, u_block_out, w_unlagged)
+#' @param prep Return value of build_dlnm_stan_data()/build_stan_data() --
+#'   needs prep$stan_data$X_unlagged, prep$stan_data$block, prep$unlagged_vars
+#' @param sf_blocks sf object with CMF polygons
+#' @param block_ids Character vector of block IDs, ordered to match the Stan
+#'   block index 1..B (same ordering already used upstream for coords_sf/icar_edges)
+#' @param cfg Model configuration list (needs sf_block_col)
+#' @param output_dir Character string path to output directory
+#' @param run_suffix Character string suffix for filenames
+#' @param municipality Optional sf object with the municipality boundary,
+#'   drawn as a black outline on top of the choropleth. NULL to omit.
+#' @return NULL (saves two PNGs: the full-extent map and a "_zoomed" version
+#'   cropped to the CMF bounding box)
+save_structural_risk_map <- function(fit, prep, sf_blocks, block_ids, cfg,
+                                      output_dir, run_suffix, municipality = NULL) {
+  draws_u <- tryCatch(fit$draws("u_block_out", format = "matrix"), error = function(e) NULL)
+  if (is.null(draws_u)) {
+    cat("u_block_out not found in fit; skipping structural risk map.\n")
+    return(invisible(NULL))
+  }
+  alpha_mean <- mean(fit$draws("alpha", format = "matrix"))
+  u_mean     <- colMeans(draws_u)
+
+  # Per-CMF unlagged covariate contribution: each CMF's time-averaged value
+  # of the standardized X_unlagged matrix (same scale w_unlagged was fit on),
+  # dotted with the posterior-mean coefficients.
+  unlagged_term <- rep(0, length(u_mean))
+  draws_wu <- tryCatch(fit$draws("w_unlagged", format = "matrix"), error = function(e) NULL)
+  if (!is.null(draws_wu) && !is.null(prep$stan_data$X_unlagged)) {
+    w_unlagged_mean  <- colMeans(draws_wu)
+    X_unlagged_by_cmf <- apply(prep$stan_data$X_unlagged, 2, function(col) {
+      tapply(col, prep$stan_data$block, mean, na.rm = TRUE)
+    })
+    # tapply's block ordering matches sort(unique(block)) == 1..B already
+    unlagged_term <- as.numeric(X_unlagged_by_cmf %*% w_unlagged_mean)
+    cat("Unlagged covariate effects (", paste(prep$unlagged_vars, collapse = ", "),
+        ") included in structural risk.\n", sep = "")
+  } else {
+    cat("w_unlagged/X_unlagged not found; structural risk falls back to alpha + u_block only.\n")
+  }
+
+  structural_df <- data.frame(
+    block_chr  = as.character(block_ids),
+    structural = plogis(alpha_mean + u_mean + unlagged_term)
+  )
+  cat("Structural risk summary:\n")
+  print(summary(structural_df$structural))
+
+  map_df <- sf_blocks %>%
+    dplyr::mutate(block_chr = as.character(.data[[cfg$sf_block_col]])) %>%
+    dplyr::left_join(structural_df, by = "block_chr")
+
+  p <- ggplot(map_df) +
+    geom_sf(aes(fill = structural), colour = "grey40", linewidth = 0.1) +
+    scale_fill_gradientn(colours = dlnm_diverging_pal, name = "Risk",
+                         labels = scales::percent, na.value = "grey85") +
+    labs(title = "Structural / baseline risk",
+         subtitle = "alpha + u_block + unlagged covariates") +
+    theme_void() + theme(plot.title = element_text(face = "bold"))
+
+  if (!is.null(municipality)) {
+    p <- p + geom_sf(data = municipality, fill = NA, colour = "black", linewidth = 0.6)
+  }
+
+  ggsave(file.path(output_dir, paste0("structural_risk_map_", run_suffix, ".png")),
+         p, width = 8, height = 7, dpi = 200)
+
+  p_zoom <- p + zoomed_cmf_coord_sf(sf_blocks)
+  ggsave(file.path(output_dir, paste0("structural_risk_map_", run_suffix, "_zoomed.png")),
+         p_zoom, width = 8, height = 7, dpi = 200)
+
+  cat("Structural risk map (full + zoomed) saved.\n")
+}
+
 #' Save Spatial RE vs. AR Term Correlation Checks
 #'
 #' Two mechanistic checks on the "clean" model estimates themselves (not residuals):
@@ -1494,8 +1834,8 @@ save_unlagged_effects_plot <- function(fit, prep, output_dir, run_suffix,
     ggplot2::geom_point(size = 2.5, colour = "steelblue4") +
     x_scale +
     ggplot2::labs(
-      title    = "Unlagged variable effects",
-      subtitle = subtitle,
+      # title    = "Unlagged variable effects",
+      # subtitle = subtitle,
       x        = x_label,
       y        = NULL
     ) +
