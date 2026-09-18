@@ -1243,6 +1243,104 @@ save_structural_risk_map <- function(fit, prep, sf_blocks, block_ids, cfg,
   cat("Structural risk map (full + zoomed) saved.\n")
 }
 
+#' Save Observed-vs-Fitted Agreement Map (per CMF)
+#'
+#' For each CMF, correlates its own time series of observed and fitted
+#' infestation probability (Spearman by default), then maps that agreement
+#' statistic across CMFs. This is a different question from
+#' save_infestation_risk_map()'s risk level or save_structural_risk_map()'s
+#' baseline risk: a CMF can have a well-calibrated average level while the
+#' model still gets the month-to-month *timing* of its ups and downs wrong,
+#' and vice versa -- this map is about that timing agreement.
+#'
+#' @param df Data frame with columns cfg$block_col, observed_p_bt, fitted_p_bt
+#'   (one row per block/month)
+#' @param sf_blocks sf object with CMF polygons (raw shapefile, any CRS)
+#' @param cfg Model configuration list (needs block_col, sf_block_col)
+#' @param output_dir Character string path to output directory
+#' @param run_suffix Character string suffix for filenames
+#' @param method Correlation method passed to cor(): "spearman" (default,
+#'   robust to the model's zero-inflated probability scale) or "pearson"
+#' @param min_months Minimum number of complete-case months required for a
+#'   CMF's correlation to be computed; CMFs with fewer are set to NA (plotted
+#'   as "grey85" missing) rather than showing a correlation estimated from a
+#'   handful of points -- relevant here given how uneven surveillance
+#'   coverage is across CMFs (see the spatial-coverage problem this model was
+#'   built to address)
+#' @param municipality Optional sf object with the municipality boundary,
+#'   drawn as a black outline on top of the choropleth. NULL to omit.
+#' @return Invisibly, the per-CMF agreement data frame (block_chr, rho,
+#'   n_months). Also saves two PNGs: the full-extent map and a "_zoomed"
+#'   version cropped to the CMF bounding box.
+save_observed_predicted_agreement_map <- function(df, sf_blocks, cfg, output_dir, run_suffix, method = c("spearman", "pearson"),min_months = 6, municipality = NULL) {
+  method <- match.arg(method)
+
+  cmf_fit <- df %>%
+    dplyr::group_by(.data[[cfg$block_col]]) %>%
+    dplyr::summarise(
+      rho      = suppressWarnings(cor(observed_p_bt, fitted_p_bt, method = method, use = "complete.obs")),
+      n_months = sum(complete.cases(observed_p_bt, fitted_p_bt)),
+      .groups  = "drop"
+    ) %>%
+    dplyr::mutate(rho = ifelse(n_months >= min_months, rho, NA_real_))
+  names(cmf_fit)[1] <- "block_chr"
+  cmf_fit$block_chr <- as.character(cmf_fit$block_chr)
+
+  cat(sprintf("Per-CMF observed-vs-fitted %s correlation summary (n_months >= %d):\n", method, min_months))
+  print(summary(cmf_fit$rho))
+
+  map_df <- sf_blocks %>%
+    dplyr::mutate(block_chr = as.character(.data[[cfg$sf_block_col]])) %>%
+    dplyr::left_join(cmf_fit, by = "block_chr")
+
+  n_cmf <- sum(!is.na(map_df$rho))
+  rho_range <- range(map_df$rho, finite = TRUE, na.rm = TRUE)
+  if (all(is.finite(rho_range))) {
+    legend_midpoint <- if (rho_range[1] < 0 && rho_range[2] > 0) 0 else mean(rho_range)
+  } else {
+    legend_midpoint <- 0
+    rho_range <- c(-1, 1)
+  }
+
+  p <- ggplot(map_df) +
+    geom_sf(aes(fill = rho), colour = "white", linewidth = 0.15) +
+    scale_fill_gradient2(
+      name     = paste0(tools::toTitleCase(method), "\nρ"),
+      midpoint = legend_midpoint,
+      limits   = rho_range,
+      na.value = "grey85"
+    ) +
+    labs(
+      title    = "Does the model reproduce infestation timing at the CMF level?",
+      subtitle = sprintf("Observed vs fitted infestation across %d CMFs (%s ρ, time-averaged)",
+                          n_cmf, method)
+    ) +
+    theme_void() +
+    theme(
+      plot.title      = element_text(face = "bold", size = 16),
+      plot.subtitle   = element_text(size = 11),
+      legend.position = "right",
+      legend.title    = element_text(size = 13),
+      legend.text     = element_text(size = 11),
+      legend.key.height = unit(1.2, "lines"),
+      legend.key.width  = unit(1.2, "lines")
+    )
+
+  if (!is.null(municipality)) {
+    p <- p + geom_sf(data = municipality, fill = NA, colour = "black", linewidth = 0.6)
+  }
+
+  ggsave(file.path(output_dir, paste0("cmf_observed_fitted_agreement_", run_suffix, ".png")),
+         p, width = 8, height = 7, dpi = 200)
+
+  p_zoom <- p + zoomed_cmf_coord_sf(sf_blocks)
+  ggsave(file.path(output_dir, paste0("cmf_observed_fitted_agreement_", run_suffix, "_zoomed.png")),
+         p_zoom, width = 8, height = 7, dpi = 200)
+
+  cat("Observed-vs-fitted agreement map (full + zoomed) saved.\n")
+  invisible(cmf_fit)
+}
+
 #' Save Spatial RE vs. AR Term Correlation Checks
 #'
 #' Two mechanistic checks on the "clean" model estimates themselves (not residuals):
@@ -1585,16 +1683,16 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
           geom_bar(aes(y = total_cases * c_scale), stat = "identity",
                    fill = "grey70", alpha = 0.5) +
           geom_ribbon(aes(ymin = p_lower, ymax = p_upper), fill = "blue", alpha = 0.18) +
-          geom_line(aes(y = p_mean,        color = "Fitted p_bt"),   linewidth = 1) +
-          geom_point(aes(y = p_mean,       color = "Fitted p_bt"),   size = 2) +
-          geom_line(aes(y = observed_mean, color = "Observed y/n"),  linewidth = 1) +
-          geom_point(aes(y = observed_mean, color = "Observed y/n"), size = 2)
+          geom_line(aes(y = p_mean, color = "Fitted Probability for larval breeding"),   linewidth = 1) +
+          geom_point(aes(y = p_mean,  color = "Fitted Probability for larval breeding"),   size = 2) +
+          geom_line(aes(y = observed_mean, color = "Observed HI"),  linewidth = 1) +
+          geom_point(aes(y = observed_mean, color = "Observed HI"), size = 2)
 
         if (!is.null(pred_summ))
           p1 <- p1 +
             geom_ribbon(aes(ymin = pred_lower, ymax = pred_upper), fill = "#E69F00", alpha = 0.2) +
-            geom_line(aes(y = pred_mean,  color = "Predicted y_pred/n"), linewidth = 1, linetype = "dashed") +
-            geom_point(aes(y = pred_mean, color = "Predicted y_pred/n"), size = 2)
+            geom_line(aes(y = pred_mean,  color = "Predicted HI"), linewidth = 1, linetype = "dashed") +
+            geom_point(aes(y = pred_mean, color = "Predicted HI"), size = 2)
 
         p1 <- p1 +
           scale_y_continuous(
@@ -1602,15 +1700,14 @@ save_timeseries_plots <- function(df, output_dir, run_suffix, n_blocks_facet = 9
             sec.axis = sec_axis(~ . / c_scale, name = "Total dengue cases (municipality)")
           ) +
           scale_color_manual(
-            values = c("Fitted p_bt"       = "blue",
-                       "Observed y/n"       = "red",
-                       "Predicted y_pred/n" = "#E69F00"),
-            breaks = c("Observed y/n", "Predicted y_pred/n", "Fitted p_bt")
+            values = c("Fitted Probability for larval breeding"= "blue",
+                       "Observed HI"       = "red",
+                       "Predicted HI" = "#E69F00"),
+            breaks = c("Observed HI", "Predicted HI", "Fitted Probability for larval breeding")
           ) +
           labs(x = "Time",
-               title = "Time Series: observed rate, predicted rate, and fitted p_bt (mean across blocks)",
                color = NULL,
-               caption = "Shaded ribbons: 95% CI for p_bt (blue) and y_pred/n_bt (orange). Grey bars: total dengue cases.") +
+               caption = "Shaded ribbons: 95% CI. Grey bars: total dengue cases.") +
           theme_minimal() +
           theme(legend.position = "bottom")
       }
@@ -1844,7 +1941,7 @@ save_unlagged_effects_plot <- function(fit, prep, output_dir, run_suffix,
 
   out_file <- file.path(output_dir, paste0("unlagged_effects_", file_tag, ".png"))
   ggplot2::ggsave(out_file, p, width = 8,
-                  height = max(3, 0.4 * nrow(df_plot) + 1.5), dpi = 150)
+                  height = max(3, 0.2 * nrow(df_plot) + 1.5), dpi = 150)
   cat("Unlagged effects plot (", scale, ") saved to:", out_file, "\n")
   invisible(p)
 }

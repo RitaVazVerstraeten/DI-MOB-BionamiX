@@ -1076,6 +1076,17 @@ if (cfg$plot_timeseries) {
 
 cat("\nAll outputs saved to:", run_output_dir, "\n")
 
+save_observed_predicted_agreement_map(
+  df = df,
+  sf_blocks = sf_blocks,
+  cfg = cfg,
+  output_dir = plots_output_dir,
+  run_suffix = model_spec,
+  method = "spearman",
+  min_months = 6,
+  municipality = municipality
+)
+
 # =========================
 # 4) MORAN'S I ON STAN POSTERIOR RESIDUALS
 # =========================
