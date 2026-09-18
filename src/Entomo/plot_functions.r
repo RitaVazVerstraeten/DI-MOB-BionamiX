@@ -2343,7 +2343,7 @@ save_dlnm_response_plots <- function(fit, prep, output_dir, run_suffix) {
 #'   the odds-ratio scale (via exp_crosspred()); significant = CI excludes 1.
 #'   Also written to <output_dir>/dlnm_lagresponse_critical_windows_<run_suffix>.csv
 save_dlnm_lagresponse_plots <- function(fit, prep, output_dir, run_suffix,
-                                         percentiles = c(0.10, 0.25, 0.50, 0.75, 0.90)) {
+                                         percentiles = c(0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95)) {
   if (!requireNamespace("dlnm", quietly = TRUE)) {
     cat("dlnm not installed; skipping DLNM lag-response plots.\n")
     return(invisible(NULL))
