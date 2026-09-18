@@ -48,12 +48,12 @@ script_dir <- tryCatch({
   # Base script default is "2016_01" -- override so 2011-2015 rows (which now
   # carry real Houses_pos_IS/Inspected_houses, not NA) are treated as Stan
   # observations rather than discarded as pre-response lag history.
-  response_start = "2011_01",
+  response_start = "2012_01",
   # mean_ndvi dropped -- not available before 2015.
   unlagged_vars  = c("HFP_urbanization", "is_WUI", "water_containers"),
   numeric_vars   = c("total_precip", "avg_VPD", "precip_max_day_resid_on_tp", "water_containers", "HFP_urbanization")
 )
-.hierarch_run_suffix <- paste0(format(Sys.Date(), "%Y%m%d"), "_2011_2019_noNDVI")
+.hierarch_run_suffix <- paste0(format(Sys.Date(), "%Y%m%d"), "_2012_2019_noNDVI")
 
 # Same eval(parse(...), envir = globalenv()) pattern as the other run_*.R
 # wrapper scripts (e.g. run_boundary_knots_test.R) rather than plain source(),
