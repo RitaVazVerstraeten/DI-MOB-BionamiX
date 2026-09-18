@@ -395,7 +395,9 @@ sf_blocks <- if (spatial_level == "CMF") {
 } else {
   st_read(file.path(cfg$shapefile_path, "Manzanas_cleaned_05032026", "Mz_CMF_Correcto_2022026.shp"), quiet = TRUE)
 }
-# transform to meters 
+# municipality outline, for context on the risk maps below
+municipality <- st_read(file.path(cfg$shapefile_path, "Municipality", "MUNICIPIO CFGOS 3022025.shp"), quiet = TRUE)
+# transform to meters
 pts        <- suppressWarnings(st_point_on_surface(sf_blocks))
 if (st_is_longlat(pts)) pts <- st_transform(pts, 3857)
 
@@ -971,6 +973,25 @@ df$y_pred_rate_q05   <- apply(y_pred_draws_mat, 2, quantile, probs = 0.05) / df$
 df$y_pred_rate_q95   <- apply(y_pred_draws_mat, 2, quantile, probs = 0.95) / df$n_bt
 rm(y_pred_draws_mat)
 
+# Checkpoint everything the plotting section below needs, so a fresh R
+# session (e.g. after installing a package that requires a restart) can
+# jump straight to calling any save_*() plot function by hand via
+# reload_checkpoint.r, without re-reading the data, rebuilding the DLNM
+# cross-basis, or re-triggering every plot in this section as a side effect
+# of re-sourcing this whole script. The Stan fit itself is already cheap to
+# reload on its own (see the existing_csv check above) -- this covers
+# everything else that's expensive to rebuild in R.
+checkpoint_path <- file.path(run_output_dir, paste0("checkpoint_", model_spec, ".rds"))
+saveRDS(
+  list(fit = fit, prep = prep, df = df, stan_data = stan_data, cfg = cfg,
+       sf_blocks = sf_blocks, municipality = municipality, block_ids = block_ids,
+       model_spec = model_spec, run_output_dir = run_output_dir,
+       plots_output_dir = plots_output_dir, post = post),
+  checkpoint_path
+)
+cat("Checkpoint saved to:", checkpoint_path,
+    "-- reload with reload_checkpoint.r instead of re-running this script.\n")
+
 
 # =========================
 # 3) GENERATE PLOTS
@@ -1007,6 +1028,17 @@ if ("v_cmf_out" %in% model_vars) {
 if ("u_block_out" %in% model_vars) {
   cat("Generating u_block random effects plot...\n")
   save_u_block_plot(fit, plots_output_dir, model_spec)
+}
+
+cat("Generating headline infestation risk map...\n")
+save_infestation_risk_map(df, sf_blocks, cfg, plots_output_dir, model_spec, municipality = municipality)
+
+cat("Generating time-varying infestation risk GIF...\n")
+save_infestation_risk_gif(df, sf_blocks, cfg, plots_output_dir, model_spec, municipality = municipality)
+
+if ("u_block_out" %in% model_vars) {
+  cat("Generating structural risk map...\n")
+  save_structural_risk_map(fit, prep, sf_blocks, block_ids, cfg, plots_output_dir, model_spec, municipality = municipality)
 }
 
 cat("Generating unlagged variable effects forest plot...\n")
