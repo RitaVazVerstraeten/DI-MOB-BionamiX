@@ -134,9 +134,9 @@ cfg <- list(
     # precip_max_day_resid_on_tp  = list(fun = "ns", df = 3, Boundary.knots = c(-0.8650633, 1.710198)) # old: -0.8720, 1.5924
 
     # using p05 and p95
-    total_precip                = list(fun = "ns", df = 2, Boundary.knots = c(-1.011372, 1.548682)), 
-    avg_VPD                     = list(fun = 'lin'), 
-    precip_max_day_resid_on_tp  = list(fun = "ns", df = 2, Boundary.knots = c(-1.201732, 1.98497)) 
+    total_precip                = list(fun = "ns", df = 3, Boundary.knots = c(-1.011372, 1.548682)), 
+    avg_VPD                     = list(fun = 'ns', df = 2, Boundary.knots = c(-1.712824, 1.655208)),
+    precip_max_day_resid_on_tp  = list(fun = "ns", df = 3, Boundary.knots = c(-1.201732, 1.98497)) 
   ),
   # Log-spaced lag knots (nk=1 -> 3-column ns() basis, same dimensionality as the old df=3 equal-spaced default -- dlnm::crossbasis() builds the lag basis with intercept=TRUE internally, unlike a bare splines::ns() call, so ncol = nk + 1 + intercept = nk + 2, meaning nk=1 not nk=2 matches the old 3-column dimensionality here): front-loads spline flexibility toward short lags, where real curvature is expected, and leaves long lags as a single knot-free stretch so the model can't fit a non-decaying wiggle there.
   # dlnm_arglag = list(fun = "ns", knots = dlnm::logknots(max_lag, nk = 1)),
@@ -269,7 +269,7 @@ predictor_spec <- if (isTRUE(cfg$use_dlnm)) {
   paste0("lag-", paste(cfg$lag_vars, collapse = "-"),
          "_unlag-", paste(cfg$unlagged_vars, collapse = "-"))
 }
-run_suffix <- paste0(date_suffix, "_VPD_3df_RESID_2df_TP_3df_lag_3df_p05_p95_BoundaryKnots")
+run_suffix <- paste0(date_suffix, "_VPD_2df_RESID_3df_TP_3df_lag_3df_p05_p95_BoundaryKnots")
 if (exists(".hierarch_run_suffix")) run_suffix <- .hierarch_run_suffix
 
 model_output_dir  <- file.path(cfg$output_dir, predictor_spec, model_spec)
