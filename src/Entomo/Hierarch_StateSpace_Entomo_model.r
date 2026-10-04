@@ -981,16 +981,29 @@ rm(y_pred_draws_mat)
 # of re-sourcing this whole script. The Stan fit itself is already cheap to
 # reload on its own (see the existing_csv check above) -- this covers
 # everything else that's expensive to rebuild in R.
-checkpoint_path <- file.path(run_output_dir, paste0("checkpoint_", model_spec, ".rds"))
-saveRDS(
-  list(fit = fit, prep = prep, df = df, stan_data = stan_data, cfg = cfg,
-       sf_blocks = sf_blocks, municipality = municipality, block_ids = block_ids,
-       model_spec = model_spec, run_output_dir = run_output_dir,
-       plots_output_dir = plots_output_dir, post = post),
-  checkpoint_path
-)
-cat("Checkpoint saved to:", checkpoint_path,
-    "-- reload with reload_checkpoint.r instead of re-running this script.\n")
+#
+# Set cfg$keep_raw_draws = FALSE (via .hierarch_cfg_override) to skip this
+# checkpoint entirely and delete the raw per-chain draw CSVs at the end of
+# the script instead -- the checkpoint alone can run several GB for a large
+# dataset (it bakes in the full draws array, not just a reference to the
+# CSVs), and combined with the raw CSVs is by far the largest disk cost of
+# a run. Only do this if you don't need reload_checkpoint.r/hand-calling
+# save_*() plot functions later -- with keep_raw_draws = FALSE, redoing
+# anything past this point means re-sampling from scratch.
+if (!isFALSE(cfg$keep_raw_draws)) {
+  checkpoint_path <- file.path(run_output_dir, paste0("checkpoint_", model_spec, ".rds"))
+  saveRDS(
+    list(fit = fit, prep = prep, df = df, stan_data = stan_data, cfg = cfg,
+         sf_blocks = sf_blocks, municipality = municipality, block_ids = block_ids,
+         model_spec = model_spec, run_output_dir = run_output_dir,
+         plots_output_dir = plots_output_dir, post = post),
+    checkpoint_path
+  )
+  cat("Checkpoint saved to:", checkpoint_path,
+      "-- reload with reload_checkpoint.r instead of re-running this script.\n")
+} else {
+  cat("cfg$keep_raw_draws = FALSE: skipping checkpoint.rds save to save disk space.\n")
+}
 
 
 # =========================
@@ -1298,5 +1311,32 @@ if (cfg$plot_traceplots) {
       cat("Plotting interaction weight traceplots:", paste(head(wix_params, 6), collapse = ", "), "...\n")
       save_trace_chunks(wix_params, draws_wix, "traceplot_weights_ix", chunk_size = 12, w = 12, h = 8)
     }
+  }
+}
+
+# =========================
+# OPTIONAL: delete raw per-chain draw CSVs (disk-space cleanup)
+# =========================
+# Only runs when cfg$keep_raw_draws = FALSE (see the checkpoint section
+# above -- the same flag skips both). Placed at the very end of the script
+# so it runs after every fit$draws()/fit$summary() call above has already
+# extracted what it needs; the raw CSVs themselves are cmdstan's own
+# per-chain output (data = stan_data sampling call, near the top of this
+# script) and are usually the single largest disk cost of a run, especially
+# with more response months than the original 2016-2019 fits.
+# Trade-off: with this on, redoing anything past this point (new plots,
+# LOO comparisons, reload_checkpoint.r) requires re-sampling from scratch --
+# there is no raw-draws fallback left on disk.
+if (isFALSE(cfg$keep_raw_draws)) {
+  raw_chain_csv <- list.files(
+    run_output_dir,
+    pattern = paste0("^", tools::file_path_sans_ext(basename(cfg$stan_file)), "-.*\\.csv$"),
+    full.names = TRUE
+  )
+  if (length(raw_chain_csv) > 0) {
+    freed_mb <- round(sum(file.size(raw_chain_csv)) / 1e6, 1)
+    invisible(file.remove(raw_chain_csv))
+    cat(sprintf("cfg$keep_raw_draws = FALSE: deleted %d raw chain CSV(s) (%.1f MB) from %s.\n",
+                length(raw_chain_csv), freed_mb, run_output_dir))
   }
 }
