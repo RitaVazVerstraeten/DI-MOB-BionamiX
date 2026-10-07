@@ -111,7 +111,7 @@ dlnm_arglag_fixed <- list(fun = "ns", df = 3)
 # with or without its interaction); is_rainy_season/is_urban are NOT --
 # each gets added as a main effect only in the arms that also test it as an
 # interaction modifier, same convention as run_season_interaction_sweep.R.
-unlagged_base <- c("HFP_urbanization", "mean_ndvi", "is_WUI", "water_containers")
+unlagged_base <- c("HFP_urbanization", "mean_ndvi", "is_WUI", "water_containers", "is_rainy_season")
 
 # =============================================================================
 # Interaction axis definitions
@@ -154,8 +154,8 @@ make_axis <- function(axis_name, modifier_var, modifier_type = c("continuous", "
 
 axes <- list(
   make_axis("wc",     "water_containers", "continuous"),
-  make_axis("season", "is_rainy_season",  "binary", active_level = 1),
-  make_axis("urban",  "is_urban",         "binary", active_level = 1)
+  make_axis("season", "is_rainy_season",  "binary", active_level = 1)
+  # make_axis("urban",  "is_urban",         "binary", active_level = 1)
 )
 
 # =============================================================================

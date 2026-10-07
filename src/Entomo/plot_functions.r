@@ -945,36 +945,23 @@ zoomed_cmf_coord_sf <- function(sf_blocks, pad_frac = 0.08,
 #' Save Headline Infestation Risk Choropleth
 #'
 #' Model-estimated infestation risk per CMF (posterior mean of fitted_p_bt),
-#' averaged across all years present in the data, discretized into risk
-#' tiers for at-a-glance reading. Answers "where is the risk highest,
-#' according to the model."
+#' averaged across all years present in the data. Answers "where is the risk
+#' highest, according to the model." Uses the same continuous gradient
+#' legend/colour scale as save_structural_risk_map() (dlnm_diverging_pal via
+#' scale_fill_gradientn(), percent-labelled) rather than binned tiers, so the
+#' two maps read consistently side by side.
 #'
 #' @param df Data frame with columns fitted_p_bt and cfg$block_col
 #' @param sf_blocks sf object with CMF polygons (raw shapefile, any CRS)
 #' @param cfg Model configuration list (needs block_col, sf_block_col)
 #' @param output_dir Character string path to output directory
 #' @param run_suffix Character string suffix for filenames
-#' @param tier_breaks Numeric vector of tier cutoffs on the probability scale
-#'   (0-1), e.g. c(0, 0.05, 0.15, 0.30, 1) for <5%/5-15%/15-30%/>30%. Set to
-#'   NULL to use quintiles of the data instead, or leave as "auto" (default)
-#'   to auto-generate fixed-width brackets of size tier_step, stopping as
-#'   soon as they cover the data's max value -- the last bracket becomes an
-#'   open-ended "X%+" rather than continuing with empty higher brackets.
-#' @param tier_step Bracket width on the probability scale (0-1) used when
-#'   tier_breaks = "auto", e.g. 0.0025 for 0.25pp-wide brackets.
-#' @param palette One of "dlnm" (same diverging blue-to-red ramp used for the
-#'   DLNM exposure-response plots, read here low-to-high risk) or "viridis"
 #' @param municipality Optional sf object with the municipality boundary,
 #'   drawn as a black outline on top of the choropleth. NULL to omit.
 #' @return NULL (saves two PNGs: the full-extent map and a "_zoomed" version
 #'   cropped to the CMF bounding box)
 save_infestation_risk_map <- function(df, sf_blocks, cfg, output_dir, run_suffix,
-                                       tier_breaks = "auto",
-                                       tier_step = 0.0025,
-                                       palette = c("dlnm", "viridis"),
                                        municipality = NULL) {
-  palette <- match.arg(palette)
-
   risk_by_cmf <- df %>%
     dplyr::group_by(.data[[cfg$block_col]]) %>%
     dplyr::summarise(risk = mean(fitted_p_bt, na.rm = TRUE), .groups = "drop")
@@ -984,43 +971,20 @@ save_infestation_risk_map <- function(df, sf_blocks, cfg, output_dir, run_suffix
   cat("Per-CMF risk (mean fitted_p_bt across all years) summary:\n")
   print(summary(risk_by_cmf$risk))
 
-  if (identical(tier_breaks, "auto")) {
-    max_val   <- max(risk_by_cmf$risk, na.rm = TRUE)
-    last_edge <- ceiling(max_val / tier_step) * tier_step
-    tier_breaks <- c(seq(0, last_edge, by = tier_step), 1)
-    cat("Auto tier breaks (last populated edge ", last_edge * 100, "%): ",
-        paste(round(tier_breaks * 100, 4), collapse = ", "), "\n", sep = "")
-  }
-
-  if (!is.null(tier_breaks)) {
-    tier_labels <- vapply(seq_len(length(tier_breaks) - 1), function(i) {
-      lo <- tier_breaks[i] * 100; hi <- tier_breaks[i + 1] * 100
-      if (i == length(tier_breaks) - 1) sprintf(">%g%%", lo) else sprintf("%g–%g%%", lo, hi)
-    }, character(1))
-    risk_by_cmf$tier <- cut(risk_by_cmf$risk, breaks = tier_breaks, labels = tier_labels, include.lowest = TRUE)
-  } else {
-    q <- quantile(risk_by_cmf$risk, probs = seq(0, 1, 0.2), na.rm = TRUE)
-    risk_by_cmf$tier <- cut(risk_by_cmf$risk, breaks = unique(q), include.lowest = TRUE)
-  }
-
   map_df <- sf_blocks %>%
     dplyr::mutate(block_chr = as.character(.data[[cfg$sf_block_col]])) %>%
     dplyr::left_join(risk_by_cmf, by = "block_chr")
 
-  n_tiers <- nlevels(map_df$tier)
-
+  # Same continuous gradient legend/scale as save_structural_risk_map() --
+  # a smooth fill on the raw probability, not binned tiers -- so the two
+  # maps read consistently side by side.
   p <- ggplot(map_df) +
-    geom_sf(aes(fill = tier), colour = "grey40", linewidth = 0.1) +
+    geom_sf(aes(fill = risk), colour = "grey40", linewidth = 0.1) +
+    scale_fill_gradientn(colours = dlnm_diverging_pal, name = "Risk",
+                         labels = scales::percent, na.value = "grey85") +
     labs(title = "Model-estimated larval infestation risk by CMF (all-years average)") +
     theme_void() +
     theme(legend.position = "right", plot.title = element_text(size = 12, face = "bold"))
-
-  p <- if (palette == "dlnm") {
-    tier_colors <- colorRampPalette(dlnm_diverging_pal)(n_tiers)
-    p + scale_fill_manual(values = tier_colors, name = NULL, na.value = "grey85", drop = FALSE)
-  } else {
-    p + scale_fill_viridis_d(na.value = "grey85", drop = FALSE)
-  }
 
   if (!is.null(municipality)) {
     p <- p + geom_sf(data = municipality, fill = NA, colour = "black", linewidth = 0.6)
