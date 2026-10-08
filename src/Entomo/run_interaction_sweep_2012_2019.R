@@ -180,13 +180,41 @@ cat(sprintf("Interaction sweep: %d configs (1 baseline + %d axes x 2 arms)\n",
 # =============================================================================
 model_exprs <- parse(file.path(script_dir, "Hierarch_StateSpace_Entomo_model.r"))
 
-loo_list   <- list()
-waic_list  <- list()
+# Resume support: if an earlier (possibly crashed/interrupted) run of this
+# sweep already got partway through, loo_list_partial.rds/waic_list_partial.rds
+# hold the already-completed configs' loo/waic objects (saved incrementally
+# after each config below). Reload them so finished configs can be skipped --
+# keep_raw_draws = FALSE means the raw draws needed to recompute loo/waic
+# from scratch are gone once a config finishes, so this is the only way to
+# resume without redoing work. A brand-new tmux session is fine: resumability
+# lives in these files on disk, not in any shell/session state.
+loo_partial_path  <- file.path(sweep_output_dir, "loo_list_partial.rds")
+waic_partial_path <- file.path(sweep_output_dir, "waic_list_partial.rds")
+loo_list  <- if (file.exists(loo_partial_path))  readRDS(loo_partial_path)  else list()
+waic_list <- if (file.exists(waic_partial_path)) readRDS(waic_partial_path) else list()
+if (length(loo_list) > 0)
+  cat(sprintf("Resuming: found %d already-completed config(s) in loo_list_partial.rds: %s\n",
+              length(loo_list), paste(names(loo_list), collapse = ", ")))
+
 run_labels <- character(length(configs))
 
 for (i in seq_along(configs)) {
   cfg_i     <- configs[[i]]
-  run_label <- paste0(date_suffix, "_ix", cfg_i$ix_name)
+
+  # Match on the "_ix<ix_name>" suffix, not the full (date-prefixed) label --
+  # a config finished on an earlier date still counts as done today.
+  existing_key <- grep(paste0("_ix", cfg_i$ix_name, "$"), names(loo_list), value = TRUE)
+  if (length(existing_key) == 1 && existing_key %in% names(waic_list)) {
+    run_label     <- existing_key
+    run_labels[i] <- run_label
+    cat("\n", strrep("=", 70), "\n")
+    cat("CONFIG", i, "of", length(configs), ":", cfg_i$ix_name,
+        "-- already completed as", run_label, ", reusing saved LOO/WAIC\n")
+    cat(strrep("=", 70), "\n\n")
+    next
+  }
+
+  run_label     <- paste0(date_suffix, "_ix", cfg_i$ix_name)
   run_labels[i] <- run_label
 
   cat("\n", strrep("=", 70), "\n")
